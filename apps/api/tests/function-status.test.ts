@@ -186,7 +186,10 @@ describe("реестр функций и расчёт состояния", () =>
     expect(item("publication-metadata", i).state).toBe("off");
     expect(item("manual-corrections", i).state).toBe("preview");
     expect(item("market-crawl", i).state).toBe("off");
-    expect(item("object-interest-pull", i).state).toBe("off");
+    // С 27.11.2026 это рубильник в Настройках (ВКЛ по умолчанию); переменная окружения — ручка поверх.
+    expect(item("object-interest-pull", i).state).toBe("working");
+    expect(item("object-interest-pull", input({ env }, { objectInterestPullsQueueLeadEnabled: false })).state).toBe("off");
+    expect(item("object-interest-pull", input({ env: { ...env, OBJECT_INTEREST_PULLS_QUEUE_LEAD: "0" } })).state).toBe("off");
     expect(item("gemini-spare-key", i).state).toBe("off");
     expect(item("gemini-spare-key", input({ env }, { geminiSpareKeyInSettings: true })).state).toBe("working");
     // OpenAI выключен владельцем 14.11 — на странице честное «Выключено», включён — «Работает».

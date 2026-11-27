@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 789,
-  "cron": 147,
+  "cron": 148,
   "jobs": 37,
-  "conditions": 4331,
-  "untranslatedUnique": 498,
-  "untranslatedTotal": 640,
-  "partialUnique": 1145,
+  "conditions": 4349,
+  "untranslatedUnique": 500,
+  "untranslatedTotal": 642,
+  "partialUnique": 1154,
   "translatedShare": 85
  },
  "untranslated": [
@@ -27,6 +27,7 @@
   "!(\"telegramChatId\" in row)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
   "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
@@ -467,6 +468,7 @@
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
   "row.status !== status",
   "row.type in byType",
+  "row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
   "row?.factsInputHash === inputHash",
   "scheduledAt.getTime() > now.getTime()",
   "scopeAgentId && !(await contactProfileBelongsTo(req.params.id, scopeAgentId))",
@@ -67096,6 +67098,113 @@
    ]
   },
   {
+   "id": "bot-silence-watch",
+   "when": "2-59/5 * * * *",
+   "label": "bot-silence-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))"
+        },
+        {
+         "t": "поломка: «очередь тревог руководству недоступна»",
+         "k": "do",
+         "a": [
+          "все изменения разом: либо всё, либо ничего",
+          "заводит: бот silence incident",
+          "меняет: бот silence incident"
+         ],
+         "c": [
+          {
+           "t": "если нет: locked",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "поломка: «очередь тревог руководству недоступна»",
+           "k": "do",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «open»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «update» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «recover» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «close» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть разосланных тревог",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "buyer-no-call-alarm",
    "when": "0 * * * *",
    "label": "Активный покупатель с высокой оценкой без звонка два дня",
@@ -71225,6 +71334,70 @@
        ]
       }
      ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: held",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: отсутствует количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть already",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть fetched или есть held",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -74673,6 +74846,20 @@
        "a": [],
        "c": [
         {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если added больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
          "t": "если found количество — «0»",
          "k": "if",
          "a": [],
@@ -74690,7 +74877,29 @@
          "a": [],
          "c": [
           {
-           "t": "если нет: можно take itself",
+           "t": "если нет: eligible",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
+           "more": true
+          },
+          {
+           "t": "если taken tails содержит есть tail",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если ответ — «reviewer»",
            "k": "if",
            "a": [],
            "c": [],
@@ -74705,6 +74914,13 @@
           },
           {
            "t": "если ответ — «accepted_other»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть unanswered и ответ — «declined»",
            "k": "if",
            "a": [],
            "c": [],

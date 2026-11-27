@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { sendPushToAgent } from "../push.js";
 import { propertyInterestChatAgentIds } from "./ownBotConversationScope.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { ownerPushBeforeLeadOn } from "./propertyInterestNotice.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 
@@ -18,9 +19,12 @@ export async function notifyPropertyChatMessage(conversationId: string): Promise
     if (!row || row.client?.assignedAgentId || !Array.isArray(row.messages) || row.messages.length === 0) return;
     // Режим «только заявки»: пока клиент не оставил номер (карточки нет), хозяина объекта не будим (13.11.2026).
     if (!row.clientId && await leadOnlyQuietBeforeLead(row.channel)) return;
+    // Владелец 27.11.2026: «просто интересуется… номера свои не давали… отключи». Без карточки — хозяину ничего
+    // (рубильник notifyOwnerBeforeLeadEnabled, ВЫКЛ); с карточкой — сообщения идут своим путём.
+    if (!row.clientId && !await ownerPushBeforeLeadOn()) return;
     const recipients = await propertyInterestChatAgentIds(conversationId);
     await Promise.all(recipients.map(agentId => sendPushToAgent(agentId, {
-      kind: "message", title: "Новое сообщение по вашему объекту",
+      kind: "property_interest", title: "Новое сообщение по вашему объекту",
       // No contact details in a lock-screen preview; the chat applies their permissions.
       body: "Клиент написал в переписке по вашему объекту. Откройте «Чаты», чтобы ответить.",
       url: `/messages?open=${conversationId}`, tag: `property-chat-message-${conversationId}`,

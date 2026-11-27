@@ -27,6 +27,10 @@ import { describeRoleSwap, KIND_LABELS_RU } from "../../services/leads/intake.js
 import { canAutomationChangeKind } from "../kindChangePolicy.js";
 import { automationSwitchOn } from "../automationSwitches.js";
 import { notifyFeedOnly } from "../notifications.js";
+import { recentCallerAdPropertyId } from "./callAdProperty.js";
+
+/** «Я по объявлению / по рекламе» в словах звонка (рус./тадж.). */
+const CALL_AD_WORDS = /объявлени|реклам|эълон|таблиғ|таблиг/iu;
 
 /** Похожий объект попадает в подсказку руководству только с такими баллами: один балл за район — не повод. */
 const UNSURE_HINT_MIN_SCORE = 3;
@@ -247,9 +251,12 @@ export async function qualifyIncomingCall(input: {
    * дальше 20 %, с рубильником сравнивается с допуском на ошибку расшифровки, а
    * бюджет клиента — всегда мягко.
    *
-   * Путь «объект по объявлению, с которого пришёл клиент» (Client.sourceAdId)
+   * Путь «объект по объявлению, с которого пришёл клиент» по Client.sourceAdId
    * намеренно НЕ сделан (ревью 26.11, В1): sourceAdId — первое касание и не
-   * меняется, а засчитывался бы прямым указанием мимо защиты продавца.
+   * меняется, а засчитывался бы прямым указанием мимо защиты продавца. С 27.11
+   * реклама учитывается иначе: объект рекламы из СВЕЖЕЙ (сообщения за 14 дней) переписки,
+   * только покупателю и только когда расшифровка объект не назвала
+   * (lib/telephony/callAdProperty.ts, рубильник callAdObjectToOwnerEnabled).
    */
   const identifyCallObject = async () => {
     const listing = input.listingClues ?? {};
@@ -277,10 +284,23 @@ export async function qualifyIncomingCall(input: {
      * приметам совпадёт с чужим объектом в том же доме, и лид ушёл бы агенту
      * чужого продавца. Номер, адрес или ЖК — прямое указание, по нему можно.
      */
-    const identified: Awaited<ReturnType<typeof identifyProperty>> =
+    const spoken: Awaited<ReturnType<typeof identifyProperty>> =
       kind === "SELLER" && recognized.via !== "hint"
         ? { propertyId: null, via: null, candidates: [], strong: false, lead: null }
         : recognized;
+    /**
+     * РАСШИФРОВКА ОБЪЕКТ НЕ НАЗВАЛА, А КЛИЕНТ ПРИШЁЛ С РЕКЛАМЫ ОБЪЕКТА (27.11.2026, рубильник
+     * callAdObjectToOwnerEnabled, lib/telephony/callAdProperty.ts). Объект рекламы из его свежей переписки
+     * направляет заявку хозяину. Снявшего трубку перебивает, только если клиент сказал «по объявлению / рекламе».
+     * Только покупатель; названный в звонке объект сильнее рекламы.
+     */
+    const adPropertyId = !spoken.propertyId ? await recentCallerAdPropertyId(client.id, kind) : null;
+    const adProperty = adPropertyId
+      ? await prisma.property.findUnique({ where: { id: adPropertyId }, select: { shortId: true } })
+      : null;
+    const byAdFound = adProperty ? await identifyProperty({ text: String(adProperty.shortId) }) : null;
+    const byAd = !!byAdFound?.propertyId && byAdFound.propertyId === adPropertyId;
+    const identified = byAd && byAdFound ? byAdFound : spoken;
     /**
      * СИЛЬНОЕ СОВПАДЕНИЕ, ПЕРЕБИВАЮЩЕЕ СНЯВШЕГО ТРУБКУ, — ТОЛЬКО ПО ПРИМЕТАМ
      * ОБЪЯВЛЕНИЯ (ревью 26.11, В3; правило 10.10 P0-4). Пожелания покупателя
@@ -306,7 +326,7 @@ export async function qualifyIncomingCall(input: {
         : null;
     const strongByListing =
       !!listingOnly && identified.via === "description" && !!identified.propertyId && listingOnly.strong && listingOnly.propertyId === identified.propertyId;
-    return { identified, byRobot: !!byRobot?.propertyId, strongByListing, listingOnly };
+    return { identified, byRobot: !!byRobot?.propertyId, byAd, strongByListing, listingOnly };
   };
   const object = needsAgent ? await identifyCallObject() : null;
   /** Хозяева объекта разговора (узнанного или похожих) — ими разводятся похожие фамилии. */
@@ -330,8 +350,12 @@ export async function qualifyIncomingCall(input: {
     requested.status === "matched" ? await requestedAgentStillAvailable(requested.agentId) : null;
 
   if (needsAgent && object) {
-    const { identified, byRobot, strongByListing } = object;
-    const explicit = byRobot || identified.via === "hint";
+    const { identified, byRobot, byAd, strongByListing } = object;
+    const callMentionsAd = [input.data.requirementsNotes, input.data.propertyHint, input.requestedAgentText]
+      .some((text) => !!text && CALL_AD_WORDS.test(text));
+    // Реклама из переписки перебивает снявшего трубку, только если клиент в звонке сам сказал «по объявлению /
+    // по рекламе» (ревью 27.11); иначе она решает лишь звонок без ответившего (ниже, assignAgentForLead с propertyId).
+    const explicit = byRobot || (byAd ? callMentionsAd : identified.via === "hint");
     if (input.answeredByAgentId) {
       /**
        * «КТО СНЯЛ» УСТУПАЕТ «ЧЕЙ ОБЪЕКТ», ЕСЛИ ОБЪЕКТ НАЗВАН ПРЯМО (10.10.2026,
@@ -362,7 +386,7 @@ export async function qualifyIncomingCall(input: {
           agentId = byObject.agentId;
           const answerer = await prisma.agent.findUnique({ where: { id: input.answeredByAgentId }, select: { fullName: true } });
           propertyNote = [
-            identificationNote(identified, { byRobot, toOwner: true }),
+            identificationNote(identified, { byRobot, byAd, toOwner: true }),
             `Трубку снял ${answerer?.fullName ?? "другой сотрудник"}, но звонок по объекту — заявка отдана хозяину объекта`,
           ]
             .filter(Boolean)
@@ -377,7 +401,7 @@ export async function qualifyIncomingCall(input: {
       if (objectToOwner && identified.propertyId) {
         const top = identified.candidates.find((c) => c.id === identified.propertyId);
         if (top?.agentId === requestedAgentId) {
-          propertyNote = `${identificationNote(identified, { byRobot, toOwner: true }) ?? ""} — названный клиентом сотрудник и есть агент этого объекта`.replace(/^ — /, "");
+          propertyNote = `${identificationNote(identified, { byRobot, byAd, toOwner: true }) ?? ""} — названный клиентом сотрудник и есть агент этого объекта`.replace(/^ — /, "");
         }
       }
     } else {
@@ -397,6 +421,7 @@ export async function qualifyIncomingCall(input: {
       });
       propertyNote = identificationNote(identified, {
         byRobot,
+        byAd,
         toOwner: leadAssignment.reason === "own_property_explicit",
       });
       agentId = leadAssignment.agentId;
@@ -909,7 +934,7 @@ function ownersForNameCheck(found: Awaited<ReturnType<typeof identifyProperty>>)
  */
 function identificationNote(
   found: Awaited<ReturnType<typeof identifyProperty>>,
-  how: { byRobot: boolean; toOwner: boolean }
+  how: { byRobot: boolean; byAd?: boolean; toOwner: boolean }
 ): string | null {
   const describe = (c: (typeof found.candidates)[number]) =>
     `${formatPropertyCode(c.shortId)}${c.agentName ? ` (агент ${c.agentName})` : ""}` +
@@ -919,7 +944,9 @@ function identificationNote(
     if (!top) return null;
     const head = how.byRobot
       ? `Объект ${formatPropertyCode(top.shortId)}${top.agentName ? ` (агент ${top.agentName})` : ""} узнал консультант в разговоре`
-      : `Узнан объект ${describe(top)}`;
+      : how.byAd
+        ? `Клиент пришёл в переписку с рекламы объекта ${formatPropertyCode(top.shortId)}${top.agentName ? ` (агент ${top.agentName})` : ""}, в звонке другой объект не назван`
+        : `Узнан объект ${describe(top)}`;
     /**
      * УЗНАН, НО ЛИД НЕ У АГЕНТА ОБЪЕКТА — СКАЗАТЬ ПОЧЕМУ (24.09.2026). Раньше
      * запись молчала, и «узнан объект агента Y», а лид у Z, выглядело поломкой.

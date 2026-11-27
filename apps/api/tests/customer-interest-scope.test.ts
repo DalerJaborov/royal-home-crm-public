@@ -19,6 +19,8 @@ vi.mock("../src/db.js", async importOriginal => {
     property: { findFirst: vi.fn(async () => fake.property) },
     agent: { findUnique: vi.fn(async () => ({ isActive: true, role: "AGENT" })) },
     interaction: { findFirst: vi.fn(async () => null) }, notification: { findFirst: vi.fn(async () => null) },
+    // Пуш хозяину о клиенте другого агента включён здесь явно (с 27.11 по умолчанию ВЫКЛ); перенос — только по env.
+    settings: { findUnique: vi.fn(async () => ({ notifyOwnerOfOtherAgentClientEnabled: true, objectInterestPullsQueueLeadEnabled: false })) },
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
       fake.beforeTx?.(); fake.beforeTx = null;
       fake.duringTx = true;
@@ -87,10 +89,10 @@ beforeEach(() => {
   fake.timeline.mockImplementation(async () => { expect(fake.duringTx).toBe(true); fake.ops.push("timeline"); return { id: "timeline-a" }; });
   for (const send of [fake.push, fake.pushMany, fake.leadPush, fake.satellites]) send.mockImplementation(async () => { expect(fake.duringTx).toBe(false); });
   fake.autopilot.mockImplementation(() => { expect(fake.duringTx).toBe(false); });
-  fake.clientRead.mockResolvedValue({ id: "client-a", fullName: "PRIVATE-NAME-SENTINEL", assignedAgentId: "agent-a", deletedAt: null, acceptedAt: null, assignReason: "queue", lastAgentId: null });
+  fake.clientRead.mockResolvedValue({ id: "client-a", fullName: "PRIVATE-NAME-SENTINEL", assignedAgentId: "agent-a", deletedAt: null, acceptedAt: null, assignReason: "queue", lastAgentId: null, kind: "BUYER" });
   fake.nativeRead.mockImplementation(async () => ({ id: "native-a", channel: "INSTAGRAM", clientId: fake.clientId,
     propertyChatAgentId: null, propertyChatAgent: null, client: fake.clientId ? { id: fake.clientId, fullName: "PRIVATE-NAME-SENTINEL",
-      assignedAgentId: "agent-a", deletedAt: null, acceptedAt: null, assignReason: "queue", lastAgentId: null, shortId: 88 } : null }));
+      assignedAgentId: "agent-a", deletedAt: null, acceptedAt: null, assignReason: "queue", lastAgentId: null, shortId: 88, kind: "BUYER" } : null }));
   fake.change.mockImplementation(async (input) => {
     expect(fake.duringTx).toBe(true); expect(input.tx).toBeDefined(); expect(input.skipSatellites).toBe(true);
     fake.binding = "8"; fake.ownerEpoch = "4"; fake.ops.push("transfer"); return { ok: true };

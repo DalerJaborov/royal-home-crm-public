@@ -27,13 +27,13 @@ export async function createCustomerRolloutFixture(registeredCandidateId?: strin
   async function writeConfig(value: CustomerAgentRolloutConfig) {
     await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=${JSON.stringify(value)}::jsonb WHERE "id"='singleton'`;
   }
-  async function allow(surface: "dm" | "public_comment", channel: "INSTAGRAM" | "FACEBOOK", endpointScopeId: string) {
+  async function allow(surface: "dm" | "public_comment", channel: "INSTAGRAM" | "FACEBOOK" | "WHATSAPP", endpointScopeId: string) {
     const next = { ...config, allowed: [...config.allowed.filter(row => row.endpointScopeId !== endpointScopeId), { surface, channel, endpointScopeId }] };
     await writeConfig(next); config.allowed = next.allowed;
   }
   return {
     revision,
-    async allowDm(input: { peer: string; accountId: string; accountExternalId: string; channel?: "INSTAGRAM" | "FACEBOOK" }) {
+    async allowDm(input: { peer: string; accountId: string; accountExternalId: string; channel?: "INSTAGRAM" | "FACEBOOK" | "WHATSAPP" }) {
       const channel = input.channel ?? "INSTAGRAM";
       const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel, subscriberId: input.peer,
         accountId: input.accountId, accountExternalId: input.accountExternalId }));
