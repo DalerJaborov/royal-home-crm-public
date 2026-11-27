@@ -4624,6 +4624,27 @@ model MessengerAccount {
   @@index([channel, enabled])
 }
 
+/// НАШИ НОМЕРА WHATSAPP: phone_number_id у Meta → сам номер цифрами (27.11.2026).
+///
+/// Зачем: бот не должен отвечать НАШЕМУ ЖЕ номеру. Пока номер был один, «свой» узнавался
+/// по получателю в самом сообщении (metadata.display_phone_number). С вторым номером
+/// («Арван», строка MessengerAccount) нужен и номер ДРУГОГО нашего аккаунта — а его
+/// нигде не было, и ядро держало ВСЕ сообщения основного номера без ответа
+/// (own_phone_identity_unavailable, 18 сообщений 26.11). Одна дверь — lib/whatsappOwnNumbers.ts.
+///
+/// Заполняется само: из подписанных вебхуков (metadata каждого события номера), при
+/// подключении номера и, если номера ещё нет, одним запросом к Meta. Руками не ведётся.
+model WhatsappOwnNumber {
+  /// phone_number_id — тот же, что Settings.metaWaPhoneId или MessengerAccount.externalId.
+  phoneNumberId String   @id
+  /// Номер только цифрами, с кодом страны: 992877914444.
+  digits        String
+  /// Откуда узнали: webhook | connect | graph.
+  source        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())

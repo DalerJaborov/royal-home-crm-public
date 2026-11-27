@@ -12,6 +12,7 @@ import { decryptCustomerFinalOrigin, encryptCustomerFinalOrigin, type CustomerFi
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { classifyCustomerPendingFrame, readRecoveryOwnIdentities, type CustomerPendingFrameClassification } from "./customerIngressClassification.js";
+import { rememberWhatsappOwnNumber } from "./whatsappOwnNumbers.js";
 import { readRecoveryInstagramCredential, readRecoveryInstagramUsername } from "./customerInstagramSenderRead.js";
 import { decryptCustomerSenderObservation, encryptCustomerSenderObservation, type CustomerSenderObservationContext } from "./customerSenderObservation.js";
 import { lockCustomerNative } from "./customerNativeLock.js";
@@ -484,6 +485,18 @@ async function observePendingInstagramSender(envelope: RecoveredCustomerPendingE
   }, { maxWait: 5000, timeout: 10000 });
 }
 
+/** The attested recipient pair of THIS frame (signed metadata) plus a Meta read of the numbers still unknown. Never throws. */
+async function learnWhatsappOwnNumbersForPending(payload: PendingEvidence["payload"]): Promise<void> {
+  try {
+    const recipient = payload.observations.classifier?.recipientPhoneDigits;
+    if (payload.accountExternalId && recipient) await rememberWhatsappOwnNumber(payload.accountExternalId, recipient, "webhook");
+  } catch { /* the Meta read below may still fill the registry */ }
+  try {
+    // Loaded only here: the Meta request module is not needed by any other ingress path.
+    await (await import("./whatsappOwnNumberLookup.js")).fetchMissingWhatsappOwnNumbers();
+  } catch { /* never throws; the re-check below reads the registry as it is */ }
+}
+
 export type ClassifiedRecoveredCustomerInput =
   | { status: "classified"; input: AuthenticatedCustomerInput }
   | Exclude<CustomerPendingFrameClassification, { status: "eligible" }>
@@ -500,6 +513,16 @@ export async function classifyRecoveredCustomerPendingInput(envelope: RecoveredC
       const fresh = await currentPendingEvidence(envelope, prisma);
       if (!sender || !fresh) return { status: "held", reason: "sender_read_unavailable" };
       classification = await classifyCustomerPendingFrame(prisma, fresh.payload, fresh.verification, sender);
+    }
+    if (classification.status === "held" && classification.reason === "own_phone_identity_unavailable" && evidence.payload.channel === "WHATSAPP") {
+      // Another of our numbers is not yet known in digits (lib/whatsappOwnNumbers.ts). Same shape as the Instagram sender
+      // read above: no locks held across the bounded real GET, then the ACTUAL classifier again on fresh evidence.
+      // Re-check ALWAYS after the attempt, not only when THIS process wrote something: an Arvan webhook or the cron
+      // guard may have stored the number at the same moment (our lookup then returns 0) — skipping would hold for good.
+      await learnWhatsappOwnNumbersForPending(evidence.payload);
+      const fresh = await currentPendingEvidence(envelope, prisma);
+      if (!fresh) return { status: "held", reason: "pending_unavailable" };
+      classification = await classifyCustomerPendingFrame(prisma, fresh.payload, fresh.verification);
     }
     if (classification.status !== "eligible") return classification;
     const { payload, verification: p } = evidence;

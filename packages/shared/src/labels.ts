@@ -103,8 +103,10 @@ export const CLIENT_STATUS_LABELS: Record<ClientStatus, string> = {
 
 /** Подписи для того, чем управляет сам агент (см. WorkStatus в enums.ts). */
 export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
-  ACTIVE: "Активный",
-  INACTIVE: "Неактивный",
+  // Статусов «Активный/Неактивный» в CRM нет с 16.11.2026 (владелец 27.11: «у нас нет
+  // больше неактивных»). Подписи остались только для старых записей истории.
+  ACTIVE: "В работе",
+  INACTIVE: "Не в работе",
 };
 
 export const INACTIVE_REASON_LABELS: Record<InactiveReason, string> = {

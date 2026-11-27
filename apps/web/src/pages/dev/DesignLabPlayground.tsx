@@ -87,7 +87,7 @@ const FILTERS = [
 
 const TABS = [
   { id: "work", label: "В работе", count: 6 },
-  { id: "idle", label: "Неактивные", count: 2 },
+  { id: "idle", label: "Архив", count: 2 },
   { id: "lost", label: "Потерянные", count: 1 },
 ] as const;
 

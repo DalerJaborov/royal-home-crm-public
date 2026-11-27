@@ -6,6 +6,7 @@ import { logAgentAudit } from "./audit.js";
 import { describeError } from "./describeError.js";
 import { metaGraphGet } from "./metaEternalTokens.js";
 import { logSystemError } from "./systemError.js";
+import { rememberWhatsappOwnNumber } from "./whatsappOwnNumbers.js";
 
 /**
  * НОМЕРА WHATSAPP BUSINESS ПОСЛЕ ВХОДА ЧЕРЕЗ FACEBOOK — ОДНА ДВЕРЬ (13.11.2026, пачка 2).
@@ -252,6 +253,9 @@ export async function connectWhatsappNumber(input: WhatsappConnectInput): Promis
       ...(existing ? {} : { enabled: true }),
     });
     resetAccountsCache();
+    // Наш номер цифрами — сразу, а не с первого сообщения (lib/whatsappOwnNumbers.ts): без него ядро держит без
+    // ответа клиентов ДРУГОГО нашего номера. Сбой записи подключение не отменяет: номер узнается из вебхука.
+    await rememberWhatsappOwnNumber(number.id, number.phone, "connect", { trusted: true }).catch(() => false);
     logAgentAudit(input.agentId, "SETTINGS_UPDATE", "MessengerAccount", accountId, {
       channel: "WHATSAPP",
       phoneNumberId: number.id,
