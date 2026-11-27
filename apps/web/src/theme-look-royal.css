@@ -1185,7 +1185,7 @@
 
 /* ПК: поле поиска «Найти что угодно» с подсказкой Ctrl K, справа колокол, «+», аватар. */
 @media (min-width: 820px) {
-  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-existing-topbar { flex: 1 1 auto; min-width: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-existing-topbar { flex: 1 1 auto; grid-column: 1 / -1; justify-self: stretch; min-width: 0; }
   :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] { width: 100%; }
   :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] { flex-wrap: nowrap; justify-content: flex-end; gap: 12px; }
   :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-tools { margin-left: 0; }

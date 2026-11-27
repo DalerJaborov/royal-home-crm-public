@@ -99,7 +99,7 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
           ))}
         </div>}
         {overdue && <p className="ry-obj-overdue" data-tone={pillTone(tone === "crit" ? "overdue" : "today")}>
-          <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
+          <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>{" "}
           <span>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</span>
         </p>}
         <div className="ry-obj-foot">
