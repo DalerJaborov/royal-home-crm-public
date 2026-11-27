@@ -45,6 +45,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "clientCardRobotRowsEnabled",
   "shabnamGroupLiveEnabled",
   "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
@@ -80,6 +81,8 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "notifyOwnerOfOtherAgentClientEnabled",
   // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали… отключи».
   "notifyOwnerBeforeLeadEnabled",
+  // Владелец 27.11.2026: «удали это» — строки робота в карточке клиента спрятаны. Колонка `DEFAULT false`.
+  "clientCardRobotRowsEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -282,6 +285,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "В карточке клиента (в меню «Ещё» и под кнопками на телефоне) есть кнопка «Записать результат»: можно вручную записать, чем закончился разговор или показ, в том числе задним числом.",
     off: "Кнопки «Записать результат» в карточке нет. Итог звонка пишет ИИ, показ назначается кнопкой «Назначить показ».",
   },
+  // Владелец 27.11.2026 (скриншот карточки): «удали это, я вроде бы просил, он висит все еще».
+  clientCardRobotRowsEnabled: {
+    title: "Строки робота в карточке клиента",
+    on: "В меню «Ещё» карточки клиента есть «Звонок роботом» (робот сам набирает клиента, только руководителю) и переключатель «Не звонить роботом». Видны, только когда живой голос включён.",
+    off: "Этих строк в карточке нет. Отметки «не звонить», уже поставленные клиентам, продолжают действовать; опрос после показа, проверка продавца и приглашения звонят по своим правилам.",
+  },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
@@ -319,7 +328,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled", "clientCardRobotRowsEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

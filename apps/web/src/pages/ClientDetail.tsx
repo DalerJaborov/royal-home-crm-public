@@ -402,7 +402,10 @@ function ClientDetailCard() {
    */
   const { data: settings } = useSettings();
   // «Не звонить роботом» (П3, 11.11.2026): читаем, только когда робот вообще включён.
-  const robotStop = useRobotCallStop(client?.id, !!settings?.liveVoiceEnabled);
+  // Строки робота в карточке — за рубильником clientCardRobotRowsEnabled (владелец 27.11.2026: «удали это»,
+  // по умолчанию ВЫКЛ). Прячется только интерфейс: поставленные отметки продолжают действовать на сервере.
+  const robotRowsOn = settings?.clientCardRobotRowsEnabled === true && !!settings?.liveVoiceEnabled;
+  const robotStop = useRobotCallStop(client?.id, robotRowsOn);
   const setRobotStop = useSetRobotCallStop(client?.id ?? "");
   const robotStopError = setRobotStop.error instanceof Error ? setRobotStop.error.message : null;
   const leadCallMinSeconds = settings?.leadCallMinSeconds ?? 30;
@@ -1008,7 +1011,7 @@ function ClientDetailCard() {
    * решает сервер и присылает причину словами — её показывает шторка.
    */
   // Только руководителю и админу (владелец 29.09.2026); сервер проверяет то же.
-  if (isSupervisor && !locked && settings?.liveVoiceEnabled) {
+  if (isSupervisor && !locked && robotRowsOn) {
     extraItems.push({
       key: "live-voice",
       label: "Звонок роботом",
@@ -1022,7 +1025,7 @@ function ClientDetailCard() {
    * Робот не наберёт этот номер ни по какому поводу (опрос, проверка продавца, кнопка
    * выше). Просьбу самого клиента снимает только руководитель — тогда строка погашена.
    */
-  if (!locked && settings?.liveVoiceEnabled && robotStop.data) {
+  if (!locked && robotRowsOn && robotStop.data) {
     const stop = robotStop.data;
     const clientWhy = robotCallClientReasonsRu(stop.clientReasons);
     // Обе причины видны сразу: отметка сотрудника и просьба самого клиента (ревью П3).
