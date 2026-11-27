@@ -95,6 +95,7 @@ import {
 } from "./api.js";
 import { isOwnerChat } from "./ownerChat.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import { currentMontajerTexts } from "../lib/montajerTexts.js";
 import { tryHandleDealReviewReply } from "../lib/dealReviewIntake.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
@@ -586,7 +587,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
    * просто отвечаем одной понятной строкой, ничего не сохраняя.
    */
   if (msg.photo?.length) {
-    await sendToMontajer(chatId, "Обложки теперь делаем сами — присылать не нужно, просто пришлите готовый ролик.", {
+    await sendToMontajer(chatId, (await currentMontajerTexts()).reply("coversNotNeeded"), {
       copy: false,
     }).catch(() => {});
     return true;
@@ -598,7 +599,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   if (msg.video_note) {
     await sendToMontajer(
       chatId,
-      "Кружок не подходит — пришлите ролик ФАЙЛОМ (скрепка → Файл), чтобы Telegram его не пережал.",
+      (await currentMontajerTexts()).reply("videoNoteRefused"),
       { copy: false }
     ).catch(() => {});
     return true;
@@ -611,7 +612,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   // именно пришло и что мы ждём, а не статус очереди (23.09.2026, находка B1).
   if (!video && (msg.voice || msg.audio || msg.sticker || msg.animation)) {
     const label = msg.voice ? "голосовое" : msg.audio ? "аудиофайл" : msg.sticker ? "стикер" : "гиф-анимацию";
-    await sendToMontajer(chatId, `Пришло ${label}, а мы ждём готовый ролик — пришлите его ФАЙЛОМ (скрепка → Файл).`, {
+    await sendToMontajer(chatId, (await currentMontajerTexts()).reply("otherAttachment", { label }), {
       copy: false,
     }).catch(() => {});
     return true;
@@ -621,7 +622,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     // Чат привязан к сотруднику, но монтажёра сейчас назначают ОДНОГО — чужая
     // старая привязка не должна суметь забрать чужую очередь передачи.
     if (!(await isCurrentMontajer(agent.id))) {
-      await sendToMontajer(chatId, "Этот чат сейчас не назначен монтажёром — передавать ролик некому.", {
+      await sendToMontajer(chatId, (await currentMontajerTexts()).reply("notAssignedForward"), {
         copy: false,
       }).catch(() => {});
       return true;

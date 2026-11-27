@@ -181,6 +181,9 @@ afterAll(async () => {
   await prisma.district.deleteMany({ where: { id: districtId } });
 });
 
+const REPLY_KEYS = ["handoffDisabled", "albumFirstOnly", "publishedNamed", "published", "reopenFailed", "downloadFailed", "saveFailed", "voicelessDownloadFailed",
+  "voicelessSaveFailed", "voicelessSaved", "voicelessWaiting", "questionStale", "questionStaleWithNumber", "coversNotNeeded", "videoNoteRefused", "otherAttachment", "notAssignedForward"] as const;
+
 /** Все короткие тексты с образцовыми данными: сторож тире и «ОБ-» проходит по каждому. */
 function allShortSamples(): string[] {
   const t = SHORT_MONTAJER_TEXTS;
@@ -210,6 +213,8 @@ function allShortSamples(): string[] {
     t.whoseClip({ holder: 235, skipped: [230, 231] }).text,
     t.notWaiting({ declared: 230, exists: true, holder: 235, withButton: true }).text,
     t.notWaiting({ declared: 230, exists: false, holder: null, withButton: false }).text,
+    ...REPLY_KEYS.map((k) => t.reply(k, { shortId: 235, filename: "IMG_1.mov", inWork: " Сейчас у вас №230.", label: "стикер" })),
+    ...(["later", "preparing", "awaitingApproval"] as const).map((n) => t.remakeBody({ ...body, narration: n, shortId: 235, reasonLabel: "Другое", voiceChanges: false, comment: null, diff: null })),
   ];
   return out.filter((s): s is string => !!s);
 }
@@ -224,6 +229,35 @@ describe("тексты монтажёру: сторож короткого ви�
       expect(text, text).not.toMatch(/ролик[ау]? №\d/);
       expect(text, text).not.toMatch(/придет|дошлем/);
     }
+  });
+
+  it("сторож на исходники: ни в одном вызове sendToMontajer (приём файла, вложения бота) нет строки с тире", async () => {
+    const fsp = await import("node:fs/promises");
+    const pathMod = await import("node:path");
+    for (const rel of ["../src/telegram/montajerReceive.ts", "../src/telegram/bot.ts"]) {
+      const src = await fsp.readFile(pathMod.resolve(import.meta.dirname, rel), "utf8");
+      for (const m of src.matchAll(/sendToMontajer\(([\s\S]*?)\{\s*copy/g)) {
+        expect(m[1], `${rel}: ${m[1]}`).not.toMatch(/"[^"\n]*[—–][^"\n]*"|`[^`\n]*[—–][^`\n]*`/);
+      }
+    }
+  });
+
+  it("тире-разделитель заменяется, числовой диапазон остаётся диапазоном", () => {
+    const t = SHORT_MONTAJER_TEXTS;
+    expect(t.handoffCancelled(235, "готов — ролик загрузили")).toBe("Объект №235 готов: ролик загрузили. Монтировать не нужно, ролик присылать не надо.");
+    expect(t.factsChanged(235, "", ["Площадь: было 50–60 м², стало 61 м²"])).toContain("50-60");
+  });
+
+  it("перемонтаж: строка про голос остаётся, пока он не дошёл (later, preparing, awaitingApproval), и нет, когда голос идёт следом", () => {
+    const base = { facts: "Объект №235\nЭтаж: 4", queueLine: "", silent: [], total: 1, voiceHint: "", shortId: 235, reasonLabel: "Другое", voiceChanges: false, comment: null, diff: null };
+    for (const n of ["later", "preparing", "awaitingApproval"] as const) expect(SHORT_MONTAJER_TEXTS.remakeBody({ ...base, narration: n })).toContain("🎙 Голос");
+    expect(SHORT_MONTAJER_TEXTS.remakeBody({ ...base, narration: "follows" })).not.toContain("🎙");
+  });
+
+  it("рубильник ВЫКЛ: ответы бота на приём файла прежние слово в слово", () => {
+    expect(LEGACY_MONTAJER_TEXTS.reply("coversNotNeeded")).toBe("Обложки теперь делаем сами — присылать не нужно, просто пришлите готовый ролик.");
+    expect(LEGACY_MONTAJER_TEXTS.reply("voicelessWaiting", { shortId: 7 })).toBe("Жду ролик №7 без голоса: пришлите его файлом в течение часа.");
+    expect(LEGACY_MONTAJER_TEXTS.reply("questionStale")).toBe("Этот вопрос уже устарел — пришлите файл ещё раз.");
   });
 
   it("сторож ловит поломку: прежние тексты в него не проходят", () => {
@@ -267,7 +301,7 @@ describe("передача файлов монтажёру", () => {
     expect(first).not.toContain("Дальше в очереди");
     expect(first).toContain("⚠ Без звука: видео 2. Звук наложите при монтаже.");
     expect(first.match(new RegExp(`№${property.shortId}`, "g"))).toHaveLength(1);
-    expect(second).toBe(`Объект №${property.shortId} · 🎬 видео 2 из 2 · <1 МБ, ⚠ без звука`);
+    expect(second).toBe(`Объект №${property.shortId} · 🎬 видео 2 из 2 · <1 МБ`);
     const summary = sendMessageWithButtons.mock.calls.find((c) => c[0] === MONTAJER_CHAT);
     expect(summary?.[1]).toBe(`Объект №${property.shortId}: 2 видео отправлено.`);
     expect(JSON.stringify(summary?.[2])).toContain(`mj:sk:${property.shortId}`);
@@ -291,7 +325,7 @@ describe("передача файлов монтажёру", () => {
     expect(JSON.stringify(call[6])).toContain(`mj:sk:${property.shortId}`);
     const observerFile = sendDocument.mock.calls.find((c) => c[0] === OBSERVER_CHAT) ?? sendDocumentFile.mock.calls.find((c) => c[0] === OBSERVER_CHAT);
     expect(observerFile).toBeDefined();
-    expect(observerFile!.length).toBeLessThan(5);
+    expect(observerFile!.at(-1)).toBeUndefined();
     const deliveredAt = (await prisma.property.findUniqueOrThrow({ where: { id: property.id }, select: { videoHandoffDeliveredAt: true } })).videoHandoffDeliveredAt;
     expect(deliveredAt).not.toBeNull();
   });
@@ -355,6 +389,31 @@ describe("голос: задерживается и «Без озвучки»", 
     expect(textsTo(MONTAJER_CHAT)).toEqual([]);
   });
 
+  it("«голос задерживается» не дошёл (Telegram отказал): метка снимается, следующий обход пробует снова, а строка про задержку остаётся в задании", async () => {
+    const property = await seedProperty("задержка-сбой");
+    await seat(property.id);
+    const version = await prisma.propertyNarrationVersion.create({
+      data: { propertyId: property.id, revision: 1, script: "Текст.", factsSnapshot: {}, factsHash: "h", voiceId: "v", modelId: "m", status: "DRAFT",
+        createdById: adminId, requestKey: randomUUID(), source: "AUTO", errorCode: NARRATION_QUOTA_EXCEEDED, generationStartedAt: new Date() },
+    });
+    sendMessage.mockRejectedValueOnce(new Error("Telegram: Bad Gateway"));
+    const first = await runNarrationAutoFlow({ now: new Date() });
+    expect(first.editorDelay).toBe(0);
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: version.id } })).editorDelayNotifiedAt).toBeNull();
+    const second = await runNarrationAutoFlow({ now: new Date() });
+    expect(second.editorDelay).toBe(1);
+    expect((await prisma.propertyNarrationVersion.findUniqueOrThrow({ where: { id: version.id } })).editorDelayNotifiedAt).not.toBeNull();
+  });
+
+  it("единственный файл без звука: «без звука» сказано один раз", async () => {
+    const property = await seedProperty("один-без-звука");
+    await addRawVideo(property.id, { hasAudio: false });
+    await seat(property.id);
+    await dispatchToEditor(property.id, montajerId);
+    const head = String(sendDocumentFile.mock.calls.find((c) => c[0] === MONTAJER_CHAT)![3]);
+    expect(head.match(/без звука/gi)).toHaveLength(1);
+  });
+
   it("агент выбрал «Без озвучки», пока ролик у монтажёра — короткая строка, наблюдателю копия; ВЫКЛ — прежняя", async () => {
     const property = await seedProperty("без-озвучки");
     await seat(property.id);
@@ -413,7 +472,7 @@ describe("приём файла от монтажёра", () => {
   it("«Жду ролик №N без голоса» — ответ на кнопку «Пришлю без голоса»", async () => {
     const property = await seedProperty("жду-без-голоса");
     await handleVoicelessCopyCallback(MONTAJER_CHAT, montajerId, `mj:nv:${property.shortId}`);
-    expect(textsTo(MONTAJER_CHAT)).toContain(`Жду ролик №${property.shortId} без голоса: пришлите его файлом в течение часа.`);
+    expect(textsTo(MONTAJER_CHAT)).toContain(`Объект №${property.shortId}: жду ролик без голоса. Пришлите его файлом в течение часа.`);
     expect(textsTo(OBSERVER_CHAT)).toEqual([]);
   });
 
@@ -427,7 +486,7 @@ describe("приём файла от монтажёра", () => {
     await handleMontajerVideo(videoInput(`${holder.shortId}_3.mp4`, { albumGroupId: group }));
 
     const notes = textsTo(MONTAJER_CHAT).filter((t) => t.startsWith("Из альбома взят только первый файл"));
-    expect(notes).toEqual([`Из альбома взят только первый файл (${holder.shortId}.mp4). Нужен другой — пришлите его отдельным сообщением.`]);
+    expect(notes).toEqual([`Из альбома взят только первый файл (${holder.shortId}.mp4). Нужен другой? Пришлите его отдельным сообщением.`]);
   });
 });
 

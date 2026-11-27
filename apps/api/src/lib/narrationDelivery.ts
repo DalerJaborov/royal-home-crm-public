@@ -9,7 +9,7 @@ import { NARRATION_PRICE_NOT_IN_TJS_TEXT, narrationFactsCurrent, narrationHash }
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS, TelegramApiError } from "../telegram/api.js";
-import { VOICELESS_COPY_HINT, voicelessCopyHint } from "./narrationMontajerNote.js";
+import { VOICELESS_COPY_HINT, VOICELESS_COPY_HINT_BEFORE_28_11, voicelessCopyHint } from "./narrationMontajerNote.js";
 import { currentMontajerTexts } from "./montajerTexts.js";
 import { logSystemError } from "./systemError.js";
 import { montageCopyNote, sendMontageCopies } from "./montageObservers.js";
@@ -47,7 +47,7 @@ function upgradeLegacyScript(files: readonly PlanFile[]): PlanFile[] {
   const audioId = script.id.replace(/-script$/, "");
   const audio = files.find((f) => f.id === audioId);
   if (!audio) return files.map((f) => (f === script ? { ...f, storageKey: NARRATION_TEXT_MESSAGE, filename: "" } : f));
-  const voice = voiceFilesWithText({ ...audio, caption: audio.caption.replace(` ${VOICELESS_COPY_HINT}`, "") }, script.caption, script.id);
+  const voice = voiceFilesWithText({ ...audio, caption: audio.caption.replace(` ${VOICELESS_COPY_HINT}`, "").replace(` ${VOICELESS_COPY_HINT_BEFORE_28_11}`, "") }, script.caption, script.id);
   return files.flatMap((f) => (f === audio ? voice : f === script ? [] : [f]));
 }
 /**

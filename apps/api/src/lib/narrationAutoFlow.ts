@@ -1198,11 +1198,19 @@ async function notifyEditorNarrationDelayed(now: Date): Promise<number> {
   if (!latest || !["DRAFT", "GENERATING"].includes(latest.status) || latest.editorDelayNotifiedAt) return 0;
   const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id, editorDelayNotifiedAt: null }, data: { editorDelayNotifiedAt: now } });
   if (!claimed.count) return 0;
+  // Метка «монтажёру написано» держится, только если сообщение правда ушло: иначе из задания пропала бы строка
+  // про задержку, а само сообщение не дошло (ревью 28.11.2026). Нет адресата или отправка упала — метку снимаем.
+  const release = () => prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id, editorDelayNotifiedAt: now }, data: { editorDelayNotifiedAt: null } }).catch(() => {});
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
   const editor = settings?.videoMontajerAgentId ? await prisma.agent.findUnique({ where: { id: settings.videoMontajerAgentId }, select: { telegramChatId: true, isActive: true } }) : null;
-  if (!editor?.isActive || !editor.telegramChatId) return 0;
-  await sendToMontajer(editor.telegramChatId, (await currentMontajerTexts()).narrationDelayed(holder.shortId), { copy: false })
-    .catch((err) => logSystemError("video-handoff", `Монтажёру «озвучка задерживается» не ушло: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-editor-delay" }));
+  if (!editor?.isActive || !editor.telegramChatId) { await release(); return 0; }
+  try {
+    await sendToMontajer(editor.telegramChatId, (await currentMontajerTexts()).narrationDelayed(holder.shortId), { copy: false });
+  } catch (err) {
+    await release();
+    void logSystemError("video-handoff", `Монтажёру «озвучка задерживается» не ушло: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-editor-delay" });
+    return 0;
+  }
   return 1;
 }
 

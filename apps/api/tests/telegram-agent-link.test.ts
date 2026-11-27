@@ -443,7 +443,7 @@ describe("Приём готового ролика в привязанном ч�
     });
 
     expect(resolveTelegramFileMaterialization).not.toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("Обложки теперь делаем сами"));
+    expect(sendMessage).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("Обложки делаем сами"));
   });
 
   /**

@@ -1661,8 +1661,7 @@ async function deliverSourceVideos(
       // копии наблюдателю сразу вслед за настоящей отправкой.
       if (video.telegramFileId) {
         try {
-          if (buttons) await sendDocument(chatId, video.telegramFileId, head, buttons);
-          else await sendDocument(chatId, video.telegramFileId, head);
+          await sendDocument(chatId, video.telegramFileId, head, buttons);
           void prisma.propertyVideo
             .update({ where: { id: video.id }, data: { telegramDeliveredAt: new Date() } })
             .catch(() => {});
@@ -1680,9 +1679,7 @@ async function deliverSourceVideos(
       // Передаём путь: локальный Bot API загрузит файл сам, без multipart в CRM.
       try {
         const fileName = montajerFileName(property.shortId, index, total, video.filename);
-        const sent = buttons
-          ? await sendDocumentFile(chatId, { path: filePath }, fileName, head, sendTimeoutForBytes(stat.size), false, buttons)
-          : await sendDocumentFile(chatId, { path: filePath }, fileName, head, sendTimeoutForBytes(stat.size));
+        const sent = await sendDocumentFile(chatId, { path: filePath }, fileName, head, sendTimeoutForBytes(stat.size), false, buttons);
         // file_id — на будущее: следующая копия (наблюдателю), следующий круг
         // (сторож досылки, ручное «файлы») пойдут этой строкой, а не заново
         // потоком с диска. Мутация того же элемента посылки — копия наблюдателю

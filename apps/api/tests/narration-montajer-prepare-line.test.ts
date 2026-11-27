@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 process.env.ELEVENLABS_API_KEY = "test-key-not-real";
 const { prisma } = await import("../src/db.js");
 const { narrationLineForMontajer } = await import("../src/lib/narrationMontajerNote.js");
+const { LEGACY_MONTAJER_TEXTS } = await import("../src/lib/montajerTexts.js");
 const { refreshNarrationDrafts, backfillMontageQueue } = await import("../src/lib/narrationAutoFlow.js");
 const { crmWillPrepareFirstNarration, narrationPlannerOpen } = await import("../src/lib/narrationPlan.js");
 const { loadNarrationConfiguration } = await import("../src/lib/narrationGeneration.js");
@@ -19,7 +20,7 @@ const runId = Date.now();
 const DAY = 86_400_000;
 const TEMPLATE = { id: "ru-line-1", name: "Тест", lang: "ru" as const, text: "В продаже {вид}. Площадь {площадь} метров. Цена {цена}." };
 const CONFIG = { modelId: "eleven_v4", voices: [{ id: "voiceA", name: "А", gender: "female" as const }], templates: [TEMPLATE], autoGenerate: true };
-const PREPARES = "Озвучка готовится";
+const PREPARES = "Голос готовится";
 const modeBefore = process.env.CRM_NARRATION_EXECUTION_MODE;
 let districtId: string, agentId: string;
 let configBefore: unknown = null;
@@ -103,6 +104,7 @@ describe("строка «Озвучка готовится» сверена с �
     expect(await narrationLineForMontajer(wizard.id)).toBeNull();
     await setConfig();
     expect(await narrationLineForMontajer(wizard.id)).toContain(PREPARES);
+    expect(await narrationLineForMontajer(wizard.id, LEGACY_MONTAJER_TEXTS)).toContain("Озвучка готовится");
     process.env.CRM_NARRATION_EXECUTION_MODE = "PREVIEW";
     try { expect(await narrationLineForMontajer(wizard.id)).toBeNull(); } finally { process.env.CRM_NARRATION_EXECUTION_MODE = "LIVE"; }
     const { config } = await loadNarrationConfiguration();
@@ -110,7 +112,8 @@ describe("строка «Озвучка готовится» сверена с �
     expect(await crmWillPrepareFirstNarration(wizard.id, config, null)).toBe(false);
     expect(await crmWillPrepareFirstNarration(wizard.id, config, "k")).toBe(true);
     const off = await seed({ createdInCrmWizard: true, narrationOff: true });
-    expect(await narrationLineForMontajer(off.id)).toContain("Без озвучки");
+    expect(await narrationLineForMontajer(off.id)).toContain("Голос в ролик не нужен");
+    expect(await narrationLineForMontajer(off.id, LEGACY_MONTAJER_TEXTS)).toContain("Без озвучки");
   });
   it("у объекта уже есть версия — прежние строки, предикат не вмешивается", async () => {
     const p = await seed({ createdInCrmWizard: true });

@@ -83,6 +83,35 @@ export interface MontajerTexts {
   handedOver(shortId: number): string;
   whoseClip(input: { holder: number | null; skipped: number[] }): { text: string; buttonLabel: (n: number) => string; neitherLabel: string };
   notWaiting(input: { declared: number; exists: boolean; holder: number | null; withButton: boolean }): { text: string; buttonLabel: (n: number) => string };
+  /** Короткие ответы бота на приём файла и на вложения не того вида (telegram/montajerReceive.ts, telegram/bot.ts). */
+  reply(key: MontajerReplyKey, vars?: MontajerReplyVars): string;
+}
+
+export type MontajerReplyKey =
+  | "handoffDisabled"
+  | "albumFirstOnly"
+  | "publishedNamed"
+  | "published"
+  | "reopenFailed"
+  | "downloadFailed"
+  | "saveFailed"
+  | "voicelessDownloadFailed"
+  | "voicelessSaveFailed"
+  | "voicelessSaved"
+  | "voicelessWaiting"
+  | "questionStale"
+  | "questionStaleWithNumber"
+  | "coversNotNeeded"
+  | "videoNoteRefused"
+  | "otherAttachment"
+  | "notAssignedForward";
+
+export interface MontajerReplyVars {
+  shortId?: number;
+  filename?: string;
+  /** « Сейчас у вас в работе №N.» или "" */
+  inWork?: string;
+  label?: string;
 }
 
 /** «из 1 файла», «из 15 файлов», «из 21 файла» — родительный после «из». */
@@ -103,7 +132,8 @@ function formatDuration(sec: number): string {
 
 /** Длинное тире из причин в чужих модулях («готов — ролик загрузили из CRM») — в коротком тексте двоеточием. */
 function withoutDash(text: string): string {
-  return text.replace(/\s*[—–]\s*/g, ": ");
+  // Только тире-разделитель с пробелами; диапазон «50–60» не портим, пишем «50-60» (ревью 28.11.2026).
+  return text.replace(/(\d)[—–](\d)/g, "$1-$2").replace(/\s+[—–]\s+/g, ": ");
 }
 
 const LEGACY_NARRATION_LINES: Record<MontajerNarrationNote, (hint: string) => string> = {
@@ -205,6 +235,27 @@ export const LEGACY_MONTAJER_TEXTS: MontajerTexts = {
       buttonLabel: (n) => `Это №${n}`,
     };
   },
+  reply: (key, v = {}) => {
+    switch (key) {
+      case "handoffDisabled": return "Передача роликов через бота сейчас выключена в Настройках CRM — файл не принят. Загрузите готовый ролик через карточку объекта в CRM или спросите администратора.";
+      case "albumFirstOnly": return `Из альбома взят только первый файл (${v.filename}). Нужен другой — пришлите его отдельным сообщением.`;
+      case "publishedNamed": return `Объект №${v.shortId} уже опубликован — сама Meta не даёт заменить видео у вышедшего поста. Если файл реально не тот, позовите администратора.${v.inWork ?? ""}`;
+      case "published": return "Этот объект уже опубликован — сама Meta не даёт заменить видео у вышедшего поста. Если файл реально не тот, позовите администратора, автоматически это не починить.";
+      case "reopenFailed": return `Не получилось открыть объект №${v.shortId} для замены ролика — попробуйте ещё раз.${v.inWork ?? ""}`;
+      case "downloadFailed": return "Не получилось скачать файл — попробуйте ещё раз или загрузите через CRM-панель объекта.";
+      case "saveFailed": return "Не получилось сохранить файл на сервере — попробуйте ещё раз или загрузите через CRM-панель объекта.";
+      case "voicelessDownloadFailed": return "Не получилось скачать файл без голоса — пришлите его ещё раз.";
+      case "voicelessSaveFailed": return "Не получилось сохранить ролик без голоса — попробуйте ещё раз.";
+      case "voicelessSaved": return `Ролик №${v.shortId} без голоса сохранён. Поменяется цена — CRM сама заменит голос, музыку не тронет. Спасибо!`;
+      case "voicelessWaiting": return `Жду ролик №${v.shortId} без голоса: пришлите его файлом в течение часа.`;
+      case "questionStale": return "Этот вопрос уже устарел — пришлите файл ещё раз.";
+      case "questionStaleWithNumber": return "Этот вопрос уже устарел — пришлите файл ещё раз, с номером объекта в имени.";
+      case "coversNotNeeded": return "Обложки теперь делаем сами — присылать не нужно, просто пришлите готовый ролик.";
+      case "videoNoteRefused": return "Кружок не подходит — пришлите ролик ФАЙЛОМ (скрепка → Файл), чтобы Telegram его не пережал.";
+      case "otherAttachment": return `Пришло ${v.label}, а мы ждём готовый ролик — пришлите его ФАЙЛОМ (скрепка → Файл).`;
+      case "notAssignedForward": return "Этот чат сейчас не назначен монтажёром — передавать ролик некому.";
+    }
+  },
 };
 
 function legacyDiffLine(d: { label: string; was?: string; becomes?: string }): string {
@@ -229,8 +280,8 @@ function shortFileFacts(video: { sizeBytes: number; durationSec?: number | null;
   const mb = video.sizeBytes / 1024 / 1024;
   const parts = video.sizeBytes > 0 ? [mb < 0.5 ? "<1 МБ" : `${Math.round(mb)} МБ`] : [];
   if (video.durationSec != null && video.durationSec > 0) parts.push(formatDuration(video.durationSec));
+  // «Без звука» говорит одна строка в задании (shortSilentLine), в шапке файла её не повторяем.
   if (video.hasAudio === true) parts.push("со звуком");
-  if (video.hasAudio === false) parts.push("⚠ без звука");
   return parts.join(", ");
 }
 
@@ -244,13 +295,13 @@ export const SHORT_MONTAJER_TEXTS: MontajerTexts = {
     const narrationLine = narration ? SHORT_NARRATION_LINES[narration]?.(voiceHint) ?? null : null;
     return [factsWithoutNumber(facts), narrationLine, shortSilentLine(silent, total)].filter(Boolean).join("\n\n");
   },
-  remakeBody: ({ shortId, reasonLabel, comment, diff, narration, voiceChanges, facts, silent, total, voiceHint }) => {
+  remakeBody: ({ shortId, reasonLabel, comment, diff, narration, facts, silent, total, voiceHint }) => {
     const fix = withoutDash([reasonLabel.replace(/[.\s]+$/, ""), comment?.trim()].filter(Boolean).join(". "));
     const lines = [`🔁 Объект №${shortId} на переделку`, `Что исправить: ${/[.!?]$/.test(fix) ? fix : `${fix}.`}`];
     if (diff && diff.length > 0) lines.push("", "Что изменилось в карточке:", ...diff.map((d) => `• ${shortDiffLine(d)}`));
-    // Строка про голос в переделке — только когда голос меняется или указание про голос и есть суть задания.
-    const keepVoice = voiceChanges || narration === "off" || narration === "mix";
-    const narrationLine = narration && keepVoice ? SHORT_NARRATION_LINES[narration]?.(voiceHint) ?? null : null;
+    // Голос в переделке: одна короткая строка везде, где он ещё не дошёл или меняется (ревью 28.11.2026);
+    // «следом» (follows) и «уже сообщили» дают null, их говорит итог.
+    const narrationLine = narration ? SHORT_NARRATION_LINES[narration]?.(voiceHint) ?? null : null;
     if (narrationLine) lines.push("", narrationLine);
     lines.push("", factsWithoutNumber(facts));
     const silentLine = shortSilentLine(silent, total);
@@ -303,6 +354,27 @@ export const SHORT_MONTAJER_TEXTS: MontajerTexts = {
       text: withButton && holder != null ? `${text}\nИли нажмите кнопку, если это ролик для №${holder}.` : text,
       buttonLabel: (n) => `№${n} в работе`,
     };
+  },
+  reply: (key, v = {}) => {
+    switch (key) {
+      case "handoffDisabled": return "Передача роликов через бота сейчас выключена в Настройках CRM. Файл не принят. Загрузите ролик в карточке объекта в CRM или спросите администратора.";
+      case "albumFirstOnly": return `Из альбома взят только первый файл (${v.filename}). Нужен другой? Пришлите его отдельным сообщением.`;
+      case "publishedNamed": return `Объект №${v.shortId} уже опубликован, Meta не даёт заменить видео у вышедшего поста. Если файл не тот, позовите администратора.${v.inWork ?? ""}`;
+      case "published": return "Этот объект уже опубликован, Meta не даёт заменить видео у вышедшего поста. Если файл не тот, позовите администратора, сами мы это не починим.";
+      case "reopenFailed": return `Объект №${v.shortId}: не получилось открыть для замены. Попробуйте ещё раз.${v.inWork ?? ""}`;
+      case "downloadFailed": return "Не получилось скачать файл. Попробуйте ещё раз или загрузите его в карточке объекта в CRM.";
+      case "saveFailed": return "Не получилось сохранить файл на сервере. Попробуйте ещё раз или загрузите его в карточке объекта в CRM.";
+      case "voicelessDownloadFailed": return "Не получилось скачать файл без голоса. Пришлите его ещё раз.";
+      case "voicelessSaveFailed": return "Не получилось сохранить ролик без голоса. Попробуйте ещё раз.";
+      case "voicelessSaved": return `Объект №${v.shortId}: ролик без голоса сохранён. Поменяется цена, CRM сама заменит голос, музыку не тронет. Спасибо!`;
+      case "voicelessWaiting": return `Объект №${v.shortId}: жду ролик без голоса. Пришлите его файлом в течение часа.`;
+      case "questionStale": return "Этот вопрос устарел. Пришлите файл ещё раз.";
+      case "questionStaleWithNumber": return "Этот вопрос устарел. Пришлите файл ещё раз с номером объекта в имени.";
+      case "coversNotNeeded": return "Обложки делаем сами, присылать не нужно. Пришлите готовый ролик.";
+      case "videoNoteRefused": return "Кружок не подходит. Пришлите ролик файлом (скрепка, Файл), чтобы Telegram его не пережал.";
+      case "otherAttachment": return `Пришло ${v.label}, а мы ждём готовый ролик. Пришлите его файлом (скрепка, Файл).`;
+      case "notAssignedForward": return "Этот чат сейчас не назначен монтажёром, передавать ролик некому.";
+    }
   },
 };
 
