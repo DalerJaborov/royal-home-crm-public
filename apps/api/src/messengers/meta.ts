@@ -1061,8 +1061,15 @@ export function whatsappInteractiveReplyText(msg: WhatsAppIncomingMessage): stri
 /** Заказ из каталога словами: текст человека и позиции. undefined — пустой заказ. */
 export function whatsappOrderText(msg: WhatsAppIncomingMessage): string | undefined {
   if (msg.type !== "order" || !msg.order) return undefined;
+  // id товара в нашем каталоге — номер объекта (lib/metaCatalogFeed.ts: home_listing_id = shortId). Словами «объект №N»
+  // его узнают те же правила, что номер, набранный клиентом (27.11.2026): заказ из каталога доходит до хозяина объекта.
   const items = (msg.order.product_items ?? [])
-    .map((p) => (p.product_retailer_id ? `${p.product_retailer_id}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}` : null))
+    .map((p) => {
+      const id = p.product_retailer_id?.trim();
+      if (!id) return null;
+      const label = /^\d{1,7}$/.test(id) ? `объект №${id}` : id;
+      return `${label}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}`;
+    })
     .filter(Boolean);
   const parts = [msg.order.text?.trim(), items.length ? `🛒 Заказ из каталога: ${items.join(", ")}` : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : undefined;
@@ -1246,7 +1253,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             messageId: msg.id,
             replyToMessageId: msg.context?.id,
             fromAd: Boolean(msg.referral),
-            adId: msg.referral?.source_id,
+            // source_type «post» — переход с публикации, а не с объявления: source_id тогда номер поста, и искать его
+            // среди объявлений бесполезно — он идёт тем путём, что номер поста рекламы (adPostId, 27.11.2026).
+            ...(msg.referral?.source_type === "post" && msg.referral.source_id && /^[\d_]{5,}$/.test(msg.referral.source_id)
+              ? { adPostId: msg.referral.source_id }
+              : { adId: msg.referral?.source_id }),
             // ctwa_clid клика (04.10.2026): только для будущей отдачи событий в Meta, пока лишь хранится.
             adClickId: msg.referral?.ctwa_clid || undefined,
             adRef: [msg.referral?.headline, msg.referral?.body].filter(Boolean).join(" ") || undefined,

@@ -129004,6 +129004,14 @@
         },
         {
          "k": "do",
+         "t": "const focusPropertyId = intake.role === \"buyer\" && !location.locationOutsideDushanbe ? await customerFocusPro…",
+         "a": [
+          "зовёт customerFocusPropertyForLead()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const context: CustomerIntakeContext = { ...(intake.role === \"buyer\" ? deriveOwnBuyerPreferences(own) : {}), …",
          "a": [
           "зовёт deriveOwnBuyerPreferences()"
