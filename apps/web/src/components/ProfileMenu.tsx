@@ -167,7 +167,7 @@ export function ProfileMenu({
               </button>
             )}
             {extras.map((extra) => (
-              <button key={extra.key} type="button" role="menuitem" className="ry-pmenu-item" disabled={extra.disabled} {...extra.buttonProps}
+              <button key={extra.key} type="button" role="menuitem" className="ry-pmenu-item" data-extra={extra.key} disabled={extra.disabled} {...extra.buttonProps}
                 onClick={() => { setOpen(false); extra.onSelect(); }}>
                 <span className="ry-circle" data-tone={extra.tone} data-size="44" aria-hidden="true">{extra.icon}</span>{extra.label}
               </button>

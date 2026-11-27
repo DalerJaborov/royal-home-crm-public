@@ -7,6 +7,38 @@ const accessTokens = new WeakMap<object, string>();
 const seedSessions = new Map<string, { cookies: Awaited<ReturnType<BrowserContext["cookies"]>>; authStorage: string }>();
 const contextPhones = new WeakMap<BrowserContext, string>();
 
+/**
+ * Переключить светлую/тёмную тему. Прежний вид — кнопка в шапке (`[data-topbar-theme]`); «Новый вид»
+ * (пачка shell2, 27.11.2026) — пункт «Тёмная/Светлая тема» в меню профиля (шапка по макету: поиск,
+ * колокол, «+», аватар). Действие и запрос PUT /me/preferences те же.
+ */
+async function toggleTheme(page: Page) {
+  const header = page.locator("[data-topbar-theme]:visible");
+  if (await header.count()) return header.first().click();
+  await page.getByRole("button", { name: "Профиль и выход" }).filter({ visible: true }).first().click();
+  await page.locator('[role="menuitem"][data-extra="theme"]').click();
+}
+
+/** «Создать объект»: прежний вид — кнопка шапки ПК; «Новый вид» — «+» у колокола → «Новый объект». */
+async function openCreateProperty(page: Page) {
+  const legacy = page.locator(".clean-create:visible");
+  if (await legacy.count()) return legacy.first().click();
+  await page.locator("[data-topbar-create]:visible").first().click();
+  await page.getByRole("menuitem", { name: /Новый объект/ }).click();
+}
+
+/** «Порядок вкладок»: прежний вид — из меню «Ещё» шапки; «Новый вид» — пункт меню профиля. */
+async function openNavigationOrder(page: Page) {
+  const more = page.getByLabel(/— все разделы(?:\. Новых: \d+)?$/);
+  if (await more.count()) {
+    await more.click();
+    return page.getByRole("button", { name: "Настроить порядок вкладок", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Профиль и выход" }).filter({ visible: true }).first().click();
+  await page.locator('[role="menuitem"][data-extra="order"]').click();
+}
+
+
 test("clean: phone expense table contains long category controls inside the viewport", async ({ page }) => {
   await login(page);
   await page.route("**/api/v1/expenses/categories", async route => {
@@ -22,7 +54,7 @@ test("clean: phone expense table contains long category controls inside the view
     await page.setViewportSize({ width: 1440, height: 1000 });
     if (await page.locator("html").getAttribute("data-theme") !== value) {
       const saved = page.waitForResponse(res => res.url().endsWith("/me/preferences") && res.request().method() === "PUT");
-      await page.locator("[data-topbar-theme]:visible").first().click(); expect((await saved).ok()).toBe(true);
+      await toggleTheme(page); expect((await saved).ok()).toBe(true);
     }
     await expect(page.locator("html")).toHaveAttribute("data-theme", value);
   };
@@ -149,7 +181,7 @@ for (const width of [1440, 390]) test(`Clean primary buttons retain their varian
     if (await page.locator("html").getAttribute("data-theme") === value) return;
     await page.setViewportSize({ width: 1440, height: 1000 });
     const saved = page.waitForResponse((res) => res.url().endsWith("/me/preferences") && res.request().method() === "PUT");
-    await page.locator("[data-topbar-theme]:visible").first().click();
+    await toggleTheme(page);
     expect((await saved).ok()).toBe(true);
     await expect(page.locator("html")).toHaveAttribute("data-theme", value);
   };
@@ -228,7 +260,7 @@ for (const width of [1440, 390]) test(`Clean object keeps deal creation compact 
   });
   try { for (const theme of ["light", "night"]) {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await toggleTheme(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", `royal-home-2026-${theme}`);
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
     const card = page.locator("details#deal-assign");
@@ -245,7 +277,7 @@ for (const width of [1440, 390]) test(`Clean object keeps deal creation compact 
     await expect(card.getByLabel("Поиск покупателя", { exact: true })).toBeHidden();
   }} finally {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== original) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== original) await toggleTheme(page);
   }
   expect(creates).toBe(0);
 });
@@ -260,7 +292,7 @@ for (const width of [1440, 390]) test(`Clean dialer stays opaque and separates k
   });
   try { for (const theme of ["light", "night"]) {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await toggleTheme(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", `royal-home-2026-${theme}`);
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
     await page.getByRole("button", { name: "Набрать номер", exact: true }).click();
@@ -285,7 +317,7 @@ for (const width of [1440, 390]) test(`Clean dialer stays opaque and separates k
     await expect(dialog).toHaveCount(0);
   }} finally {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== original) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== original) await toggleTheme(page);
   }
   expect(dialRequests).toBe(0);
 });
@@ -323,7 +355,7 @@ test("Clean client quick actions fit narrow phones without hiding an action", as
     await page.setViewportSize({ width: 1440, height: 1000 });
     if (await page.locator("html").getAttribute("data-theme") !== theme) {
       const saved = page.waitForResponse(response => response.url().endsWith("/me/preferences") && response.request().method() === "PUT");
-      await page.locator("[data-topbar-theme]:visible").first().click();
+      await toggleTheme(page);
       expect((await saved).ok()).toBe(true);
     }
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -424,7 +456,7 @@ for (const width of [1440, 390]) test(`Clean client wizard stays opaque through 
   const original = await page.locator("html").getAttribute("data-theme");
   const selectTheme = async (theme: string) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await toggleTheme(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   };
   try { for (const theme of ["light", "night"]) {
@@ -474,7 +506,7 @@ test("Clean fallback avatars remain readable in both themes", async ({ page }) =
   await expect(page.getByRole("heading", { name: "Нужны ваши решения", exact: true })).toBeVisible();
   const original = await page.locator("html").getAttribute("data-theme");
   const selectTheme = async (theme: string) => {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await toggleTheme(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   };
   try { for (const theme of ["light", "night"]) {
@@ -946,7 +978,7 @@ test("clean: flag, navigation, search, creation and legacy escape hatch", async 
   await page.keyboard.press("Escape");
   await expect(page.locator(".clean-more")).not.toHaveAttribute("open");
   if (mobile) await page.goto("/properties/new");
-  else await page.locator(".clean-create").click();
+  else await openCreateProperty(page);
   // The existing creation wizard intentionally occupies its own full screen.
   await expect(page.getByRole("button", { name: "Закрыть мастер" })).toBeVisible();
   await expect(page.locator("input").first()).toBeVisible();
@@ -970,7 +1002,7 @@ test("clean: client transfer sends the existing request and undo restores its ag
   const originalTheme = await page.locator("html").getAttribute("data-theme");
   if (originalTheme !== "royal-home-2026-night") {
     const saved = page.waitForResponse(res => res.url().endsWith("/me/preferences") && res.request().method() === "PUT");
-    await page.locator("[data-topbar-theme]:visible").first().click(); expect((await saved).ok()).toBe(true);
+    await toggleTheme(page); expect((await saved).ok()).toBe(true);
   }
   await expect(page.locator("html")).toHaveAttribute("data-theme", "royal-home-2026-night");
   try {
@@ -1004,7 +1036,7 @@ test("clean: client transfer sends the existing request and undo restores its ag
   } finally {
     if (await page.locator("html").getAttribute("data-theme") !== originalTheme) {
       const saved = page.waitForResponse(res => res.url().endsWith("/me/preferences") && res.request().method() === "PUT");
-      await page.locator("[data-topbar-theme]:visible").first().click(); expect((await saved).ok()).toBe(true);
+      await toggleTheme(page); expect((await saved).ok()).toBe(true);
     }
   }
 });
@@ -1145,8 +1177,7 @@ test("clean: personal navigation persists on the server and resets without chang
   const original = (await profile.json()).preferences ?? {};
   const tabs = page.locator(".clean-tabs a");
   const openEditor = async () => {
-    await page.getByLabel(/— все разделы(?:\. Новых: \d+)?$/).click();
-    await page.getByRole("button", { name: "Настроить порядок вкладок", exact: true }).click();
+    await openNavigationOrder(page);
     await expect(page.getByRole("dialog", { name: "Порядок вкладок" })).toBeVisible();
   };
   try {
@@ -1245,7 +1276,7 @@ for (const role of ["director", "admin", "agent", "manager"] as const) {
         await expect(page.locator(".clean-header")).toBeVisible();
         if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) {
           const persisted = page.waitForResponse((response) => response.url().endsWith("/me/preferences") && response.request().method() === "PUT");
-          await page.locator("[data-topbar-theme]:visible").first().click();
+          await toggleTheme(page);
           expect((await persisted).ok()).toBe(true);
         }
         await expect(page.locator("html")).toHaveAttribute("data-theme", `royal-home-2026-${theme}`);
@@ -1333,7 +1364,7 @@ for (const width of [1440, 390]) test(`Clean settings tasks separate daily rules
   ];
   try { for (const theme of ["light", "night"]) {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== `royal-home-2026-${theme}`) await toggleTheme(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", `royal-home-2026-${theme}`);
     await page.setViewportSize({ width, height: width < 820 ? 844 : 1000 });
     await page.goto("/settings");
@@ -1390,7 +1421,7 @@ for (const width of [1440, 390]) test(`Clean settings tasks separate daily rules
     await page.unroute("**/api/v1/settings/restore-points");
   }} finally {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    if (await page.locator("html").getAttribute("data-theme") !== original) await page.locator("[data-topbar-theme]:visible").first().click();
+    if (await page.locator("html").getAttribute("data-theme") !== original) await toggleTheme(page);
   }
   expect(settingsWrites).toBe(0);
 });

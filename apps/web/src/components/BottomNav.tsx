@@ -8,6 +8,7 @@ import { hapticTap } from "../lib/haptics";
 // одна на две кнопки: эту и «+» в шапке «Нового вида» (components/quickCreate.tsx).
 // Меню грузится по нажатию (10.09.2026), заглушка `null` — см. там же.
 import { QuickCreateRing, useQuickCreate } from "./quickCreate";
+import { useTodayBadge } from "./look/shell/useTodayBadge";
 // Состав вкладок — из общего реестра разделов (lib/navigation.ts). Раньше он был
 // прошит здесь отдельным списком и расходился с сайдбаром: 2+2 вокруг «+»
 // подбирались вручную, а подписи и счётчики жили в двух местах сразу.
@@ -126,9 +127,7 @@ export function BottomNavSurface({ variant, royal = false, chatOpen = false }: {
       {royal ? (
         // «Новый вид» (макет 27.11.2026): пять вкладок без «+» — «+» в шапке (ShellCreateButton).
         <div className="h-[66px] grid grid-cols-5 items-center px-0.5" data-royal-tabs>
-          {royalBottom.map((item) => (
-            <Tab key={item.to + item.label} {...item} variant={variant} royal />
-          ))}
+          <RoyalTabs items={royalBottom} variant={variant} />
         </div>
       ) : (
       <div className="h-[66px] grid grid-cols-5 items-center px-0.5">
@@ -163,6 +162,18 @@ export function BottomNavSurface({ variant, royal = false, chatOpen = false }: {
       {quick.menu}
     </nav>
   );
+}
+
+/**
+ * Пять вкладок «Нового вида». Своим компонентом, чтобы запросы метки «Сегодня» (useTodayBadge — сколько
+ * пунктов «Требует внимания сейчас», только у кого есть право) жили только в новом виде: прежняя панель
+ * их не делает вовсе.
+ */
+function RoyalTabs({ items, variant }: { items: NavItem[]; variant: BottomNavVariant }) {
+  const todayBadge = useTodayBadge(true);
+  return <>{items.map((item) => (
+    <Tab key={item.to + item.label} {...item} badge={item.to === "/" && todayBadge && !item.badge ? todayBadge : item.badge} variant={variant} royal />
+  ))}</>;
 }
 
 export function BottomNav({ royal = false, chatOpen = false }: { royal?: boolean; chatOpen?: boolean }) {

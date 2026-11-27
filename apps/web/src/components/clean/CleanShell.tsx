@@ -14,6 +14,7 @@ import { useShellStore } from "../../store/shell";
 import { ASSISTANT_ENTRY_LABEL, ASSISTANT_ENTRY_TITLE, useAssistantEntry } from "../../hooks/useAssistantEntry";
 import { Topbar } from "../Topbar";
 import { CButton, CLink } from "./ui";
+import { useTodayBadge } from "../look/shell/useTodayBadge";
 import { lazyWithReload } from "../../lib/lazyWithReload";
 import { permitsCleanChunkWarming, scheduleCleanRouteChunks, warmCleanRouteChunk, type WarmConnection } from "../../lib/cleanRouteChunks";
 
@@ -38,6 +39,16 @@ function Tab({ item, royal }: { item: NavItem; royal?: boolean }) {
     {!!item.badge && <><span className="clean-nav-count" aria-hidden="true">{item.badge > 99 ? "99+" : item.badge}</span><span className="sr-only">{item.badgeQuiet ? "Всего" : "Новых"}: {item.badge}</span></>}
     </>}
   </NavLink>;
+}
+
+/**
+ * Главные пункты бокового меню «Нового вида». Своим компонентом: метка «Сегодня» (useTodayBadge — сколько
+ * пунктов «Требует внимания сейчас», макет «Сегодня 3») запрашивает данные только в новом виде и только
+ * при праве `dashboard.analytics`.
+ */
+function RoyalPrimaryTabs({ items }: { items: NavItem[] }) {
+  const todayBadge = useTodayBadge(true);
+  return <>{items.map((item) => <Tab key={item.to} item={item.to === "/" && todayBadge && !item.badge ? { ...item, badge: todayBadge } : item} royal />)}</>;
 }
 
 /** Ключ запомненного раскрытия «Ещё» (тот же список раскрытых групп на устройстве). */
@@ -172,7 +183,7 @@ export function CleanShell({ royal = false }: { royal?: boolean }) {
       </Link>
       <nav className="clean-tabs" aria-label="Основные разделы">
         {royal ? <>
-          {side.primary.map((item) => <Tab key={item.to} item={item} royal />)}
+          <RoyalPrimaryTabs items={side.primary} />
           {side.groups.length > 0 && <RoyalNavMore groups={side.groups}
             active={side.groups.some((group) => group.items.some((item) => pathname === item.to || (!item.end && item.to !== "/" && pathname.startsWith(`${item.to}/`))))} />}
         </> : tabs.map((item) => <Tab key={item.to} item={item} />)}
