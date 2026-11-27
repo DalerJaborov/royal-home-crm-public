@@ -29,6 +29,8 @@ import { isConversationListKey, startLiveEvents, stopLiveEvents } from "../liveE
 
 type Filters = { queryKey: unknown[]; predicate?: (q: { queryKey: unknown[] }) => boolean };
 const invalidate = vi.fn();
+let fetching = 0;
+let cacheListener: ((event: { type: string; query: { queryKey: unknown[] } }) => void) | null = null;
 const LIST_KEY = ["conversations", { needsHuman: true }];
 const PULT_KEY = ["conversations", "pult-inbox", "waiting"];
 const DIALOG_KEY = ["conversations", "conv-1"];
@@ -51,7 +53,13 @@ beforeEach(async () => {
   vi.stubGlobal("document", { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal("navigator", { onLine: true });
-  startLiveEvents({ invalidateQueries: invalidate } as never);
+  fetching = 0;
+  cacheListener = null;
+  startLiveEvents({
+    invalidateQueries: invalidate,
+    isFetching: () => fetching,
+    getQueryCache: () => ({ subscribe: (l: typeof cacheListener) => { cacheListener = l; return () => { cacheListener = null; }; } }),
+  } as never);
   await vi.advanceTimersByTimeAsync(0);
 });
 afterEach(() => {
@@ -81,6 +89,22 @@ describe("волны «Чатов» при потоке сообщений", () 
     const listCalls = invalidate.mock.calls.filter(([f]) => (f as Filters).predicate?.({ queryKey: LIST_KEY }));
     expect(listCalls.length).toBeGreaterThan(0);
     for (const call of listCalls) expect(call[1]).toEqual({ cancelRefetch: false });
+  });
+
+  it("волна пришла, пока список ещё грузится: после его возврата — ещё одна волна, событие не теряется", async () => {
+    fetching = 1;
+    last().emit("message.new", 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(hits(LIST_KEY)).toBe(1);
+    // Запрос вернулся: кэш сообщает об обновлении списка, идущих запросов больше нет.
+    fetching = 0;
+    cacheListener?.({ type: "updated", query: { queryKey: LIST_KEY } });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(hits(LIST_KEY)).toBe(2);
+    // Второй раз без новой волны не повторяет.
+    cacheListener?.({ type: "updated", query: { queryKey: LIST_KEY } });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(hits(LIST_KEY)).toBe(2);
   });
 
   it("одно сообщение после затишья: и диалог, и список — через секунду, как раньше", async () => {

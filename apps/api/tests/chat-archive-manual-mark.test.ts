@@ -17,6 +17,8 @@ const ago = (ms: number) => new Date(Date.now() - ms);
 
 let adminToken = "";
 let adminId = "";
+let bossToken = "";
+let bossId = "";
 let clientId = "";
 let profileId = "";
 const ids: Record<string, string> = {};
@@ -42,6 +44,9 @@ beforeAll(async () => {
   const admin = await prisma.agent.create({ data: { fullName: `Mark admin ${runId}`, phone: `+99292${String(runId).slice(-8)}1`, role: "ADMIN", passwordHash: "x" } });
   adminId = admin.id;
   adminToken = signAccessToken({ sub: adminId, role: "ADMIN" });
+  const boss = await prisma.agent.create({ data: { fullName: `Mark boss ${runId}`, phone: `+99293${String(runId).slice(-8)}2`, role: "ADMIN", passwordHash: "x" } });
+  bossId = boss.id;
+  bossToken = signAccessToken({ sub: bossId, role: "ADMIN" });
   const client = await prisma.client.create({ data: { fullName: `Mark client ${runId}`, phone: `fixture-mark-${runId}`, source: "PHONE_CALL", acceptedAt: new Date(), assignedAgentId: adminId } });
   clientId = client.id;
   const profile = await prisma.contactProfile.create({ data: { avatarKey: `${randomUUID()}.webp` } });
@@ -57,7 +62,7 @@ afterAll(async () => {
   await prisma.botConversation.deleteMany({ where: { channel: CHANNEL } });
   await prisma.contactProfile.deleteMany({ where: { id: profileId } });
   await prisma.client.deleteMany({ where: { id: clientId } });
-  await prisma.agent.deleteMany({ where: { id: adminId } }).catch(() => undefined);
+  await prisma.agent.deleteMany({ where: { id: { in: [adminId, bossId] } } }).catch(() => undefined);
 });
 
 describe("ручной архив: правило над одной строкой", () => {
@@ -65,13 +70,15 @@ describe("ручной архив: правило над одной строко
   const base = { clientId: null, lastActivityAt: new Date(now.getTime() - 40 * DAY), lastMessageAt: new Date(now.getTime() - 40 * DAY) };
   it("метка «в архив» главнее карточки и свежести, пока нет нового входящего", () => {
     const fresh = { clientId: "c1", lastActivityAt: new Date(now.getTime() - 60_000), lastMessageAt: new Date(now.getTime() - 60_000) };
-    expect(isChatArchived({ ...fresh, archiveMark: "ARCHIVED", archiveMarkAt: now }, now)).toBe(true);
+    expect(isChatArchived({ ...fresh, archiveMark: "ARCHIVED", archiveMarkAt: now, archiveMarkById: "me" }, now, "me")).toBe(true);
+    // Чужая отметка не прячет: агент не уберёт чат у руководства.
+    expect(isChatArchived({ ...fresh, archiveMark: "ARCHIVED", archiveMarkAt: now, archiveMarkById: "agent" }, now, "boss")).toBe(false);
     // Пришло новое входящее после метки: чат возвращается сам.
-    expect(isChatArchived({ ...fresh, lastMessageAt: new Date(now.getTime() + 1000), archiveMark: "ARCHIVED", archiveMarkAt: now }, now)).toBe(false);
+    expect(isChatArchived({ ...fresh, lastMessageAt: new Date(now.getTime() + 1000), archiveMark: "ARCHIVED", archiveMarkAt: now, archiveMarkById: "me" }, now, "me")).toBe(false);
   });
   it("«Вернуть» держит старый чат без карточки в списке, но не дольше следующего простоя", () => {
     expect(isChatArchived(base, now)).toBe(true);
-    expect(isChatArchived({ ...base, archiveMark: "RESTORED", archiveMarkAt: now }, now)).toBe(false);
+    expect(isChatArchived({ ...base, archiveMark: "RESTORED", archiveMarkAt: now, archiveMarkById: "me" }, now, "me")).toBe(false);
   });
 });
 
@@ -94,6 +101,18 @@ describe("POST /conversations/archive-mark", () => {
     expect((await mark(ids.fresh, "restore")).status).toBe(200);
     expect(await listIds()).toContain(ids.fresh);
     expect(await listIds("&archived=1")).not.toContain(ids.fresh);
+  });
+
+  it("отметка действует только у поставившего: у другого сотрудника чат остаётся в списке", async () => {
+    await mark(ids.fresh, "restore");
+    expect((await mark(ids.fresh, "archive")).status).toBe(200);
+    expect(await listIds()).not.toContain(ids.fresh);
+    const boss = await request(app).get(`/api/v1/conversations?grouped=1&channel=${CHANNEL}`).set("Authorization", `Bearer ${bossToken}`);
+    expect(boss.body.items.map((item: { id: string }) => item.id)).toContain(ids.fresh);
+    // В поиске архивная строка помечена: на ней «Вернуть», а не «В архив».
+    const found = await get(`/conversations?grouped=1&channel=${CHANNEL}&q=fresh`);
+    expect(found.body.items.find((item: { id: string }) => item.id === ids.fresh)?.archived).toBe(true);
+    await mark(ids.fresh, "restore");
   });
 
   it("новое входящее после «В архив» само возвращает чат в список", async () => {

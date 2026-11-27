@@ -80,6 +80,8 @@ export interface ConversationListItem {
    * `unread` — список тогда рисует точку, как раньше.
    */
   unreadCount?: number;
+  /** Строка в архиве у этого зрителя (27.11.2026): в поиске показывает «Вернуть». */
+  archived?: boolean;
   messagesCount: number;
   /** Наш аккаунт-получатель: показывается меткой в списке, чтобы не путать переписки. */
   accountId: string | null;

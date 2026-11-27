@@ -241,6 +241,46 @@ describe("ручной архив из строки", () => {
     expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "archive" });
   });
 
+  const touch = (target: Element, type: string, x: number, y = 10) => {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] });
+    act(() => { target.dispatchEvent(ev); });
+  };
+
+  it("после свайпа влево открытая кнопка «В архив» жмётся (раньше перехват клика её глотал)", () => {
+    const el = mount();
+    const wrap = el.querySelector(".ry-chat-item") as HTMLElement;
+    touch(wrap, "touchstart", 200);
+    touch(wrap, "touchmove", 150);
+    touch(wrap, "touchmove", 90);
+    touch(wrap, "touchend", 90);
+    expect(wrap.getAttribute("data-swipe-open")).toBe("true");
+    const btn = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    act(() => btn.click());
+    expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "archive" });
+  });
+
+  it("долгое нажатие на строку открывает меню (запасной путь на iPhone)", () => {
+    vi.useFakeTimers();
+    try {
+      const el = mount();
+      const wrap = el.querySelector(".ry-chat-item") as HTMLElement;
+      touch(wrap, "touchstart", 100);
+      act(() => { vi.advanceTimersByTime(600); });
+      touch(wrap, "touchend", 100);
+      const menuAction = el.querySelector('[data-testid="chat-menu-action"]') as HTMLButtonElement;
+      expect(menuAction.textContent).toContain("В архив");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("в поиске у архивной строки — «Вернуть», а не «В архив»", () => {
+    const el = mount({ searchInput: "Рустам", data: page([{ ...item(), archived: true }]) });
+    const btn = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    expect(btn.textContent).toContain("Вернуть");
+  });
+
   it("в архиве то же действие называется «Вернуть»", () => {
     const el = mount({ segment: "archive" });
     const act1 = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;

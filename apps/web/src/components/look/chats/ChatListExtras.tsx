@@ -62,6 +62,8 @@ export function SlowLoadHint({ onRetry, afterMs = 8000 }: { onRetry: () => void;
 
 /** Ширина открытой кнопки «В архив» при свайпе влево, px (совпадает с CSS `.ry-chat-swipe-act`). */
 export const CHAT_SWIPE_REVEAL = 96;
+/** Долгое нажатие на строку на телефоне открывает то же меню, мс. */
+export const LONG_PRESS_MS = 550;
 
 /**
  * СТРОКА С ДЕЙСТВИЕМ «В архив / Вернуть» (макет владельца 26.11.2026, вариант B + меню на компьютере):
@@ -83,6 +85,10 @@ export function ArchivableRow({ id, inArchive, onAction, children }: {
   const boxRef = useRef<HTMLDivElement>(null);
   const touch = useRef<{ x: number; y: number; base: number; axis: "x" | "y" | null } | null>(null);
   const swiped = useRef(false);
+  // Долгое нажатие — запасной путь на телефоне (iPhone не шлёт contextmenu, а свайп не всем удобен).
+  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelLongPress = () => { if (longPress.current) { clearTimeout(longPress.current); longPress.current = null; } };
+  useEffect(() => cancelLongPress, []);
   const open = offset <= -CHAT_SWIPE_REVEAL / 2;
   const action = inArchive ? "restore" : "archive";
   const label = inArchive ? "Вернуть" : "В архив";
@@ -111,6 +117,13 @@ export function ArchivableRow({ id, inArchive, onAction, children }: {
         if (!t) return;
         touch.current = { x: t.clientX, y: t.clientY, base: offset, axis: null };
         swiped.current = false;
+        cancelLongPress();
+        longPress.current = setTimeout(() => {
+          longPress.current = null;
+          // Отпускание пальца после долгого нажатия не должно открыть чат.
+          swiped.current = true;
+          setMenu(true);
+        }, LONG_PRESS_MS);
       }}
       onTouchMove={(event) => {
         const state = touch.current;
@@ -119,23 +132,27 @@ export function ArchivableRow({ id, inArchive, onAction, children }: {
         const dx = t.clientX - state.x;
         const dy = t.clientY - state.y;
         if (!state.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) state.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        if (state.axis) cancelLongPress();
         if (state.axis !== "x") return;
         swiped.current = true;
         setDragging(true);
         setOffset(Math.max(-CHAT_SWIPE_REVEAL, Math.min(0, state.base + dx)));
       }}
       onTouchEnd={() => {
+        cancelLongPress();
         touch.current = null;
         setDragging(false);
         setOffset((value) => (value <= -CHAT_SWIPE_REVEAL / 2 ? -CHAT_SWIPE_REVEAL : 0));
       }}
       onClickCapture={(event) => {
+        // Сама кнопка действия и пункты меню жмутся всегда: раньше перехват глотал и их, и свайп «В архив» не работал.
+        if ((event.target as HTMLElement).closest(".ry-chat-swipe-act, .ry-chat-menu")) { swiped.current = false; return; }
         // После свайпа и при открытой кнопке тап по строке не открывает чат: он только закрывает кнопку.
         if (swiped.current || offset !== 0) {
           event.preventDefault();
           event.stopPropagation();
           swiped.current = false;
-          if (offset !== 0 && !(event.target as HTMLElement).closest(".ry-chat-swipe-act")) setOffset(0);
+          if (offset !== 0) setOffset(0);
         }
       }}
     >

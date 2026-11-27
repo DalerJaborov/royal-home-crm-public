@@ -875,7 +875,7 @@ export function ConversationList({
               />
             );
             return archiveOn
-              ? <ArchivableRow key={c.id} id={c.id} inArchive={inArchive} onAction={onArchiveAction}>{row}</ArchivableRow>
+              ? <ArchivableRow key={c.id} id={c.id} inArchive={inArchive || c.archived === true} onAction={onArchiveAction}>{row}</ArchivableRow>
               : row;
           })
         ) : (

@@ -6,6 +6,7 @@ import { CHAT_ARCHIVE_MARKED, CHAT_ARCHIVE_RESTORED, type ChatArchiveMark } from
 /**
  * РУЧНОЙ АРХИВ ЧАТА (владелец 27.11.2026): «В архив» и «Вернуть» из строки списка.
  *
+ * Отметка действует только у поставившего её (archiveMarkById): у остальных чат живёт по общему правилу.
  * Хранится отметка на самой переписке (archiveMark + время archiveMarkAt) и действует, пока в диалоге нет нового
  * входящего: правило списка сравнивает archiveMarkAt с lastMessageAt (lib/chatArchive.ts). Новое сообщение клиента
  * двигает lastMessageAt вперёд, отметка «устаревает», и чат сам возвращается в основной список. Ничего не удаляется.
@@ -17,9 +18,9 @@ import { CHAT_ARCHIVE_MARKED, CHAT_ARCHIVE_RESTORED, type ChatArchiveMark } from
 const CLIENT_PREFIX = "client:";
 const DIRECT_PREFIX = "td_";
 
-export async function setChatArchiveMark(input: { id: string; mark: ChatArchiveMark; ownAgentId: string | null; now?: Date }): Promise<number> {
+export async function setChatArchiveMark(input: { id: string; mark: ChatArchiveMark; ownAgentId: string | null; viewerId: string; now?: Date }): Promise<number> {
   const { id, mark, ownAgentId } = input;
-  const data = { archiveMark: mark, archiveMarkAt: input.now ?? new Date() };
+  const data = { archiveMark: mark, archiveMarkAt: input.now ?? new Date(), archiveMarkById: input.viewerId };
   const ownClient = ownAgentId ? { is: { assignedAgentId: ownAgentId, deletedAt: null, acceptedAt: { not: null } } } : undefined;
 
   if (id.startsWith(CLIENT_PREFIX)) {
