@@ -14,7 +14,7 @@ import { CleanupButton } from "../../components/CleanupButton";
  */
 export function DataCleanupSection() {
   const can = useCan();
-  const { data: settings } = useSettings();
+  const { data: settings, isError } = useSettings();
   const save = useUpdateSettings();
   if (!can("settings.manage")) return null;
   const on = settings?.autoCleanupEnabled ?? false;
@@ -32,6 +32,11 @@ export function DataCleanupSection() {
         <span className="quiet">Журнал ошибок чистится кнопкой «Очистить журнал» в разделе «Здоровье системы».</span>
       </div>
 
+      {isError && (
+        <p role="alert" className="quiet">
+          Не удалось загрузить настройки автоочистки. Это не значит, что она выключена: обновите страницу.
+        </p>
+      )}
       <div style={{ marginTop: "var(--s4)" }}>
         <SwitchRow
           title="Автоочистка старого мусора"
