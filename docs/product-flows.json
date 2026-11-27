@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4383,
+  "forks": 4388,
   "mounts": 87,
   "cron": 148,
   "jobs": 37,
@@ -109293,6 +109293,28 @@
        "c": [
         {
          "k": "do",
+         "t": "await sweepCardConversationPhones(now).then( (added)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "added > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[cron] Номер из переписки дописан в карточку: ${added}`);",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
          "t": "const found = await findPhonesWithoutLead(now);",
          "a": [
           "зовёт findPhonesWithoutLead()"
@@ -109336,24 +109358,62 @@
          "c": [
           {
            "k": "if",
-           "t": "!canTakeItself",
+           "t": "!eligible",
            "a": [],
            "c": [
             {
-             "k": "if",
-             "t": "row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const tail = phoneTail(row.phone!);",
+           "a": [
+            "зовёт phoneTail()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "takenTails.has(tail)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "outcome === \"reviewer\"",
+           "a": [],
+           "c": [
             {
              "k": "do",
              "t": "continue;",
@@ -109369,6 +109429,36 @@
            "t": "outcome === \"accepted\"",
            "a": [],
            "c": [
+            {
+             "k": "if",
+             "t": "row.unanswered",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "acceptedUnanswered++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "else",
+             "t": "иначе",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "accepted++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
             {
              "k": "do",
              "t": "void logSystemError( \"ai\", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…",
@@ -109401,6 +109491,21 @@
              "c": []
             }
            ]
+          },
+          {
+           "k": "if",
+           "t": "row.unanswered && outcome === \"declined\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
@@ -109411,7 +109516,7 @@
          "c": [
           {
            "k": "do",
-           "t": "return { alerted: 0, accepted, attached };",
+           "t": "return { alerted: 0, accepted: accepted + acceptedUnanswered, attached };",
            "a": [
             "дословно из кода"
            ],
@@ -109453,14 +109558,6 @@
              "c": []
             }
            ]
-          },
-          {
-           "k": "do",
-           "t": "const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…",
-           "a": [
-            "зовёт maskClientPhone()"
-           ],
-           "c": []
           },
           {
            "k": "do",
