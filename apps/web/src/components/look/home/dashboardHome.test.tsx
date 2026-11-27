@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * ГЛАВНАЯ РУКОВОДИТЕЛЯ = ДАШБОРД (21.11.2026): кто получает дашборд вместо старых блоков,
+ * ГЛАВНАЯ РУКОВОДИТЕЛЯ = ДАШБОРД (21.11.2026; с 27.11 — под блоками макета, пачка home2): кто его получает,
  * что рисуется на «/», и что остальные роли и руководитель без права на отчёты не тронуты.
  */
 const h = vi.hoisted(() => ({ role: "DIRECTOR", perms: new Set<string>(["reports.view", "dashboard.analytics"]) }));
@@ -17,7 +17,6 @@ vi.mock("../../../lib/permissions", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../../lib/permissions")>(), useCan: () => (p: string) => h.perms.has(p),
 }));
 vi.mock("./blocks/dashboardHome", () => ({
-  AttentionStrip: () => <p>полоса внимания</p>,
   DashboardHomeBlock: () => <p>дашборд директора</p>,
 }));
 
@@ -37,11 +36,13 @@ describe("выбор главной по роли", () => {
     expect(usesDashboardHome("DIRECTOR", (() => false) as never)).toBe(false);
   });
 
-  it.each(["DIRECTOR", "ADMIN", "HEAD_OF_SALES"])("%s: на главной полоса внимания и дашборд, старых блоков денег и команды нет", (role) => {
+  // Что именно рисуется на главной руководителя с правом на отчёты (блоки макета и «Аналитика»
+  // под ними, пачка home2 27.11.2026) — components/look/home2/LeaderHome.test.tsx.
+  it.each(["DIRECTOR", "ADMIN", "HEAD_OF_SALES"])("%s: дашборд на главной есть, старой полосы «Требует внимания» нет", (role) => {
     h.role = role;
     const { container, getByText } = renderHome();
-    expect(shown(container)).toEqual(["attention", "dashboard"]);
-    getByText("полоса внимания");
+    expect(shown(container)).toContain("analytics");
+    expect(shown(container)).not.toContain("attention");
     getByText("дашборд директора");
   });
 
