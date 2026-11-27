@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4391,
+  "forks": 4395,
   "mounts": 87,
   "cron": 149,
   "jobs": 37,
@@ -95238,7 +95238,7 @@
           },
           {
            "k": "do",
-           "t": "const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\", t.\"conversationId\"…",
+           "t": "const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestH…",
            "a": [
             "обращается к базе своим SQL"
            ],
@@ -95250,17 +95250,39 @@
            "a": [],
            "c": [
             {
-             "k": "if",
-             "t": "await resumeHeldCustomerTurn(row)",
+             "k": "try",
+             "t": "пробует",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "result.resumed++;",
+               "t": "await prisma.backgroundJob.create({ data: { type: \"customer-inbox-consume\", payload: { version: 1, eventKey: …",
                "a": [
-                "дословно из кода"
+                "создаёт в базе: backgroundJob"
                ],
                "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === \"P2002\")",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "throw error;",
+                 "a": [
+                  "пробрасывает ошибку дальше"
+                 ],
+                 "c": []
+                }
+               ]
               }
              ]
             }
@@ -95268,7 +95290,7 @@
           },
           {
            "k": "do",
-           "t": "const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\", t.\"conversationId\", t…",
+           "t": "const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestHeld…",
            "a": [
             "обращается к базе своим SQL"
            ],
@@ -95308,12 +95330,12 @@
         },
         {
          "k": "if",
-         "t": "result.resumed > 0",
+         "t": "result.queued > 0",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "console.log(`[cron] Бот догоняет: возобновлено ходов ${result.resumed}`);",
+           "t": "console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);",
            "a": [
             "пишет строку в журнал сервера"
            ],
@@ -129987,6 +130009,84 @@
    "kind": "customer-inbox-consume",
    "file": "apps/api/src/jobs/customerInboxConsume.ts",
    "tree": [
+    {
+     "k": "if",
+     "t": "payload.resume",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runCustomerCatchUpTurn(payload.eventKey);",
+       "a": [
+        "зовёт runCustomerCatchUpTurn()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await resumeHeldCustomerTurn(eventKey))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…",
+           "a": [
+            "читает в базе: customerPropertyIngressTicket"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!ticket?.resumedAt || ticket.processingState === \"PLANNED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return consumeCustomerInboxTicket(eventKey);",
+         "a": [
+          "зовёт consumeCustomerInboxTicket()"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runCustomerCatchUpTurn() — apps/api/src/lib/customerTurnCatchUp.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "await consumeCustomerInboxTicket(payload.eventKey);",

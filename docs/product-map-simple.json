@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 149,
   "jobs": 37,
-  "conditions": 4352,
-  "untranslatedUnique": 501,
-  "untranslatedTotal": 643,
-  "partialUnique": 1155,
+  "conditions": 4356,
+  "untranslatedUnique": 502,
+  "untranslatedTotal": 645,
+  "partialUnique": 1156,
   "translatedShare": 85
  },
  "untranslated": [
@@ -40,6 +40,7 @@
   "!(await mayUseVideoSession(req, property, session.purpose))",
   "!(await metaCatalogKeyOk(req))",
   "!(await queuePropertySoldStory(property.id))",
+  "!(await resumeHeldCustomerTurn(eventKey))",
   "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
@@ -69238,7 +69239,7 @@
          ]
         },
         {
-         "t": "если resumed больше 0",
+         "t": "если queued больше 0",
          "k": "if",
          "a": [],
          "c": []
@@ -83311,6 +83312,42 @@
   {
    "kind": "customer-inbox-consume",
    "tree": [
+    {
+     "t": "если есть продолжить",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await automationSwitchOn(\"botCatchUpEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"botCatchUpEnabled\"))"
+        },
+        {
+         "t": "если !(await resumeHeldCustomerTurn(eventKey))",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: resumed at или processing state — «PLANNED»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "!(await resumeHeldCustomerTurn(eventKey))"
+        }
+       ]
+      }
+     ]
+    },
     {
      "t": "внутри этого шага",
      "k": "do",

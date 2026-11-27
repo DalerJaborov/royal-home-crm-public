@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4391**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4395**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21256,13 +21256,17 @@
       - если !(await automationSwitchOn("botCatchUpEnabled"))
         - return result;
           · дословно из кода
-      - const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode", t."conversationId"…
+      - const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestH…
         · обращается к базе своим SQL
       - для каждого: const row of resumable
-        - если await resumeHeldCustomerTurn(row)
-          - result.resumed++;
-            · дословно из кода
-      - const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode", t."conversationId", t…
+        - пробует
+          - await prisma.backgroundJob.create({ data: { type: "customer-inbox-consume", payload: { version: 1, eventKey: …
+            · создаёт в базе: backgroundJob
+        - если сорвалось
+          - если !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+            - throw error;
+              · пробрасывает ошибку дальше
+      - const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestHeld…
         · обращается к базе своим SQL
       - для каждого: const row of pinned
         - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
@@ -21270,8 +21274,8 @@
     - если сорвалось
       - void logSystemError("ai", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…
         · запись в журнал ошибок
-    - если result.resumed > 0
-      - console.log(`[cron] Бот догоняет: возобновлено ходов ${result.resumed}`);
+    - если result.queued > 0
+      - console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);
         · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сторожа «бот догоняет»", err);
@@ -28666,6 +28670,22 @@
 
 `apps/api/src/jobs/customerInboxConsume.ts`
 
+- если payload.resume
+  - await runCustomerCatchUpTurn(payload.eventKey);
+    · зовёт runCustomerCatchUpTurn()
+    - если !(await automationSwitchOn("botCatchUpEnabled"))
+      - return null;
+        · дословно из кода
+    - если !(await resumeHeldCustomerTurn(eventKey))
+      - const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…
+        · читает в базе: customerPropertyIngressTicket
+      - если !ticket?.resumedAt || ticket.processingState === "PLANNED"
+        - return null;
+          · дословно из кода
+    - return consumeCustomerInboxTicket(eventKey);
+      · зовёт consumeCustomerInboxTicket()
+  - return;
+    · дальше не идёт, ничего не меняя
 - await consumeCustomerInboxTicket(payload.eventKey);
   · зовёт consumeCustomerInboxTicket()
   - если !/^[a-f0-9]{64}$/.test(eventKey)
