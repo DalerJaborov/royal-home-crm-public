@@ -16,9 +16,9 @@
   "paths": 789,
   "cron": 149,
   "jobs": 37,
-  "conditions": 4356,
-  "untranslatedUnique": 502,
-  "untranslatedTotal": 645,
+  "conditions": 4357,
+  "untranslatedUnique": 501,
+  "untranslatedTotal": 644,
   "partialUnique": 1156,
   "translatedShare": 85
  },
@@ -40,7 +40,6 @@
   "!(await mayUseVideoSession(req, property, session.purpose))",
   "!(await metaCatalogKeyOk(req))",
   "!(await queuePropertySoldStory(property.id))",
-  "!(await resumeHeldCustomerTurn(eventKey))",
   "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
@@ -83330,7 +83329,20 @@
          "raw": "!(await automationSwitchOn(\"botCatchUpEnabled\"))"
         },
         {
-         "t": "если !(await resumeHeldCustomerTurn(eventKey))",
+         "t": "если ответ — «failed»",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка: «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если ответ — «not_eligible»",
          "k": "if",
          "a": [],
          "c": [
@@ -83341,8 +83353,7 @@
            "c": [],
            "more": true
           }
-         ],
-         "raw": "!(await resumeHeldCustomerTurn(eventKey))"
+         ]
         }
        ]
       }

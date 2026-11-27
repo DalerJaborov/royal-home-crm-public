@@ -44,15 +44,26 @@ export const CUSTOMER_TURN_RESUMABLE_REASONS: readonly string[] = [
   "expired",
 ];
 
-/** Сколько переписок ставим в очередь за один тик: у очереди ядра одно место, и живые ходы не должны ждать догоняющих. */
-export const CATCH_UP_PER_TICK = 5;
-/** Окно Meta на ответ — сутки; час запаса на сам ход и очередь. */
-const MAX_AGE = "23 hours";
+/** Сколько догоняющих ходов ставим в очередь за один тик (ревью #503): у очереди ядра одно место, и живые клиенты не
+ *  должны ждать за догоняющими. Один ход раз в две минуты. */
+export const CATCH_UP_PER_TICK = 1;
+/** Бот догоняет только сообщения не старше трёх часов (ревью #503). Старше — ответ бота звучал бы невпопад (пауза 12 ч
+ *  после ответа с телефона, deliveryPause.ts; первый прогон после выката не трогает вчерашнее): такое без ответа идёт
+ *  человеку через одну дверь «бот не ответил клиенту». */
+export const CATCH_UP_MAX_AGE_HOURS = 3;
+const CATCH_UP_MAX_AGE = `${CATCH_UP_MAX_AGE_HOURS} hours`;
+/** До какого возраста зовём человека по сообщению, которое бот не догоняет: окно Meta на ответ — сутки. */
+const REPORT_MAX_AGE = "23 hours";
+/** Сколько невозобновимых ходов отдаём человеку за тик; дверь идемпотентна по эпизоду молчания. */
+const REPORT_PER_TICK = 10;
+/** Сколько раз задание пробует возобновить ход при сбое базы, прежде чем отдать человеку (customerInboxConsume.ts). */
+export const CATCH_UP_MAX_ATTEMPTS = 5;
 /** Моложе — не трогаем: удержанный ход мог ещё не закончить свои повторы (возобновление отложенного — через 15 с). */
 const MIN_AGE = "1 minute";
 /** Пачка сообщений, на которую отвечаем вместе (та же граница, что у customerDeferredInput.ts). */
 const BURST = "10 minutes";
-/** Пауза кончилась недавно — тогда и только тогда зовём человека по невозобновимому ходу (дальше — сторож #174). */
+/** Пауза кончилась недавно — тогда и только тогда зовём человека по невозобновимому ходу: пока шла пауза, дверь «бот не
+ *  ответил» считала переписку отвеченной и молчала; без паузы ядро позвало человека само в момент удержания. */
 const PAUSE_JUST_ENDED = "30 minutes";
 
 export const catchUpJobKey = (eventKey: string) => `customer-inbox-catch-up:${eventKey}`;
@@ -61,7 +72,7 @@ type Candidate = { eventKey: string; errorCode: string };
 
 /** Последнее принятое сообщение переписки ядра, удержано, без ответа нашей стороны. Одно условие — для отбора
  *  сторожем и для сверки в момент возобновления, чтобы они не разъехались. */
-function unansweredLatestHeld(minAge: string): Prisma.Sql {
+function unansweredLatestHeld(minAge: string, maxAge: string): Prisma.Sql {
   return Prisma.sql`
     FROM "CustomerPropertyIngressTicket" t
     JOIN "CustomerInquiry" i ON i."lastAcceptedEventKey" = t."eventKey"
@@ -72,28 +83,27 @@ function unansweredLatestHeld(minAge: string): Prisma.Sql {
       AND t."originVersion" = 1 AND t."payloadVersion" = 1 AND t."inputRecordedAt" IS NOT NULL
       AND t."managedOutputRecordedAt" IS NULL AND t."plannedAt" IS NULL AND t."leaseOwner" IS NULL
       AND t."conversationId" = t."originalConversationId"
-      AND t."receivedAt" > now() - ${MAX_AGE}::interval AND t."receivedAt" < now() - ${minAge}::interval
+      AND t."receivedAt" > now() - ${maxAge}::interval AND t."receivedAt" < now() - ${minAge}::interval
       AND NOT EXISTS (SELECT 1 FROM "CustomerOutboxPart" p WHERE p."ticketEventKey" = t."eventKey")
       AND c."optedOutAt" IS NULL AND c."propertyChatAgentId" IS NULL
       AND (c."pausedUntil" IS NULL OR c."pausedUntil" <= now())
       -- После сообщения клиента наша сторона не говорила: последняя реплика — его собственная (не эхо сотрудника
-      -- из телефона с автором "by", не тихая запись системы).
+      -- из телефона с автором "by").
       AND jsonb_typeof(c.messages) = 'array' AND jsonb_array_length(c.messages) > 0
-      AND (c.messages -> -1 ->> 'role') = 'user' AND (c.messages -> -1 -> 'by') IS NULL
-      AND COALESCE(c.messages -> -1 ->> 'silentCapture', 'false') <> 'true'`;
+      AND (c.messages -> -1 ->> 'role') = 'user' AND (c.messages -> -1 -> 'by') IS NULL`;
 }
 
 export interface CustomerCatchUpResult { queued: number; reported: number }
 
 /** Тик сторожа. Не бросает: сбой уходит в журнал одной строкой. */
-export async function runCustomerTurnCatchUpTick(options: { minAge?: string } = {}): Promise<CustomerCatchUpResult> {
-  const minAge = options.minAge ?? MIN_AGE;
+export async function runCustomerTurnCatchUpTick(options: { minAge?: string; maxAge?: string } = {}): Promise<CustomerCatchUpResult> {
+  const minAge = options.minAge ?? MIN_AGE, maxAge = options.maxAge ?? CATCH_UP_MAX_AGE;
   const result: CustomerCatchUpResult = { queued: 0, reported: 0 };
   try {
     if (!(await automationSwitchOn("botCatchUpEnabled"))) return result;
     const resumable = await prisma.$queryRaw<Candidate[]>`
       SELECT t."eventKey", t."errorCode"
-      ${unansweredLatestHeld(minAge)}
+      ${unansweredLatestHeld(minAge, maxAge)}
         AND t."resumedAt" IS NULL AND t."agentRevisionId" IS NULL AND t."providerOperationId" IS NULL
         AND NOT EXISTS (SELECT 1 FROM "BackgroundJob" j WHERE j."dedupeKey" = 'customer-inbox-catch-up:' || t."eventKey")
       ORDER BY t."receivedAt" ASC LIMIT ${CATCH_UP_PER_TICK}`;
@@ -101,22 +111,27 @@ export async function runCustomerTurnCatchUpTick(options: { minAge?: string } = 
       try {
         // Один ключ на билет: два сторожа в ту же секунду ставят одно задание, второе — P2002 и пропуск.
         await prisma.backgroundJob.create({ data: { type: "customer-inbox-consume",
-          payload: { version: 1, eventKey: row.eventKey, resume: true }, maxAttempts: 5, dedupeKey: catchUpJobKey(row.eventKey) } });
+          payload: { version: 1, eventKey: row.eventKey, resume: true }, maxAttempts: CATCH_UP_MAX_ATTEMPTS, dedupeKey: catchUpJobKey(row.eventKey) } });
         result.queued++;
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) throw error;
       }
     }
-    // Пин хода уже был (модель закреплялась, ход сорвался) — второй ход того же сообщения невозможен по устройству
-    // ядра. Пока шла пауза, «бот не ответил» молчал (переписка считалась отвеченной): пауза только что кончилась —
-    // человек узнаёт сейчас. Дверь сама не шлёт второй сигнал на тот же эпизод молчания.
-    const pinned = await prisma.$queryRaw<Candidate[]>`
+    // Бот этот ход не догоняет: пин хода уже был (модель закреплялась — второй ход того же сообщения невозможен по
+    // устройству ядра) или сообщение старше окна догоняния. Пока шла пауза, «бот не ответил» молчал (переписка
+    // считалась отвеченной): пауза только что кончилась — человек узнаёт сейчас, а не молча никогда. Дверь сама не шлёт
+    // второй сигнал на тот же эпизод (silenceAlertFor); такие переписки — в конце списка, чтобы очередь двигалась.
+    const forHuman = await prisma.$queryRaw<Candidate[]>`
       SELECT t."eventKey", t."errorCode"
-      ${unansweredLatestHeld(minAge)}
-        AND t."agentRevisionId" IS NOT NULL
+      ${unansweredLatestHeld(minAge, REPORT_MAX_AGE)}
+        AND (t."agentRevisionId" IS NOT NULL OR t."receivedAt" <= now() - ${maxAge}::interval)
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now() - ${PAUSE_JUST_ENDED}::interval
-      ORDER BY t."receivedAt" ASC LIMIT ${CATCH_UP_PER_TICK}`;
-    for (const row of pinned) {
+      ORDER BY (c."silenceAlertFor" IS NOT NULL AND c."silenceAlertFor" >= COALESCE((
+          SELECT max((m.elem ->> 'at')::timestamptz AT TIME ZONE 'UTC') FROM jsonb_array_elements(c.messages) m(elem)
+          WHERE m.elem ->> 'role' = 'assistant' AND m.elem ->> 'at' IS NOT NULL), '-infinity'::timestamp)) ASC,
+        t."receivedAt" ASC
+      LIMIT ${REPORT_PER_TICK}`;
+    for (const row of forHuman) {
       await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
       result.reported++;
     }
@@ -128,33 +143,38 @@ export async function runCustomerTurnCatchUpTick(options: { minAge?: string } = 
   return result;
 }
 
+/** resumed — часы поставлены этим вызовом; not_eligible — условия изменились или ход уже возобновляли; failed — сбой базы
+ *  (взаимная блокировка, обрыв): не то же самое, что «условия изменились», задание повторит попытку. */
+export type CustomerResumeOutcome = "resumed" | "not_eligible" | "failed";
+
 /**
  * Возобновляет ОДИН удержанный ход в момент, когда задание очереди до него дошло: те же условия ещё раз (сотрудник мог
- * ответить, пауза — встать снова), часы хода с этого момента, соседние удержанные сообщения той же пачки — в слова этого
- * хода. true — часы поставлены этим вызовом; второй вызов по тому же билету — false (CAS и триггер в базе). Не бросает.
+ * ответить, пауза — встать снова, сообщение могло выйти из окна), часы хода с этого момента, соседние удержанные
+ * сообщения той же пачки — в слова этого хода. Второй вызов по тому же билету — not_eligible (CAS и триггер в базе).
+ * Не бросает: сбой — failed и строка в журнал.
  */
-export async function resumeHeldCustomerTurn(eventKey: string): Promise<boolean> {
-  if (!/^[a-f0-9]{64}$/.test(eventKey)) return false;
+export async function resumeHeldCustomerTurn(eventKey: string): Promise<CustomerResumeOutcome> {
+  if (!/^[a-f0-9]{64}$/.test(eventKey)) return "not_eligible";
   try {
     return await prisma.$transaction(async (tx) => {
       const [row] = await tx.$queryRaw<Array<Candidate & { order: bigint; scopeKey: string; endpointScopeId: string }>>`
         SELECT t."eventKey", t."errorCode", t."order", t."scopeKey", t."endpointScopeId"
-        ${unansweredLatestHeld("0 seconds")}
+        ${unansweredLatestHeld("0 seconds", CATCH_UP_MAX_AGE)}
           AND t."eventKey" = ${eventKey} AND t."resumedAt" IS NULL AND t."agentRevisionId" IS NULL AND t."providerOperationId" IS NULL
         FOR UPDATE OF t`;
-      if (!row) return false;
+      if (!row) return "not_eligible" as const;
       // Часы хода — часы сервера (new Date()), как и все сроки хода ядра (customerAgentRevision.ts), а не часы базы.
       const changed = await tx.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "resumedAt" = ${new Date()}
         WHERE "eventKey" = ${eventKey} AND "resumedAt" IS NULL AND "processingState" = 'HELD' AND "errorCode" = ${row.errorCode}
           AND "agentRevisionId" IS NULL AND "providerOperationId" IS NULL AND "leaseOwner" IS NULL`;
-      if (changed !== 1) return false;
+      if (changed !== 1) return "not_eligible" as const;
       await carryBurst(tx, row);
-      return true;
+      return "resumed" as const;
     });
   } catch (error) {
-    void logSystemError("ai", `Не удалось возобновить ход бота после паузы: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+    void logSystemError("ai", `Не удалось возобновить ход бота после паузы (задание повторит): ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
       { dedupKey: "customer-turn-catch-up-resume-failed", quietPult: true });
-    return false;
+    return "failed";
   }
 }
 
@@ -170,14 +190,17 @@ async function carryBurst(tx: TxClient, row: { eventKey: string; order: bigint; 
         AND x."endpointScopeId" = d."endpointScopeId" AND x."order" > d."order" AND x."processingState" = 'PLANNED')`;
 }
 
-/** Ход задания с пометкой resume: возобновить (если ещё можно) и пройти обычным путём ядра. Не возобновилось — ход не
- *  идёт: условия изменились (ответил сотрудник, снова пауза, клиент написал новое). Повтор того же задания после сбоя
- *  (часы уже стоят, ответа ещё нет) — ход идёт: проверки ядра те же, срок отсчитывается от первого возобновления. */
+/** Ход задания с пометкой resume: возобновить (если ещё можно) и пройти обычным путём ядра. Условия изменились (ответил
+ *  сотрудник, снова пауза, клиент написал новое) — ход не идёт. Сбой базы при возобновлении — исключение: очередь повторит
+ *  задание (до CATCH_UP_MAX_ATTEMPTS раз, дальше — человеку через onGiveUp в customerInboxConsume.ts). Повтор того же
+ *  задания после сбоя хода (часы уже стоят, ответа ещё нет) — ход идёт: проверки ядра те же, срок — от возобновления. */
 export async function runCustomerCatchUpTurn(eventKey: string): Promise<
   Awaited<ReturnType<typeof import("./customerIngressProducer.js")["consumeCustomerInboxTicket"]>> | null
 > {
   if (!(await automationSwitchOn("botCatchUpEnabled"))) return null;
-  if (!(await resumeHeldCustomerTurn(eventKey))) {
+  const outcome = await resumeHeldCustomerTurn(eventKey);
+  if (outcome === "failed") throw new Error("Догоняющий ход: сбой базы при возобновлении, задание повторит попытку");
+  if (outcome === "not_eligible") {
     const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumedAt: true, processingState: true } });
     if (!ticket?.resumedAt || ticket.processingState === "PLANNED") return null;
   }

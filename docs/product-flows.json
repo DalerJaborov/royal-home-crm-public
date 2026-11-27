@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4395,
+  "forks": 4396,
   "mounts": 87,
   "cron": 149,
   "jobs": 37,
@@ -95290,7 +95290,7 @@
           },
           {
            "k": "do",
-           "t": "const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestHeld…",
+           "t": "const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestHe…",
            "a": [
             "обращается к базе своим SQL"
            ],
@@ -95298,7 +95298,7 @@
           },
           {
            "k": "loop",
-           "t": "для каждого: const row of pinned",
+           "t": "для каждого: const row of forHuman",
            "a": [],
            "c": [
             {
@@ -130037,8 +130037,31 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const outcome = await resumeHeldCustomerTurn(eventKey);",
+         "a": [
+          "зовёт resumeHeldCustomerTurn()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
-         "t": "!(await resumeHeldCustomerTurn(eventKey))",
+         "t": "outcome === \"failed\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new Error(\"Догоняющий ход: сбой базы при возобновлении, задание повторит попытку\");",
+           "a": [
+            "ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "outcome === \"not_eligible\"",
          "a": [],
          "c": [
           {

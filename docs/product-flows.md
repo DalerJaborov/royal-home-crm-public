@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4395**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4396**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21266,9 +21266,9 @@
           - если !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
             - throw error;
               · пробрасывает ошибку дальше
-      - const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestHeld…
+      - const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestHe…
         · обращается к базе своим SQL
-      - для каждого: const row of pinned
+      - для каждого: const row of forHuman
         - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
           · зовёт reportUnansweredCustomerTurn()
     - если сорвалось
@@ -28676,7 +28676,12 @@
     - если !(await automationSwitchOn("botCatchUpEnabled"))
       - return null;
         · дословно из кода
-    - если !(await resumeHeldCustomerTurn(eventKey))
+    - const outcome = await resumeHeldCustomerTurn(eventKey);
+      · зовёт resumeHeldCustomerTurn()
+    - если outcome === "failed"
+      - throw new Error("Догоняющий ход: сбой базы при возобновлении, задание повторит попытку");
+        · ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»
+    - если outcome === "not_eligible"
       - const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…
         · читает в базе: customerPropertyIngressTicket
       - если !ticket?.resumedAt || ticket.processingState === "PLANNED"

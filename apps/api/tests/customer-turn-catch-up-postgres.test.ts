@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGoldenFixture.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
-import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn, runCustomerCatchUpTurn } from "../src/lib/customerTurnCatchUp.js";
+import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn, runCustomerCatchUpTurn, CATCH_UP_MAX_AGE_HOURS, CATCH_UP_MAX_ATTEMPTS } from "../src/lib/customerTurnCatchUp.js";
 import { findStuckConversations } from "../src/lib/stuckConversations.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
@@ -125,9 +125,10 @@ it("два сторожа одновременно: ход возобновля�
   expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-inbox-catch-up:${asked}` } })).toBe(1);
   // Два исполнителя одного хода одновременно — часы ставит ровно один.
   const resumes = await Promise.all([resumeHeldCustomerTurn(asked), resumeHeldCustomerTurn(asked)]);
-  expect(resumes.filter(Boolean)).toHaveLength(1);
+  expect(resumes.filter((r) => r === "resumed")).toHaveLength(1);
+  expect(resumes.filter((r) => r === "not_eligible")).toHaveLength(1);
   expect((await ticket(asked)).resumedAt).not.toBeNull();
-  expect(await resumeHeldCustomerTurn(asked)).toBe(false);
+  expect(await resumeHeldCustomerTurn(asked)).toBe("not_eligible");
   // База сама не даёт второй раз поставить часы хода (триггер customer_ticket_resume_once).
   await expect(prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "resumedAt" = now() WHERE "eventKey" = ${asked}`).rejects.toThrow();
 }, 90_000);
@@ -152,3 +153,75 @@ it("клиент просил не писать или сотрудник уже
   expect(await runCustomerCatchUpTurn(asked)).toBeNull();
   expect((await ticket(asked)).resumedAt).toBeNull();
 }, 90_000);
+
+/** Переписка ядра: бот ответил клиенту, сотрудник ответил руками (короткая пауза), клиент написал на паузе — ход удержан. */
+async function heldDuringPause(text: string, pauseMs = 3_000) {
+  const owner = await f.owner();
+  const opener = await f.capture(owner, "Салом, хона мефурӯшед?");
+  f.script([[reply([], "property")]]);
+  await f.deliver(opener);
+  const conversationId = (await ticket(opener)).conversationId!;
+  const until = await staffRepliesAndPauses(conversationId, pauseMs);
+  const asked = await f.capture(owner, text);
+  catchUpKeys.push(asked);
+  expect((await consumeCustomerInboxTicket(asked)).status).toBe("held");
+  await waitPast(until);
+  return { conversationId, asked };
+}
+const setSwitch = (on: boolean) => prisma.settings.update({ where: { id: "singleton" }, data: { botCatchUpEnabled: on } });
+
+it("«Бессрочно», «не пишите мне» и выключенный рубильник: бот не догоняет; всё снято — догоняет", async () => {
+  const { conversationId, asked } = await heldDuringPause("Нархи хонаи дуҳуҷрагӣ чанд аст?");
+  const tick = () => runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
+
+  // Сотрудник поставил «Бессрочно» (пресет — 10 лет вперёд, conversationDelivery.ts).
+  await prisma.botConversation.update({ where: { id: conversationId }, data: { pausedUntil: new Date(Date.now() + 10 * 365 * 24 * 3_600_000) } });
+  await tick();
+  expect(await job(asked)).toBeNull();
+
+  // Пауза снята, но клиент просил не писать.
+  await prisma.botConversation.update({ where: { id: conversationId }, data: { pausedUntil: new Date(Date.now() - 1_000), optedOutAt: new Date() } });
+  await tick();
+  expect(await job(asked)).toBeNull();
+
+  // «Не пишите» снято, но рубильник «Бот сам догоняет после паузы» выключен: ни задания, ни хода.
+  await prisma.botConversation.update({ where: { id: conversationId }, data: { optedOutAt: null } });
+  await setSwitch(false);
+  try {
+    await tick();
+    expect(await job(asked)).toBeNull();
+    expect(await runCustomerCatchUpTurn(asked)).toBeNull();
+    expect((await ticket(asked)).resumedAt).toBeNull();
+  } finally {
+    await setSwitch(true);
+  }
+
+  // Всё снято — сторож ставит задание (значит, мешало именно перечисленное выше).
+  await tick();
+  expect(await job(asked)).toMatchObject({ status: "PENDING", maxAttempts: CATCH_UP_MAX_ATTEMPTS });
+}, 120_000);
+
+it("граница окна: сообщение старше окна бот не догоняет, а отдаёт человеку; в окне — догоняет", async () => {
+  expect(CATCH_UP_MAX_AGE_HOURS).toBe(3);
+  const { asked } = await heldDuringPause("Хонаи сеҳуҷрагӣ дар Шоҳмансур ҳаст?");
+  await sleep(1_200);
+  // Окно в одну секунду (в бою — три часа): сообщение уже за границей — задания нет, переписка уходит человеку.
+  const outside = await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 second" });
+  expect(await job(asked)).toBeNull();
+  expect(outside.reported).toBeGreaterThanOrEqual(1);
+  // То же сообщение в окне часа — задание ставится.
+  await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 hour" });
+  expect(await job(asked)).toMatchObject({ status: "PENDING" });
+}, 120_000);
+
+it("сбой базы при возобновлении — не «условия изменились»: задание падает и повторяет попытку, потом возобновляет", async () => {
+  const { asked } = await heldDuringPause("Нархаш чанд аст?");
+  vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(new Error("deadlock detected"));
+  // Исключение — очередь повторит задание (до CATCH_UP_MAX_ATTEMPTS раз, потом человеку через onGiveUp).
+  await expect(runCustomerCatchUpTurn(asked)).rejects.toThrow(/повторит/);
+  expect((await ticket(asked)).resumedAt).toBeNull();
+  vi.restoreAllMocks();
+  // Следующая попытка проходит: часы хода поставлены ровно один раз.
+  expect(await resumeHeldCustomerTurn(asked)).toBe("resumed");
+  expect((await ticket(asked)).resumedAt).not.toBeNull();
+}, 120_000);
