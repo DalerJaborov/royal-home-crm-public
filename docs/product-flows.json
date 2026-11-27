@@ -90511,7 +90511,7 @@
         },
         {
          "k": "do",
-         "t": "return prisma.$transaction(async (tx)",
+         "t": "const result = await prisma.$transaction(async (tx)",
          "a": [
           "ошибка Error — «очередь тревог руководству недоступна»",
           "всё внутри — одной транзакцией",
@@ -90666,6 +90666,21 @@
              "c": []
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const text of said",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendSilenceTelegram(text, now);",
+           "a": [
+            "зовёт sendSilenceTelegram()"
+           ],
+           "c": []
           }
          ]
         }

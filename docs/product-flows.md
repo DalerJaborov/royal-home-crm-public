@@ -20245,7 +20245,7 @@
         · дословно из кода
     - const snapshot = await loadSilenceSnapshot(now);
       · зовёт loadSilenceSnapshot()
-    - return prisma.$transaction(async (tx)
+    - const result = await prisma.$transaction(async (tx)
       · ошибка Error — «очередь тревог руководству недоступна»
       · всё внутри — одной транзакцией
       · обращается к базе своим SQL
@@ -20283,6 +20283,9 @@
       - если decision.kind === "close" && open
         - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
           · меняет в базе: botSilenceIncident
+    - для каждого: const text of said
+      - await sendSilenceTelegram(text, now);
+        · зовёт sendSilenceTelegram()
   - если alerted
     - console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
       · пишет строку в журнал сервера

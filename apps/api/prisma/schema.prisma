@@ -7548,6 +7548,8 @@ model Settings {
   /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
   /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
   botSilenceWatchEnabled                Boolean @default(true)
+  /// Дублировать уведомление сторожа «бот замолчал» директору и администратору в Telegram (27.11.2026), ВКЛ по умолчанию.
+  botSilenceTelegramEnabled             Boolean @default(true)
   /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
   /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
   /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
