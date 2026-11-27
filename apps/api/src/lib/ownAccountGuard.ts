@@ -26,6 +26,7 @@
 
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { knownWhatsappOwnDigits, resetWhatsappOwnNumbersCache } from "./whatsappOwnNumbers.js";
 
 /** Ники и идентификаторы наших аккаунтов. Кэш на минуту: проверка стоит на пути
  *  каждого входящего, а состав аккаунтов меняется раз в месяц. */
@@ -53,6 +54,7 @@ async function ownIdentities(): Promise<{ usernames: Set<string>; externalIds: S
 /** Сбрасывается вместе с кэшем аккаунтов (правка в Настройках). */
 export function resetOwnAccountCache(): void {
   cache = null;
+  resetWhatsappOwnNumbersCache();
 }
 
 /**
@@ -65,9 +67,13 @@ export function resetOwnAccountCache(): void {
 export async function isOwnAccountSender(input: {
   senderId: string;
   senderName?: string | null;
+  /** Канал входящего. В WhatsApp отправитель — номер телефона, и он сверяется с цифрами
+   *  наших номеров (lib/whatsappOwnNumbers.ts, 27.11.2026): с phone_number_id он не совпадает никогда. */
+  channel?: string;
 }): Promise<boolean> {
   const { usernames, externalIds } = await ownIdentities();
   if (externalIds.has(input.senderId)) return true;
+  if (input.channel === "WHATSAPP" && (await knownWhatsappOwnDigits()).has(input.senderId.replace(/^\+/, ""))) return true;
   if (!input.senderName) return false;
   return usernames.has(normalize(input.senderName));
 }

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4370**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4374**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18892,6 +18892,8 @@
       · ответ 200
 - handleWhatsappCallEvents(req.body);
   · зовёт handleWhatsappCallEvents()
+- await learnWhatsappOwnNumbersFromWebhook(req.body);
+  · зовёт learnWhatsappOwnNumbersFromWebhook()
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -19036,7 +19038,7 @@
               · зовёт resolveCustomerEndpoint()
             - const senderName = msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.…
               · читает в базе: botConversation
-            - если await isOwnAccountSender({ senderId: msg.senderId, senderName })
+            - если await isOwnAccountSender({ senderId: msg.senderId, senderName, channel: msg.channel })
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
@@ -22198,6 +22200,39 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сторожа ников Instagram", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- пробует
+  - const { fetched, held, alerted } = await runWhatsappOwnNumberGuard();
+    · зовёт runWhatsappOwnNumberGuard()
+    - const fetched = await fetchMissingWhatsappOwnNumbers();
+      · зовёт fetchMissingWhatsappOwnNumbers()
+    - если !held
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - const [settings, accounts, registry] = await Promise.all([ prisma.settings.findUnique({ where: { id: "singlet…
+      · читает в базе: settings
+      · читает в базе: messengerAccount
+    - если !missing.length
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - await logSystemError("ai", `Бот не отвечает в WhatsApp: ${held} входящих задержаны, потому что CRM не знает н…
+      · запись в журнал ошибок
+    - const already = await prisma.pendingDirectorAlert.findFirst({ where: { tag: WA_OWN_NUMBER_ALERT_TAG, createdA…
+      · читает в базе: pendingDirectorAlert
+    - если already
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - await enqueueDirectorAlert({ title: "Бот молчит в WhatsApp — клиенты без ответа", body: `CRM не знает номер $…
+      · зовёт enqueueDirectorAlert()
+  - если fetched || held
+    - console.log(`[cron] Номера WhatsApp: узнано ${fetched}, задержано входящих ${held}${alerted ? ", тревога дире…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа номеров WhatsApp", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
