@@ -1114,6 +1114,10 @@
    цифры, а табличные — только у чисел (свои правила экранов и список ниже), и те в Geist (как `.num`). */
 :root[data-ui-look="royal"] .clean-shell .clean,
 :root[data-ui-look="royal"] .rh2 { font-variant-numeric: normal; }
+/* Главный источник разрыва — `font-feature-settings: 'tnum'` на body (index.css): он включал табличные
+   цифры ВСЕМУ тексту в обход font-variant-numeric. Под «Новым видом» на body остаются только варианты
+   букв Onest; табличные цифры — у тех, кто просит их сам (font-variant-numeric: tabular-nums). */
+:root[data-ui-look="royal"] body { font-feature-settings: 'cv02', 'cv03'; }
 :root[data-ui-look="royal"] :is(.num, .ry-num, [data-num], time, [data-unread-badge], [data-tab-badge], .clean-nav-count, .ry-badge,
   .ry-chat-time, .ry-chat-wait, .ry-chat-archive-n, .clean-conversation .bub .tm, .ry-crow-id, .ry-obj-head-code) {
   font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums;
