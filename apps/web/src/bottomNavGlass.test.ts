@@ -50,11 +50,24 @@ describe("нижнее меню телефона: стекло, а не сера
     expect(Number(filter![2])).toBeGreaterThanOrEqual(140);
   });
 
-  it("выбранный раздел — синей таблеткой, не белой на сером", () => {
+  // 27.11.2026 (пачка shell2): «нижнее меню как в макете» — выбранный раздел белой таблеткой с чёрным
+  // залитым значком (прежняя синяя таблетка 26.11 снята заданием владельца). Таблетка отличима от
+  // капсулы тенью; без стекла капсула светло-серая, а не белая — белая таблетка на ней видна сама.
+  it("выбранный раздел — белой таблеткой с чёрным значком и тенью; без стекла капсула не белая", () => {
     const active = bodiesOf(royal, `${NAV} .sh-tab[aria-current="page"]`).join("\n");
     expect(active).toMatch(/background:\s*var\(--rh-ui-nav-on\)/);
     expect(active).toMatch(/color:\s*var\(--rh-ui-nav-on-fg\)/);
-    expect(tokenAfter(royal, ':root[data-ui-look="royal"] {', "--rh-ui-nav-on")).toBe("var(--rh-ui-primary-soft)");
+    expect(active).toMatch(/box-shadow:\s*var\(--rh-ui-nav-on-shadow\)/);
+    expect(tokenAfter(royal, ':root[data-ui-look="royal"] {', "--rh-ui-nav-on")).toBe("#ffffff");
+    expect(tokenAfter(royal, ':root[data-ui-look="royal"] {', "--rh-ui-nav-on-fg")).toBe("#0e0f12");
+    expect(tokenAfter(royal, ':root[data-ui-look="royal"] {', "--rh-ui-nav-solid")).not.toBe("#ffffff");
+  });
+
+  it("меню отвечает сразу: без перехода, анимации и отклика нажатием (макет)", () => {
+    const tab = bodiesOf(royal, `${NAV} .sh-tab`).join("\n");
+    expect(tab).toMatch(/transition:\s*none/);
+    expect(tab).toMatch(/animation:\s*none/);
+    expect(bodiesOf(royal, `${NAV} .sh-tab:active`).join("\n")).toMatch(/transform:\s*none/);
   });
 
   it("тумблер «Эффект стекла» гасит стекло капсулы", () => {

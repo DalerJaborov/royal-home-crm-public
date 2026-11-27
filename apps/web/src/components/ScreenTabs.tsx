@@ -3,6 +3,8 @@ import type { PermissionId } from "@royal-home/shared";
 import { useCan } from "../lib/permissions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useNarrowScreen } from "../hooks/useNarrowScreen";
+import { useRoyalLookAttr } from "./look/team/useRoyalLookAttr";
+import { RoyalPicker } from "./look/shell/RoyalPicker";
 
 /**
  * ОДИН вид вкладок на все свёрнутые разделы CRM.
@@ -70,6 +72,7 @@ export function ScreenTabs({ tabs, right }: { tabs: ScreenTab[]; right?: React.R
   const narrow = useNarrowScreen();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const royal = useRoyalLookAttr();
   const visible = visibleScreenTabs(tabs, can);
 
   // Одна вкладка — это не выбор, а подпись: полоса из единственной пилюли
@@ -85,10 +88,17 @@ export function ScreenTabs({ tabs, right }: { tabs: ScreenTab[]; right?: React.R
       ?? bySpecificity.find((tab) => matchPath({ path: tab.to.split(/[?#]/)[0], end: false }, pathname));
     return (
       <nav className="clean-section-switcher" aria-label="Разделы экрана">
+        {/* «Новый вид» (пачка shell2, 27.11.2026): та же навигация шторкой выбора вместо серого
+            списка браузера. Состав, права и переход — те же. */}
+        {royal ? (
+          <RoyalPicker label="Перейти в раздел" title="Разделы" value={active?.to ?? ""} placeholder="Выберите раздел" onChange={navigate}
+            options={visible.map((tab) => ({ value: tab.to, label: tab.label, hint: typeof tab.count === "number" ? (tab.count > 99 ? "99+" : String(tab.count)) : undefined }))} />
+        ) : (
         <select aria-label="Перейти в раздел" value={active?.to ?? ""} onChange={(event) => navigate(event.target.value)}>
           {!active && <option value="" disabled>Выберите раздел</option>}
           {visible.map((tab) => <option key={tab.to} value={tab.to}>{tab.label}{typeof tab.count === "number" ? ` · ${tab.count > 99 ? "99+" : tab.count}` : ""}</option>)}
         </select>
+        )}
         {right && <div className="clean-section-switcher-actions">{right}</div>}
       </nav>
     );
