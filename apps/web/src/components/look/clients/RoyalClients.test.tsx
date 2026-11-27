@@ -44,7 +44,16 @@ describe("строка клиента нового вида", () => {
     }
     expect(royal({ lastContact: "контакта ещё не было" })).toContain("контакта ещё не было");
     // Даты нет (заявка не ваша) — строки нет вовсе, а не «связывались …».
-    expect(royal({ lastContact: null })).not.toContain("ry-crow-when");
+    // С 27.11 (пачка shell2) в строке фактов телефона стоит и ответственный: даты нет — нет только её.
+    expect(royal({ lastContact: null })).not.toContain("ry-crow-last");
+    expect(royal({ lastContact: null })).toContain('ry-crow-agent-inline">Фаррух<');
+    expect(royal({ lastContact: null, showAgent: false })).not.toContain("ry-crow-when");
+  });
+
+  it("телефон: ответственный в той же строке фактов, что и контакт; на ПК — своя колонка (оба на месте)", () => {
+    const html = royal({ actions: null });
+    expect(html).toMatch(/ry-crow-last">последний контакт 19\.11<\/span><span class="ry-crow-hint ry-crow-agent-inline"> · Фаррух</);
+    expect(html).toContain('class="ry-crow-agent"');
   });
   it("факт «ждёт принятия» — единственная метка, приходит готовой", () => {
     expect(royal({ fact: <span className="chip">ждёт принятия</span> })).toContain("ждёт принятия");

@@ -22,7 +22,9 @@ describe("нижнее меню: общая переменная оболочк�
 
   it("запас страницы под меню берётся из переменной, а не из своих чисел", () => {
     const values = [...base.matchAll(/\.app-main-col\s*\{[^}]*padding-bottom\s*:\s*([^;}]+)/g)].map((m) => m[1].trim());
-    expect(values.filter((v) => v === "var(--rh-nav-clear)").length).toBeGreaterThanOrEqual(2); // телефон и сенсорный планшет
+    // Телефон. Сенсорному планшету 1024+ запас больше не нужен: с 27.11.2026 (пачка shell2) у него внизу
+    // ничего нет — «+» переехал из угла в шапку.
+    expect(values.filter((v) => v === "var(--rh-nav-clear)").length).toBeGreaterThanOrEqual(1);
     expect(values.filter((v) => /safe-area/.test(v) && /\b(96|102|104)px/.test(v))).toEqual([]);
   });
 

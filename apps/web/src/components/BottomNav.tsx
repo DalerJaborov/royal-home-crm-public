@@ -1,25 +1,14 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { NavLink } from "react-router-dom";
-import { Grip, Plus } from "lucide-react";
-import { Suspense, useRef, useState } from "react";
+import { Plus } from "lucide-react";
+import { Suspense } from "react";
 import { lazyWithReload } from "../lib/lazyWithReload";
-import { hapticSuccess, hapticTap } from "../lib/haptics";
-/**
- * МЕНЮ «+» ЗАГРУЖАЕТСЯ ПО НАЖАТИЮ (10.09.2026).
- *
- * Оно открывается только по нажатию, но статический импорт тянул его в общий
- * входной кусок сборки, который телефон обязан скачать и разобрать ДО первой
- * отрисовки. Заглушка `null`: меню — поверхность поверх экрана, мигать пустой
- * шторкой хуже, чем открыться на кадр позже; файл предзагружается service
- * worker, поэтому и офлайн меню открывается.
- */
-const FabMenu = lazyWithReload(() => import("./FabMenu").then((m) => ({ default: m.FabMenu })));
-// Панель ассистента — общей обёрткой на все места оболочки (там же разобрано,
-// почему ленивый импорт обязан быть во ВСЕХ них, иначе сборщик оставляет модуль
-// во входном куске).
-import { preloadAssistantPanel } from "./AssistantPanelLazy";
-import { useAssistantUi } from "../store/assistantUi";
-import { useSettings } from "../hooks/useSettings";
+import { hapticTap } from "../lib/haptics";
+// Логика «+» (меню быстрых действий по нажатию, голос по удержанию 450 мс, кольцо) —
+// одна на две кнопки: эту и «+» в шапке «Нового вида» (components/quickCreate.tsx).
+// Меню грузится по нажатию (10.09.2026), заглушка `null` — см. там же.
+import { QuickCreateRing, useQuickCreate } from "./quickCreate";
+import { useTodayBadge } from "./look/shell/useTodayBadge";
 // Состав вкладок — из общего реестра разделов (lib/navigation.ts). Раньше он был
 // прошит здесь отдельным списком и расходился с сайдбаром: 2+2 вокруг «+»
 // подбирались вручную, а подписи и счётчики жили в двух местах сразу.
@@ -103,58 +92,16 @@ function Tab({ to, end, icon: Icon, label, badge, variant, royal }: NavItem & { 
 export function BottomNavSurface({ variant, royal = false, chatOpen = false }: { variant: BottomNavVariant; royal?: boolean; chatOpen?: boolean }) {
   const legacy = variant === "legacy-agent";
   const glass = useUiPrefs((s) => s.glass);
-  const { bottom } = useNavigation();
+  const { bottom, royalBottom } = useNavigation();
   const { left, right } = bottom;
-  const [fabOpen, setFabOpen] = useState(false);
-  // Панель одна на все входы и монтируется в AssistantHost (AppLayout): здесь только
-  // просьба её открыть. Поведение «+» прежнее — удержание открывает сразу с голосом.
-  const openAssistant = useAssistantUi((s) => s.openAssistant);
-  const { data: settings } = useSettings();
-  // Долгое нажатие (не клик) — «Удержите кнопку — заполню голосом» прототипа.
-  // Единственный вход в ассистента на телефоне (14.09.2026, владелец) — тот же
-  // AssistantPanel, что и раньше, только в новом облике (см. его комментарий
-  // «ОБЛИК НА ТЕЛЕФОНЕ»): круг-микрофон, включённый сразу, по свободной речи
-  // ставит задачи/переносит встречи через /ai/assistant.
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFired = useRef(false);
-  /**
-   * Кольцо прогресса вокруг «+» на время удержания (артефакт владельца
-   * c99db05f, блок `.fab`: `fab.classList.add('holding')` на pointerdown).
-   *
-   * Владелец 11.09: «при удержании нет анимации». Удержание 450 мс открывает
-   * голосового ассистента, и до сих пор палец держали вслепую — кнопка не
-   * менялась никак, и было непонятно, сработает ли вообще. Дуга замыкается
-   * ровно за те же 450 мс, что идёт таймер, поэтому она честно показывает
-   * остаток, а не изображает занятость. Правила — блок 7.3
-   * theme-2026-mobile-shell.css (панель живёт вне области `.rh2 .mh`,
-   * перенесённые стили артефакта до неё не достают).
-   */
-  const [holding, setHolding] = useState(false);
-
-  function startLongPress() {
-    if (!settings?.aiAssistantEnabled) return;
-    // Кусок панели начинает скачиваться с касания: за 450 мс удержания он обычно
-    // успевает приехать, и шторка открывается без пустого кадра.
-    preloadAssistantPanel();
-    longPressFired.current = false;
-    setHolding(true);
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      setHolding(false);
-      // Отклик на СРАБАТЫВАНИЕ, а не на касание: в артефакте здесь 15 мс,
-      // то есть заметно длиннее щелчка вкладки (8 мс) — на ощупь это
-      // разные события, и путать их нельзя (см. lib/haptics.ts).
-      hapticSuccess();
-      // Единственный вход в ассистента на телефоне (14.09.2026, владелец):
-      // всегда с голосом сразу, без подсказки — второй режим (тап по пункту
-      // меню с готовым текстом) убран вместе с самим пунктом в FabMenu.tsx.
-      openAssistant({ autoStartVoice: true });
-    }, 450);
-  }
-  function cancelLongPress() {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    setHolding(false);
-  }
+  // «+»: нажатие — меню быстрых действий, удержание — ассистент сразу с голосом (14.09.2026,
+  // владелец: единственный вход в ассистента на телефоне прежнего вида). Кольцо вокруг «+»
+  // замыкается за те же 450 мс, что идёт таймер (владелец 11.09: «при удержании нет анимации»).
+  const quick = useQuickCreate();
+  // Порядок атрибутов разметки — прежний (сторож BottomNav.test.tsx сверяет её байт в байт): обработчики
+  // разметку не меняют, признаки кнопки идут в прежнем порядке ниже.
+  const { "data-holding": _holding, "aria-haspopup": _haspopup, "aria-expanded": _expanded, ...quickHandlers } = quick.buttonProps;
+  void _holding; void _haspopup; void _expanded;
 
   return (
     // Единственный стеклянный слой телефона (контракт 06.10.2026): класс
@@ -177,28 +124,23 @@ export function BottomNavSurface({ variant, royal = false, chatOpen = false }: {
         paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)",
       } : undefined}
     >
+      {royal ? (
+        // «Новый вид» (макет 27.11.2026): пять вкладок без «+» — «+» в шапке (ShellCreateButton).
+        <div className="h-[66px] grid grid-cols-5 items-center px-0.5" data-royal-tabs>
+          <RoyalTabs items={royalBottom} variant={variant} />
+        </div>
+      ) : (
       <div className="h-[66px] grid grid-cols-5 items-center px-0.5">
         {left.map((item) => (
           <Tab key={item.to + item.label} {...item} variant={variant} royal={royal} />
         ))}
         <div className="relative h-full grid place-items-center">
           <button
-            onClick={() => {
-              // Долгое нажатие уже открыло ассистента — клик по отпусканию
-              // пальца не должен вдобавок открыть меню поверх него.
-              if (longPressFired.current) return;
-              tapFeedback();
-              setFabOpen(true);
-            }}
-            onPointerDown={startLongPress}
-            onPointerUp={cancelLongPress}
-            onPointerLeave={cancelLongPress}
-            onPointerCancel={cancelLongPress}
-            onContextMenu={(e) => e.preventDefault()}
-            data-holding={holding ? "true" : undefined}
+            {...quickHandlers}
+            data-holding={quick.buttonProps["data-holding"]}
             aria-label="Быстрые действия, удержите для голосового ввода"
             aria-haspopup="menu"
-            aria-expanded={fabOpen}
+            aria-expanded={quick.open}
             // 56 px: размер FAB контракта. Заливка и тень --shadow-lg: .sh-fab в CSS оболочки.
             data-fab
             className={legacy ? legacyStyle.fab : "sh-fab w-14 h-14 rounded-full flex items-center justify-center relative"}
@@ -207,38 +149,31 @@ export function BottomNavSurface({ variant, royal = false, chatOpen = false }: {
                 сколько прошло, и сколько осталось (правила в блоке 7.3
                 theme-2026-mobile-shell.css). Геометрия из артефакта: viewBox 66,
                 r=31, длина окружности 195 — она же stroke-dasharray. */}
-            <svg data-fab-ring viewBox="0 0 66 66" aria-hidden="true">
-              <circle cx="33" cy="33" r="31" />
-              <circle cx="33" cy="33" r="31" />
-            </svg>
+            <QuickCreateRing />
             <Plus className="w-[22px] h-[22px]" strokeWidth={1.7} />
           </button>
         </div>
         {right.map((item) => (
           <Tab key={item.to + item.label} {...item} variant={variant} royal={royal} />
         ))}
-        {/* «Ещё» — только в рейке планшета «Нового вида» (768–1023, theme-look-royal.css):
-            на телефоне все разделы открывает аватар в шапке, а в рейке аватара нет
-            под рукой. У агента «Ещё» уже есть справа — второй раз не рисуем. */}
-        {royal && !right.some((item) => item.to === "/more") && (
-          <div className="ry-rail-only">
-            <Tab to="/more" icon={Grip} label="Ещё" group="system" variant={variant} royal />
-          </div>
-        )}
       </div>
-      {/* Условный рендер вокруг FabMenu, а не только проп `open`: пока меню не
-          открывали, файл не нужно скачивать вовсе. Само меню проп `open`
-          сохраняет — его анимация закрытия на нём и держится. */}
-      {fabOpen && (
-        <Suspense fallback={null}>
-          {/* Пункта «Спросить ИИ» в этом меню больше нет (14.09.2026): единственный
-              вход в ассистента на телефоне — удержание «+» ниже, onAskAssistant
-              из FabMenu убран вместе с ним. */}
-          <FabMenu open={fabOpen} onClose={() => setFabOpen(false)} />
-        </Suspense>
       )}
+      {/* Шторка быстрых действий: монтируется только по нажатию (quickCreate.tsx). */}
+      {quick.menu}
     </nav>
   );
+}
+
+/**
+ * Пять вкладок «Нового вида». Своим компонентом, чтобы запросы метки «Сегодня» (useTodayBadge — сколько
+ * пунктов «Требует внимания сейчас», только у кого есть право) жили только в новом виде: прежняя панель
+ * их не делает вовсе.
+ */
+function RoyalTabs({ items, variant }: { items: NavItem[]; variant: BottomNavVariant }) {
+  const todayBadge = useTodayBadge(true);
+  return <>{items.map((item) => (
+    <Tab key={item.to + item.label} {...item} badge={item.to === "/" && todayBadge && !item.badge ? todayBadge : item.badge} variant={variant} royal />
+  ))}</>;
 }
 
 export function BottomNav({ royal = false, chatOpen = false }: { royal?: boolean; chatOpen?: boolean }) {
