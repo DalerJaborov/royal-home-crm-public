@@ -44,7 +44,8 @@ import { loadMoneyContext, toTjs } from "../money.js";
 import { logSystemError } from "../systemError.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
 import { automationSwitchOn } from "../automationSwitches.js";
-import { notifyFeedOnly } from "../notifications.js";
+import { createNotificationsStrict } from "../notifications.js";
+import { publishNotificationNew } from "../livePublish.js";
 
 // ───────────────────────────── Правила совпадения ─────────────────────────────
 
@@ -584,7 +585,11 @@ async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof lo
 async function safePush(pushOn: boolean, agentId: string, payload: Parameters<typeof sendPushToAgent>[1] & { kind: string }): Promise<boolean> {
   try {
     if (pushOn) await sendPushToAgent(agentId, payload);
-    else await notifyFeedOnly([agentId], payload);
+    // Строгая запись: сбой ленты обязан бросить, иначе метка notifiedAt останется и событие пропадёт (ревью 27.11).
+    else {
+      await createNotificationsStrict([agentId], payload);
+      publishNotificationNew([agentId]);
+    }
     return true;
   } catch (err) {
     void logSystemError("api", `Пуш о совпадении с площадкой не ушёл: ${err instanceof Error ? err.name : "ошибка"}`, { url: payload.url });

@@ -82,6 +82,8 @@ describe("detectNewInquiryFromKnownClient", () => {
 
     // По умолчанию (владелец 27.11.2026) повтора поверх «Ваш клиент написал» нет — запись выше есть, пуша нет.
     expect(sendPushToAgent.mock.calls.find(([id]) => id === agentId)).toBeUndefined();
+    // Сменился тип клиента — это не повтор: одна строка в колокольчике без звонка телефона (ревью 27.11).
+    expect(await prisma.notification.count({ where: { agentId, tag: `new-inquiry-${client.id}` } })).toBe(1);
   });
 
   it("рубильник notifyRepeatContactPushEnabled ВКЛ — пуш «пишет о новом деле», как раньше", async () => {

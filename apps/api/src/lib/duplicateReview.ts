@@ -33,7 +33,8 @@ import { Prisma } from "../generated/prisma/client.js";
 import type { ClientRecord as Client } from "../db.js";
 import { prisma, type TxClient } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
-import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { sendDevicePushToAgents, sendPushToAgent } from "../push.js";
+import { notifyFeedOnly } from "./notifications.js";
 import { mergeClients } from "./clientMerge.js";
 import { logTimeline } from "./timeline.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -189,8 +190,8 @@ export async function openDuplicateReview(
 
   // Одна запись в колокольчике (владелец 27.11.2026): sendPushToAgent сам пишет ленту; прежняя отдельная запись
   // createNotifications с тем же tag давала строку с «повтором» 2 при одном вопросе.
+  // Без kind, как прежний пуш: вид «Контроль руководителя» агент может выключить себе, а раздача ждёт его ответа.
   sendPushToAgent(candidate.assignedAgentId, {
-    kind: "oversight",
     title: "🔁 Это ваш клиент?",
     body: `Похожая новая заявка: ${newClient.fullName} — подтвердите на карточке №${candidate.shortId}; не раздаём другому, пока вы не ответите`,
     url: `/clients/${candidate.shortId}`,
@@ -245,8 +246,9 @@ export async function checkDuplicateClaimAnomaly(askedAgentId: string, now: Date
     url: `/team`,
     tag: monthTag,
   };
-  // Одна запись в колокольчике: sendPushToAgents сам пишет ленту (27.11.2026).
-  void sendPushToAgents(directorIds, payload).catch((err) => console.error("[alarm] duplicate-claim push:", err));
+  // Одна запись в колокольчике (27.11.2026): ленту пишем и ждём здесь, телефону — только звонок, без второй записи.
+  await notifyFeedOnly(directorIds, payload);
+  void sendDevicePushToAgents(directorIds, payload).catch((err) => console.error("[alarm] duplicate-claim push:", err));
 }
 
 /**
@@ -342,8 +344,9 @@ export async function runDuplicateFuzzyScanTick(now: Date = new Date()): Promise
       url: "/clients",
       tag,
     };
-    // Одна запись в колокольчике: sendPushToAgents сам пишет ленту (27.11.2026).
-    void sendPushToAgents(directorIds, payload).catch((err) => console.error("[alarm] duplicate-fuzzy push:", err));
+    // Одна запись в колокольчике (27.11.2026): ленту пишем и ждём здесь, телефону — только звонок.
+    await notifyFeedOnly(directorIds, payload);
+    void sendDevicePushToAgents(directorIds, payload).catch((err) => console.error("[alarm] duplicate-fuzzy push:", err));
   }
   return { found: pairs.length };
 }
@@ -388,8 +391,10 @@ export async function remindDuplicateReviewsNearingExpiry(now: Date = new Date()
       tag,
       kind: "task" as const,
     };
-    // Одна запись в колокольчике: sendPushToAgent сам пишет ленту (27.11.2026). Ждём его — следующий тик ищет эту запись по tag.
-    await sendPushToAgent(c.duplicateReviewAskedAgentId, payload).catch((err) =>
+    // Одна запись в колокольчике (27.11.2026): ленту пишем и ждём здесь (следующий тик ищет её по tag), телефону —
+    // только звонок, без второй записи.
+    await notifyFeedOnly([c.duplicateReviewAskedAgentId], payload);
+    void sendDevicePushToAgents([c.duplicateReviewAskedAgentId], payload).catch((err) =>
       console.error("[push] предупреждение о проверке дубля:", err)
     );
     reminded++;

@@ -21587,8 +21587,10 @@
     - для каждого: const [a, b] of pairs
       - const payload = { kind: "oversight" as const, title: "🔎 Похожие карточки — проверьте", body: `Найдено ${dush…
         · зовёт dushanbeDateTimeString()
-      - void sendPushToAgents(directorIds, payload).catch((err)
-        · push-уведомление
+      - await notifyFeedOnly(directorIds, payload);
+        · зовёт notifyFeedOnly()
+      - void sendDevicePushToAgents(directorIds, payload).catch((err)
+        · зовёт sendDevicePushToAgents()
   - если found > 0
     - console.log(`[cron] Вероятных дублей по имени/номеру: ${found}`);
       · пишет строку в журнал сервера

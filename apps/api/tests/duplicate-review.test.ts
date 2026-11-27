@@ -155,7 +155,7 @@ describe("intake.ts — придержка похожей новой заявк�
     expect(await prisma.notification.count({ where: { agentId: existingAgentId, tag } })).toBe(1);
     const fresh = await prisma.notification.findUniqueOrThrow({ where: { id: row!.id } });
     expect(fresh.count).toBe(1);
-    expect(fresh.kind).toBe("oversight");
+    expect(fresh.kind).toBe("other"); // не «Контроль руководителя»: его агент может выключить, а раздача ждёт ответа
   });
 
   it("не похожий номер (последние 7 цифр разные) — обычная раздача, без придержки", async () => {

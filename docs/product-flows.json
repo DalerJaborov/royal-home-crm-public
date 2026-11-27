@@ -96796,9 +96796,17 @@
           },
           {
            "k": "do",
-           "t": "void sendPushToAgents(directorIds, payload).catch((err)",
+           "t": "await notifyFeedOnly(directorIds, payload);",
            "a": [
-            "push-уведомление"
+            "зовёт notifyFeedOnly()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void sendDevicePushToAgents(directorIds, payload).catch((err)",
+           "a": [
+            "зовёт sendDevicePushToAgents()"
            ],
            "c": []
           }

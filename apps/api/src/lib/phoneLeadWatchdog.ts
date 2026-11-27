@@ -13,8 +13,8 @@ import { customerRoleSignals } from "../ai/customerAgentRole.js";
 import { phoneTail } from "./clientPhones.js";
 import { maskClientPhone } from "./clientPhone.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
-import { shouldAlert } from "./notifications.js";
-import { sendPushToAgents } from "../push.js";
+import { notifyFeedOnly, shouldAlert } from "./notifications.js";
+import { sendDevicePushToAgents } from "../push.js";
 import { resolveWhatsAppLeadIdentity, WHATSAPP_CHANNEL } from "./whatsappPhone.js";
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./customerLeadOnlyCore.js";
 import { lastAgentContactPromise, PROMISE_GRACE_MS } from "./agentContactPromise.js";
@@ -525,9 +525,10 @@ async function attachKnownClientConversations(rows: PhoneWithoutLead[]): Promise
       url: `/clients/${match.shortId}`,
       tag: `duplicate-review-known-client-${row.conversationId}`,
     };
-    // Одна запись в колокольчике (владелец 27.11.2026): sendPushToAgents сам пишет ленту, отдельная запись перед
-    // ним давала ту же строку дважды — счётчик «повторов» 2 при одном событии.
-    void sendPushToAgents([match.assignedAgentId], payload).catch((err) =>
+    // Одна запись в колокольчике (владелец 27.11.2026): раньше запись + sendPushToAgents (который пишет ленту сам)
+    // давали ту же строку дважды — «повтор» 2 при одном событии. Ленту пишем и ждём здесь, телефону — только звонок.
+    await notifyFeedOnly([match.assignedAgentId], payload).catch((err) => console.error("[alarm] phone-watchdog автопривязка уведомление:", err));
+    void sendDevicePushToAgents([match.assignedAgentId], payload).catch((err) =>
       console.error("[push] phone-watchdog автопривязка:", err)
     );
   }

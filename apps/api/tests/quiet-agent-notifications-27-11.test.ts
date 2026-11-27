@@ -92,13 +92,17 @@ describe("группа 1: «снова на связи» поверх «Ваш �
     }
   });
 
-  it("возврат из «Потерянных» по сообщению: по умолчанию пуша «снова обратился» нет", async () => {
+  it("возврат из «Потерянных» по сообщению: по умолчанию пуша нет, но одна строка в колокольчике есть", async () => {
     await setSwitch(false);
     const client = await makeClient({ status: "LOST", workStatus: "ACTIVE", assignedAgentId: null, lastAgentId: agentId });
     const res = await reactivateClientFromLost({ clientId: client.id, reason: "тест тихо", agentId, returnTimer: true });
     expect(res.ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
     expect(sendPushToAgent.mock.calls.filter(([, p]) => String((p as { title: string }).title).includes("снова обратился"))).toHaveLength(0);
+    // «Ваш клиент написал» в этот момент не уходит (ответственного ещё нет) — агент узнаёт из колокольчика (ревью 27.11).
+    const rows = await prisma.notification.findMany({ where: { agentId, tag: `repeat-contact-${client.id}` } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].count).toBe(1);
   });
 
   it("возврат из «Потерянных», рубильник ВКЛ — пуш «снова обратился»", async () => {

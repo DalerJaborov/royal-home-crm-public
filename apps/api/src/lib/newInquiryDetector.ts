@@ -7,6 +7,7 @@ import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { logTimeline } from "./timeline.js";
 import { canAutomationChangeKind } from "./kindChangePolicy.js";
 import { automationSwitchOn } from "./automationSwitches.js";
+import { notifyFeedOnly } from "./notifications.js";
 
 /**
  * КЛИЕНТ УЖЕ ПРИНЯТ — НО ПИШЕТ ПРО СОВСЕМ ДРУГОЕ (владелец 19.08.2026).
@@ -175,9 +176,21 @@ export async function detectNewInquiryFromKnownClient(
 
   const pushBody = `${client.fullName} — ${result.summary}`;
   if (client.assignedAgentId) {
-    // Повтор поверх «Ваш клиент написал» (владелец 27.11.2026) — по умолчанию не шлём; запись в истории есть.
+    // Повтор поверх «Ваш клиент написал» (владелец 27.11.2026) — по умолчанию пуша нет; запись в истории есть.
+    // Сменился тип клиента (продавец ↔ покупатель) — это уже не повтор: тогда строка в колокольчике (ревью 27.11).
     // Клиенту без агента (ветка ниже) руководству по-прежнему шлём: «Ваш клиент написал» там не приходит никому.
-    if (!(await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false))) return;
+    if (!(await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false))) {
+      if (canChangeNow) {
+        await notifyFeedOnly([client.assignedAgentId], {
+          kind: "other",
+          title: "🔔 Клиент пишет о новом деле",
+          body: pushBody,
+          url: `/clients/${client.shortId}`,
+          tag: `new-inquiry-${clientId}`,
+        }).catch((err) => console.error("[колокольчик] новый запрос:", err));
+      }
+      return;
+    }
     sendPushToAgent(client.assignedAgentId, {
       title: "🔔 Клиент пишет о новом деле",
       body: pushBody,
