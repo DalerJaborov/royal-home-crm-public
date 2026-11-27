@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGoldenFixture.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
-import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn } from "../src/lib/customerTurnCatchUp.js";
+import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn, runCustomerCatchUpTurn } from "../src/lib/customerTurnCatchUp.js";
 import { findStuckConversations } from "../src/lib/stuckConversations.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
@@ -73,18 +73,20 @@ it("ручной ответ → клиент пишет во время пауз
   expect(await consumeCustomerInboxTicket(b2)).toEqual({ status: "held", reason: "expired" });
   expect(f.physical.length).toBe(physicalBefore);
 
-  // Сторож возобновляет последний неотвеченный ход один раз; второй и третий тик — ничего.
-  expect((await runCustomerTurnCatchUpTick({ minAge: "0 seconds" })).resumed).toBeGreaterThanOrEqual(1);
-  expect(await job(b2)).toMatchObject({ type: "customer-inbox-consume", status: "PENDING" });
-  expect((await ticket(b2)).resumedAt).not.toBeNull();
+  // Сторож ставит ОДНО задание на последний неотвеченный ход; второй тик — ничего.
+  expect((await runCustomerTurnCatchUpTick({ minAge: "0 seconds" })).queued).toBeGreaterThanOrEqual(1);
+  expect(await job(b2)).toMatchObject({ type: "customer-inbox-consume", status: "PENDING", payload: { version: 1, eventKey: b2, resume: true } });
+  expect((await ticket(b2)).resumedAt).toBeNull(); // часы хода ставит само задание, когда до него дошла очередь
   await runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
   expect(await prisma.backgroundJob.count({ where: { dedupeKey: { in: [`customer-inbox-catch-up:${b1}`, `customer-inbox-catch-up:${b2}`] } } })).toBe(1);
 
-  // Ход очереди (то, что делает задание customer-inbox-consume) планирует ОДИН ответ, и модель видит оба сообщения
-  // пачки как текущие слова клиента.
+  // Задание (customerInboxConsume.ts → runCustomerCatchUpTurn) возобновляет ход и планирует ОДИН ответ, и модель видит
+  // оба сообщения пачки как текущие слова клиента.
   f.script([[reply([], "property")]]);
   const bodiesBefore = f.bodies.length;
-  const planned = await consumeCustomerInboxTicket(b2);
+  const planned = await runCustomerCatchUpTurn(b2);
+  expect((await ticket(b2)).resumedAt).not.toBeNull();
+  if (!planned) throw new Error("catch-up turn did not run");
   expect(planned.status, JSON.stringify(planned)).toBe("planned");
   if (planned.status !== "planned") throw new Error("not planned");
   expect(planned.partIds).toHaveLength(1);
@@ -99,8 +101,9 @@ it("ручной ответ → клиент пишет во время пауз
   // Повторная отправка той же части ничего не шлёт.
   expect(await dispatchCustomerOutboxPart(planned.partIds[0])).toEqual({ status: "accepted" });
 
-  // Ответ есть — сторож больше ничего не делает, и тот же ход второй раз не идёт.
-  await runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
+  // Ответ есть — сторож больше ничего не делает, повтор задания не отвечает второй раз.
+  expect((await runCustomerTurnCatchUpTick({ minAge: "0 seconds" })).queued).toBe(0);
+  expect(await runCustomerCatchUpTurn(b2)).toBeNull();
   expect(await consumeCustomerInboxTicket(b2)).toEqual({ status: "unchanged", reason: "already_planned" });
   expect(f.physical.slice(physicalBefore)).toEqual([delivered.text]);
 }, 90_000);
@@ -118,12 +121,14 @@ it("два сторожа одновременно: ход возобновля�
   await waitPast(until);
 
   const [a, b] = await Promise.all([runCustomerTurnCatchUpTick({ minAge: "0 seconds" }), runCustomerTurnCatchUpTick({ minAge: "0 seconds" })]);
-  expect(a.resumed + b.resumed).toBeGreaterThanOrEqual(1);
+  expect(a.queued + b.queued).toBeGreaterThanOrEqual(1);
   expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-inbox-catch-up:${asked}` } })).toBe(1);
-  const resumed = await ticket(asked);
-  expect(resumed.resumedAt).not.toBeNull();
-  // Прямой второй вызов — false, а база сама не даёт второй раз поставить часы хода (триггер customer_ticket_resume_once).
-  expect(await resumeHeldCustomerTurn({ eventKey: asked, errorCode: "original_context_changed", scopeKey: "x", endpointScopeId: "x", order: 1n })).toBe(false);
+  // Два исполнителя одного хода одновременно — часы ставит ровно один.
+  const resumes = await Promise.all([resumeHeldCustomerTurn(asked), resumeHeldCustomerTurn(asked)]);
+  expect(resumes.filter(Boolean)).toHaveLength(1);
+  expect((await ticket(asked)).resumedAt).not.toBeNull();
+  expect(await resumeHeldCustomerTurn(asked)).toBe(false);
+  // База сама не даёт второй раз поставить часы хода (триггер customer_ticket_resume_once).
   await expect(prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "resumedAt" = now() WHERE "eventKey" = ${asked}`).rejects.toThrow();
 }, 90_000);
 
@@ -143,5 +148,7 @@ it("клиент просил не писать или сотрудник уже
       'role','assistant','content','Нарх 450 000 сомонӣ.','by',jsonb_build_object('kind','manual'))) WHERE "id" = ${conversationId}`;
   await runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
   expect(await job(asked)).toBeNull();
+  // Задание, поставленное ДО ответа сотрудника, в момент исполнения сверяет условия заново — и тоже молчит.
+  expect(await runCustomerCatchUpTurn(asked)).toBeNull();
   expect((await ticket(asked)).resumedAt).toBeNull();
 }, 90_000);
