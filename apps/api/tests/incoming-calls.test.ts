@@ -369,7 +369,7 @@ describe("Журнал входящих", () => {
         update: { notifyOperatorTalkedPushEnabled: on },
       });
 
-    it("по умолчанию (владелец 27.11.2026) — пуша нет, одна запись в колокольчике ответственного", async () => {
+    it("по умолчанию (владелец 27.11.2026: «не надо») — ответственному ничего: ни пуша, ни колокольчика", async () => {
       await setOperatorTalkPush(false);
       const channelId = `in-${runId}-answered-feed`;
       await ring(channelId, clientPhone.slice(-9));
@@ -377,10 +377,7 @@ describe("Журнал входящих", () => {
       await hangup(channelId);
 
       expect(officeCallPushes()).toHaveLength(0);
-      const rows = await prisma.notification.findMany({ where: { agentId, tag: `incoming-answered-${channelId}` } });
-      expect(rows).toHaveLength(1);
-      expect(rows[0].count).toBe(1);
-      expect(rows[0].title).toContain("звонил в офис");
+      expect(await prisma.notification.count({ where: { agentId, tag: `incoming-answered-${channelId}` } })).toBe(0);
     });
 
     it("рубильник ВКЛ — трубку снял оператор, пуш уходит ответственному агенту", async () => {

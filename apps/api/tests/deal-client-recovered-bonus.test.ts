@@ -196,16 +196,14 @@ describe("client_recovered_bonus — сделка с ранее LOST-клиен�
     expect(bonus).toBeNull();
   });
 
-  it("«Сделка закрыта» команде — по умолчанию только колокольчик, одна запись, без пуша (владелец 27.11.2026)", async () => {
+  it("«Сделка закрыта» команде — по умолчанию ничего: ни пуша, ни колокольчика (владелец 27.11.2026: «не надо»)", async () => {
     await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: { notifyDealClosedTeamPushEnabled: false } });
     sendPushToAgents.mockClear();
     const client = await makeOrdinaryClient(recoveringAgentId);
     const dealId = await closeDeal(client, recoveringAgentId, { realtor: 2000, company: 2000 });
     const tag = `deal-celebration-${dealId}`;
-    const row = await waitFor(() => prisma.notification.findFirst({ where: { agentId: losingAgentId, tag } }));
-    expect(row?.count).toBe(1);
-    expect(row?.kind).toBe("celebration");
-    expect(await prisma.notification.count({ where: { agentId: losingAgentId, tag } })).toBe(1);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await prisma.notification.count({ where: { tag } })).toBe(0);
     expect(sendPushToAgents.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === tag)).toHaveLength(0);
   });
 

@@ -34,7 +34,6 @@ import { dushanbeWallClock } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { logSystemError } from "./systemError.js";
 import { automationSwitchOn } from "./automationSwitches.js";
-import { notifyFeedOnly } from "./notifications.js";
 
 /**
  * СОЗДАНИЕ И ПРАВКА СДЕЛКИ — ОДНА ДВЕРЬ (10.11.2026, Шабнам и «Сделки»).
@@ -1374,7 +1373,7 @@ export async function updateDealFor(
        * задержать ответ 200 «сделка закрыта».
        */
       const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
-      // Владелец 27.11.2026 («Все пять групп»): по умолчанию только в колокольчик, телефон всей команды не звенит.
+      // Владелец 27.11.2026: «не надо» — по умолчанию не шлём вовсе (ни пуша, ни колокольчика). Рубильник ВКЛ — пуш всем.
       const celebration = {
         kind: "celebration",
         title: `🎉 Сделка закрыта — ${closer?.fullName ?? "агент"}`,
@@ -1387,9 +1386,7 @@ export async function updateDealFor(
         automationSwitchOn("notifyDealClosedTeamPushEnabled").catch(() => false),
       ])
         .then(async ([agents, pushOn]) => {
-          const ids = agents.map((a) => a.id);
-          if (pushOn) await sendPushToAgents(ids, celebration);
-          else await notifyFeedOnly(ids, celebration);
+          if (pushOn) await sendPushToAgents(agents.map((a) => a.id), celebration);
         })
         .catch((err) => console.error("[push] салют команде за сделку:", err));
     }

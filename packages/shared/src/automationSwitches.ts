@@ -61,6 +61,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyMarketMatchPushEnabled",
   "notifyDealClosedTeamPushEnabled",
   "notifyOperatorTalkedPushEnabled",
+  "notifyNoVideoEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -89,6 +90,8 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "notifyMarketMatchPushEnabled",
   "notifyDealClosedTeamPushEnabled",
   "notifyOperatorTalkedPushEnabled",
+  // Владелец 27.11.2026: уведомления «нет видео» отключить совсем.
+  "notifyNoVideoEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -296,14 +299,19 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     off: "Как решил владелец 27.11.2026: только в колокольчике CRM, телефон не звенит.",
   },
   notifyDealClosedTeamPushEnabled: {
-    title: "«Сделка закрыта» — пушем всем агентам",
+    title: "«Сделка закрыта» — поздравление всем агентам",
     on: "Когда кто-то закрывает сделку, всем агентам приходит пуш-поздравление.",
-    off: "Как решил владелец 27.11.2026: поздравление только в колокольчике CRM, телефон не звенит.",
+    off: "Как решил владелец 27.11.2026 («не надо»): поздравления нет — ни пуша, ни строки в колокольчике.",
   },
   notifyOperatorTalkedPushEnabled: {
-    title: "«Клиент поговорил с оператором» — пушем",
-    on: "Ваш клиент позвонил в офис и поговорил с оператором — вам приходит пуш. Если вы уволены или заморожены — руководителю.",
-    off: "Как решил владелец 27.11.2026: только в колокольчике CRM, телефон не звенит.",
+    title: "«Ваш клиент звонил в офис» — уведомление агенту",
+    on: "Ваш клиент позвонил в офис и поговорил с оператором — вам приходит пуш.",
+    off: "Как решил владелец 27.11.2026 («не надо»): агенту ничего, разговор виден в истории клиента. Руководителю, если агент клиента уволен или заморожен, пуш приходит всегда — нужно назначить нового.",
+  },
+  notifyNoVideoEnabled: {
+    title: "Уведомления «нет видео» у объекта",
+    on: "Объект на проверке или в этапе «Ожидает видео» сутки без ролика — агенту и руководству приходит «Видео не догружено» / «У объекта нет видео».",
+    off: "Как решил владелец 27.11.2026: про отсутствие видео никому ничего не приходит. Про отсутствие фото — как раньше.",
   },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
@@ -354,7 +362,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled"],
+    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },

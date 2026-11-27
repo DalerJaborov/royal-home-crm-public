@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4388**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4390**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24684,9 +24684,14 @@
     · зовёт notifyStuckMaterials()
     - const properties = await prisma.property.findMany({ where: { deletedAt: null, OR: [ { status: "PENDING_REVIEW…
       · читает в базе: property
+    - const noVideoOn = properties.length > 0 && (await automationSwitchOn("notifyNoVideoEnabled").catch(()
+      · зовёт automationSwitchOn()
     - для каждого: const property of properties
       - пробует
         - если property.status === "PENDING_REVIEW"
+          - если !noVideoOn
+            - continue;
+              · переходит к следующему
           - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
             - continue;
               · переходит к следующему
@@ -24698,6 +24703,9 @@
           - если hoursInStage >= STUCK_ESCALATE_AFTER_HOURS
             - await enqueueDirectorAlert({ title: "🎥 Объект третьи сутки без видео", body: `${property.title} — видео так …
               · зовёт enqueueDirectorAlert()
+          - continue;
+            · переходит к следующему
+        - если property.status === "AWAITING_VIDEO" && !noVideoOn
           - continue;
             · переходит к следующему
         - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))

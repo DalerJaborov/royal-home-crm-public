@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4388,
+  "forks": 4390,
   "mounts": 87,
   "cron": 148,
   "jobs": 37,
@@ -111311,6 +111311,14 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const noVideoOn = properties.length > 0 && (await automationSwitchOn(\"notifyNoVideoEnabled\").catch(()",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -111325,6 +111333,21 @@
              "t": "property.status === \"PENDING_REVIEW\"",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "!noVideoOn",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "if",
                "t": "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
@@ -111378,6 +111401,21 @@
                 }
                ]
               },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "property.status === \"AWAITING_VIDEO\" && !noVideoOn",
+             "a": [],
+             "c": [
               {
                "k": "do",
                "t": "continue;",

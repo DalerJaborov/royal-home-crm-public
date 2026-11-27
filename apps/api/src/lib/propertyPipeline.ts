@@ -387,6 +387,9 @@ export async function notifyStuckMaterials(now: Date = new Date()): Promise<numb
     take: 500,
   });
 
+  // Владелец 27.11.2026: уведомления «нет видео» отключить совсем (рубильник notifyNoVideoEnabled, ВЫКЛ) — ни агенту,
+  // ни руководству. «Нет фото» остаётся. Не прочитали Настройки — тоже тихо.
+  const noVideoOn = properties.length > 0 && (await automationSwitchOn("notifyNoVideoEnabled").catch(() => false));
   let notified = 0;
   for (const property of properties) {
     // Сбой одной записи не обрывает остальные (тот же приём, что в notifyOverdueMaterials).
@@ -395,6 +398,7 @@ export async function notifyStuckMaterials(now: Date = new Date()): Promise<numb
       const hoursInStage = Math.floor((now.getTime() - property.stageEnteredAt.getTime()) / HOUR_MS);
 
       if (property.status === "PENDING_REVIEW") {
+        if (!noVideoOn) continue;
         const tag = `video-missing-${property.id}`;
         if (!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))) continue;
         const agentId = property.intakeAgentId ?? property.createdById;
@@ -427,6 +431,7 @@ export async function notifyStuckMaterials(now: Date = new Date()): Promise<numb
       }
 
       // AWAITING_PHOTOS / AWAITING_VIDEO — суточный аларм без привязки к штрафу.
+      if (property.status === "AWAITING_VIDEO" && !noVideoOn) continue;
       const tag = `materials-missing-${property.id}`;
       if (!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))) continue;
       const awaitingPhotos = property.status === "AWAITING_PHOTOS";
