@@ -17,16 +17,21 @@ import request from "supertest";
 
 const sendPushToAgent = vi.fn(async () => 1);
 const sendPushToAgents = vi.fn(async () => 1);
-vi.mock("../src/push.js", async (importOriginal) => ({
+vi.mock("../src/push.js", async (importOriginal) => {
   // Подмена ДОПОЛНЯЕТ модуль, а не заменяет его целиком (19.09.2026):
   // фабрика без importOriginal убирает остальные экспорты у всего
   // процесса, и СОСЕДНИЙ тест падает на «No "…" export is defined».
-  ...(await importOriginal<typeof import("../src/push.js")>()),
-  sendPushToAgent, sendPushToAgents,
-}));
+  const real = await importOriginal<typeof import("../src/push.js")>();
+  // С 27.11.2026 запись в колокольчике одна — её пишет сам пуш (отдельная запись перед ним убрана как двойная).
+  // Поэтому шпион зовёт настоящую функцию: строка в ленте появляется, на телефон без ключей VAPID не уходит ничего.
+  sendPushToAgent.mockImplementation(real.sendPushToAgent as never);
+  sendPushToAgents.mockImplementation(real.sendPushToAgents as never);
+  return { ...real, sendPushToAgent, sendPushToAgents };
+});
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
+const { waitFor } = await import("./helpers/waitFor.js");
 const { createLeadFromChannel, assignPendingLeads } = await import("../src/leads.js");
 const { sweepExpiredDuplicateReviews, checkDuplicateClaimAnomaly, runDuplicateFuzzyScanTick, DUPLICATE_REVIEW_CONFIRM_NOTE_PREFIX } =
   await import("../src/lib/duplicateReview.js");
@@ -141,6 +146,16 @@ describe("intake.ts — придержка похожей новой заявк�
       where: { clientId: candidate.id, type: "SYSTEM", notes: { contains: "Раздача придержана" } },
     });
     expect(ask).not.toBeNull();
+
+    // Владелец 27.11.2026: вопрос «Это ваш клиент?» — ОДНА запись в колокольчике с одним событием (раньше
+    // отдельная запись + пуш с тем же tag давали строку с «повтором» 2).
+    const tag = `duplicate-review-ask-${result.clientId}`;
+    const row = await waitFor(() => prisma.notification.findFirst({ where: { agentId: existingAgentId, tag } }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await prisma.notification.count({ where: { agentId: existingAgentId, tag } })).toBe(1);
+    const fresh = await prisma.notification.findUniqueOrThrow({ where: { id: row!.id } });
+    expect(fresh.count).toBe(1);
+    expect(fresh.kind).toBe("other"); // не «Контроль руководителя»: его агент может выключить, а раздача ждёт ответа
   });
 
   it("не похожий номер (последние 7 цифр разные) — обычная раздача, без придержки", async () => {
@@ -330,10 +345,11 @@ describe("checkDuplicateClaimAnomaly — частые «это мой клиен
     // CI зависеть не должен (04.09.2026, working-hours гейт добавлен в аларм).
     await checkDuplicateClaimAnomaly(claimer.id, new Date("2026-09-01T07:00:00Z"));
 
-    const alarm = await prisma.notification.findFirst({
+    const alarm = await waitFor(() => prisma.notification.findFirst({
       where: { agentId: directorId, tag: { contains: `alarm-duplicate-claim-${claimer.id}` } },
-    });
+    }));
     expect(alarm).not.toBeNull();
+    expect(alarm?.count).toBe(1); // одна запись, не две (27.11.2026)
     expect(alarm?.body).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/); // когда — видно без перехода по ссылке
   });
 
@@ -378,8 +394,9 @@ describe("runDuplicateFuzzyScanTick — крон-скан похожих кар�
     expect(found).toBeGreaterThanOrEqual(1);
 
     const tag = `alarm-duplicate-fuzzy-${[a.id, b.id].sort().join("-")}`;
-    const alarm = await prisma.notification.findFirst({ where: { agentId: directorId, tag } });
+    const alarm = await waitFor(() => prisma.notification.findFirst({ where: { agentId: directorId, tag } }));
     expect(alarm).not.toBeNull();
+    expect(alarm?.count).toBe(1); // одна запись, не две (27.11.2026)
     expect(alarm?.body).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/); // когда — видно без перехода по ссылке
     expect(alarm?.body).toContain(a.fullName);
     expect(alarm?.body).toContain(b.fullName);

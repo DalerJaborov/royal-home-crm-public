@@ -18,6 +18,8 @@ vi.mock("../../store/auth", () => ({
     subscribe: () => () => {},
   }),
 }));
+const archiveMarkSpy = vi.fn();
+vi.mock("../../hooks/useChatArchiveMark", () => ({ useChatArchiveMark: () => ({ mutate: archiveMarkSpy }) }));
 import { ConversationList } from "../Messages";
 
 // jsdom не знает IntersectionObserver: заглушка запоминает наблюдателей, чтобы «прокрутить» вручную.
@@ -81,6 +83,7 @@ beforeEach(() => {
   (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = FakeObserver;
   spies.onSegmentChange.mockReset();
   spies.onLoadMore.mockReset();
+  archiveMarkSpy.mockReset();
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -179,6 +182,26 @@ describe("кружок собеседника", () => {
 });
 
 describe("архив", () => {
+  it("вход «Архив · N» стоит В КОНЦЕ списка, а не сверху", () => {
+    const el = mount({ data: page([item(), item({ id: "c2" })]) });
+    const entry = el.querySelector('[data-testid="chat-archive-entry"]') as HTMLElement;
+    const lastRow = [...el.querySelectorAll(".ry-chat-row")].pop() as HTMLElement;
+    expect(lastRow.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(el.querySelector(".pane-scroll")?.firstElementChild).not.toBe(entry);
+  });
+
+  it("второй вход — пункт «Архив» в меню фильтров", () => {
+    const el = mount();
+    const item = el.querySelector('[data-testid="chat-archive-menu"]') as HTMLButtonElement;
+    expect(item.textContent).toContain("Архив");
+    expect(item.textContent).toContain("7");
+    act(() => item.click());
+    expect(spies.onSegmentChange).toHaveBeenCalledWith("archive");
+    const inside = mount({ segment: "archive" }).querySelector('[data-testid="chat-archive-menu"]') as HTMLButtonElement;
+    act(() => inside.click());
+    expect(spies.onSegmentChange).toHaveBeenLastCalledWith("all");
+  });
+
   it("вход «Архив · N» виден только во вкладке «Все» без поиска и по нажатию открывает архив", () => {
     const el = mount();
     const entry = el.querySelector('[data-testid="chat-archive-entry"]') as HTMLButtonElement;
@@ -205,7 +228,76 @@ describe("архив", () => {
 
   it("пустой архив говорит об этом словами", () => {
     const el = mount({ segment: "archive", data: page([], { counts: { all: 0, needsHuman: 0, paused: 0, mine: 0, archived: 0 } }) });
-    expect(el.textContent).toContain("В архиве пусто");
+    expect(el.textContent).toContain("Архив пуст");
+  });
+});
+
+describe("ручной архив из строки", () => {
+  it("на телефоне у строки кнопка «В архив» за свайпом; нажатие зовёт действие", () => {
+    const el = mount();
+    const act1 = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    expect(act1.textContent).toContain("В архив");
+    act(() => act1.click());
+    expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "archive" });
+  });
+
+  const touch = (target: Element, type: string, x: number, y = 10) => {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] });
+    act(() => { target.dispatchEvent(ev); });
+  };
+
+  it("после свайпа влево открытая кнопка «В архив» жмётся (раньше перехват клика её глотал)", () => {
+    const el = mount();
+    const wrap = el.querySelector(".ry-chat-item") as HTMLElement;
+    touch(wrap, "touchstart", 200);
+    touch(wrap, "touchmove", 150);
+    touch(wrap, "touchmove", 90);
+    touch(wrap, "touchend", 90);
+    expect(wrap.getAttribute("data-swipe-open")).toBe("true");
+    const btn = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    act(() => btn.click());
+    expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "archive" });
+  });
+
+  it("долгое нажатие на строку открывает меню (запасной путь на iPhone)", () => {
+    vi.useFakeTimers();
+    try {
+      const el = mount();
+      const wrap = el.querySelector(".ry-chat-item") as HTMLElement;
+      touch(wrap, "touchstart", 100);
+      act(() => { vi.advanceTimersByTime(600); });
+      touch(wrap, "touchend", 100);
+      const menuAction = el.querySelector('[data-testid="chat-menu-action"]') as HTMLButtonElement;
+      expect(menuAction.textContent).toContain("В архив");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("в поиске у архивной строки — «Вернуть», а не «В архив»", () => {
+    const el = mount({ searchInput: "Рустам", data: page([{ ...item(), archived: true }]) });
+    const btn = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    expect(btn.textContent).toContain("Вернуть");
+  });
+
+  it("в архиве то же действие называется «Вернуть»", () => {
+    const el = mount({ segment: "archive" });
+    const act1 = el.querySelector('[data-testid="chat-swipe-action"]') as HTMLButtonElement;
+    expect(act1.textContent).toContain("Вернуть");
+    act(() => act1.click());
+    expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "restore" });
+  });
+
+  it("правый щелчок открывает меню действия; рубильник выключен — обёртки и действия нет", () => {
+    const el = mount();
+    const wrap = el.querySelector(".ry-chat-item") as HTMLElement;
+    act(() => { wrap.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); });
+    const menuAction = el.querySelector('[data-testid="chat-menu-action"]') as HTMLButtonElement;
+    expect(menuAction.textContent).toContain("В архив");
+    act(() => menuAction.click());
+    expect(archiveMarkSpy).toHaveBeenCalledWith({ id: "c1", action: "archive" });
+    expect(mount({ data: page([item()], { archiveEnabled: false }) }).querySelector(".ry-chat-item")).toBeNull();
   });
 });
 
