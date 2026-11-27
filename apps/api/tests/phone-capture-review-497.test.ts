@@ -53,7 +53,7 @@ beforeAll(async () => {
   const s = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" },
     select: { workHoursStart: true, workHoursEnd: true, botLeadOnlyMode: true, botUseWhatsappNumber: true } });
   saved = s;
-  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "23:59",
+  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00",
     chatUnansweredCardEnabled: true, chatBarePhoneToCardEnabled: true, botLeadOnlyMode: false } });
   const agent = await prisma.agent.create({ data: { fullName: `Агент ревью ${runId}`, phone: `+99293${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`,
     role: "AGENT", passwordHash: "x" }, select: { id: true } });

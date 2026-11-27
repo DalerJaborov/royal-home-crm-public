@@ -83,7 +83,7 @@ beforeAll(async () => {
     select: { workHoursStart: true, workHoursEnd: true } });
   savedHours = { workHoursStart: s.workHoursStart, workHoursEnd: s.workHoursEnd };
   // Заявка вне рабочего окна уходит в утреннюю волну без назначения — фиксируем окно, чтобы дверь назначения звалась всегда.
-  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "23:59", chatUnansweredCardEnabled: true } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00", chatUnansweredCardEnabled: true } });
   const agent = await prisma.agent.create({ data: { fullName: `Агент приёма ${runId}`, phone: `+99293${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`,
     role: "AGENT", passwordHash: "x" }, select: { id: true } });
   agentIds.push(agent.id);

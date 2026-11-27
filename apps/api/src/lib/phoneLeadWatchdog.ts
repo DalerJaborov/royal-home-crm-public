@@ -852,10 +852,10 @@ export async function sweepCardConversationPhones(now: Date = new Date()): Promi
   if (!(await automationSwitchOn("chatBarePhoneToCardEnabled"))) return 0;
   const since = new Date(now.getTime() - PHONE_WATCH_WINDOW_HOURS * 60 * 60 * 1000);
   // Отметка прохода (phoneSweepAt): переписка разбирается заново, только если после прошлого прохода в ней появилось
-  // сообщение. Без неё одни и те же 300 строк читались бы каждый тик (грубый фильтр по цифрам ловит и даты).
+  // сообщение. Без неё одни и те же 300 строк читались бы каждый тик.
   const rows = await prisma.$queryRaw<Array<{ id: string; clientId: string; messages: unknown; phoneSweepAt: Date | null;
     phone: string | null; whatsappPhone: string | null; extraPhones: string[] | null }>>`
-    SELECT bc."id", bc."clientId", bc."messages", bc."phoneSweepAt", c."phone", c."whatsappPhone", c."extraPhones"
+    SELECT bc."id", bc."clientId", bc.messages, bc."phoneSweepAt", c."phone", c."whatsappPhone", c."extraPhones"
     FROM "BotConversation" bc JOIN "Client" c ON c."id" = bc."clientId"
     WHERE bc."lastMessageAt" >= ${since} AND c."deletedAt" IS NULL
       AND (bc."phoneSweepAt" IS NULL OR bc."lastMessageAt" > bc."phoneSweepAt")
