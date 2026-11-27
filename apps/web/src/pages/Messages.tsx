@@ -89,6 +89,7 @@ import { useMinuteClock } from "../components/look/chats/useMinuteClock";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalChannelBadge } from "../components/look/chats/RoyalChannelBadge";
 import { RhAvatar } from "../components/look/ui";
+import { RoyalContactSheet } from "../components/look/chats/RoyalContactSheet";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
@@ -1782,7 +1783,17 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       <div className={clean ? "clean-conversation-workspace" : undefined} data-context-open={showInfo || undefined} style={clean ? undefined : { display: "contents" }}>
       {showInfo && conversation && (
         <div id="conversation-contact-details" className="pane-b clean-contact-details" style={{ borderBottom: "1px solid var(--line-soft)" }}>
-          <div className="list">
+          {royal ? <RoyalContactSheet
+            conversationId={id}
+            conversation={conversation}
+            title={headerTitle.title}
+            code={headerTitle.code}
+            channel={isGroupedEntry && (!conversation.channel || conversation.channel === "MULTI") ? "MULTI" : conversation.channel}
+            channelLabel={isGroupedEntry && (!conversation.channel || conversation.channel === "MULTI") ? "Общий чат" : channelMeta(conversation.channel).label}
+            readOnly={readOnly}
+            isGroupedEntry={isGroupedEntry}
+            onClose={() => setShowInfo(false)}
+          /> : <div className="list">
             {clean ? <>
               <h2 className="clean-contact-title">{royal ? headerTitle.title : "О собеседнике"}</h2>
               {/* Новый вид: объект продавца и «Добавить объект» — здесь, а не полосой
@@ -1840,7 +1851,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               </span>
             </div>
             </>}
-          </div>
+          </div>}
         </div>
       )}
       <div className={clean ? "clean-conversation-timeline" : undefined} style={clean ? undefined : { display: "contents" }}>
