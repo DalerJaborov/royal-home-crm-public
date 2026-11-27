@@ -93,6 +93,7 @@ import {
   type MetaChannel,
 } from "../messengers/meta.js";
 import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
+import { handleWhatsappServiceEvents } from "../messengers/whatsappServiceEvents.js";
 import { ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { brandForAccount } from "../ai/brandName.js";
@@ -1952,6 +1953,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // Кабинет WhatsApp (для одобренных текстов первого сообщения) узнаётся сам
       // из вебхука — владельцу не нужно искать его в панели Meta.
       void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
+
+      // ПРИВЕТСТВИЕ И РАЗРЕШЕНИЕ НА ЗВОНОК WHATSAPP (27.11.2026, messengers/whatsappServiceEvents.ts): эти события до ядра
+      // бота не доходят (не реплики человека), здесь — приветствие от бренда номера и просьба о звонке агенту. После 200.
+      await handleWhatsappServiceEvents(req.body, waPhoneId);
 
       for (const s of parseMetaStatusUpdates(req.body)) {
         void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: null }, async () => {
