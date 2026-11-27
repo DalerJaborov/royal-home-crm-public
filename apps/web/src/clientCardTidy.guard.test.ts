@@ -20,4 +20,12 @@ describe("карточка клиента: убранные тексты не в
     expect(src("pages/ClientDetail.tsx")).toMatch(/if \(recordResultOn\) mainItems\.push/);
     expect(src("components/ClientCardContext.tsx")).toMatch(/onRecord &&/);
   });
+  // Владелец 27.11.2026: «удали это, я вроде бы просил, он висит все еще» — «Звонок роботом» и «Не звонить роботом».
+  it("строки робота в карточке только за рубильником clientCardRobotRowsEnabled", () => {
+    const card = src("pages/ClientDetail.tsx");
+    expect(card).toMatch(/robotRowsOn = settings\?\.clientCardRobotRowsEnabled === true/);
+    expect(card).toMatch(/if \(isSupervisor && !locked && robotRowsOn\) \{\s*extraItems\.push\(\{\s*key: "live-voice"/);
+    expect(card).toMatch(/if \(!locked && robotRowsOn && robotStop\.data\)/);
+    expect(card).toContain("useRobotCallStop(client?.id, robotRowsOn)");
+  });
 });

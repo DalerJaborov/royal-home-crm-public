@@ -439,6 +439,7 @@ function toStaffSettings(settings: {
   royalScoreEnabled: boolean;
   liveVoiceEnabled: boolean;
   clientRecordResultEnabled: boolean;
+  clientCardRobotRowsEnabled: boolean;
 }) {
   return {
     companyName: settings.companyName,
@@ -490,6 +491,8 @@ function toStaffSettings(settings: {
     // Кнопка «Записать результат» в карточке клиента (22.11.2026): её нажимает агент, значит и булев нужен агенту.
     // Тайны нет; сам путь записи (POST /clients/:id/interactions) проверяет права отдельно.
     clientRecordResultEnabled: settings.clientRecordResultEnabled,
+    // Строки робота в карточке (27.11.2026): только видимость; звонок и отметку сервер проверяет отдельно.
+    clientCardRobotRowsEnabled: settings.clientCardRobotRowsEnabled,
   };
 }
 
