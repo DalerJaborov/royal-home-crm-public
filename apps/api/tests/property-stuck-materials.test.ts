@@ -22,7 +22,7 @@ vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
 });
 
 const { prisma } = await import("../src/db.js");
-const { notifyStuckMaterials, notifyOverdueMaterials, STUCK_VIDEO_AFTER_HOURS } = await import(
+const { notifyStuckMaterials, notifyOverdueMaterials, STUCK_VIDEO_AFTER_HOURS, STUCK_ESCALATE_AFTER_HOURS } = await import(
   "../src/lib/propertyPipeline.js"
 );
 
@@ -82,8 +82,10 @@ beforeAll(async () => {
   // Проверка исходников ВЫКЛЮЧЕНА — именно тот режим, где объект раньше висел невидимо.
   await prisma.settings.upsert({
     where: { id: "singleton" },
-    update: { rawReviewRequired: false },
-    create: { id: "singleton", rawReviewRequired: false },
+    // «Нет видео» с 27.11.2026 по умолчанию выключено (владелец: «отключить совсем»). Тесты ниже проверяют, что
+    // включённое работает как раньше; выключенное — отдельный тест в конце.
+    update: { rawReviewRequired: false, notifyNoVideoEnabled: true },
+    create: { id: "singleton", rawReviewRequired: false, notifyNoVideoEnabled: true },
   });
 });
 
@@ -108,6 +110,28 @@ afterAll(async () => {
   if (originalRawReview !== null) {
     await prisma.settings.update({ where: { id: "singleton" }, data: { rawReviewRequired: originalRawReview } });
   }
+  await prisma.settings.update({ where: { id: "singleton" }, data: { notifyNoVideoEnabled: false } });
+});
+
+describe("«нет видео» по умолчанию выключено (владелец 27.11.2026)", () => {
+  it("рубильник ВЫКЛ: про отсутствие видео никому ничего, про отсутствие фото — как раньше", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { notifyNoVideoEnabled: false } });
+    try {
+      const review = await makeProperty("PENDING_REVIEW", STUCK_ESCALATE_AFTER_HOURS + 1);
+      const awaitingVideo = await makeProperty("AWAITING_VIDEO", 30);
+      const awaitingPhotos = await makeProperty("AWAITING_PHOTOS", 30);
+      await notifyStuckMaterials();
+      expect(pushesFor(`video-missing-${review.id}`)).toHaveLength(0);
+      expect(await alertRows(`video-missing-lead-${review.id}`)).toHaveLength(0);
+      expect(await alertRows(`video-missing-escalate-${review.id}`)).toHaveLength(0);
+      expect(pushesFor(`materials-missing-${awaitingVideo.id}`)).toHaveLength(0);
+      expect(await alertRows(`materials-missing-${awaitingVideo.id}`)).toHaveLength(0);
+      expect(await prisma.notification.count({ where: { tag: { in: [`video-missing-${review.id}`, `materials-missing-${awaitingVideo.id}`] } } })).toBe(0);
+      expect(pushesFor(`materials-missing-${awaitingPhotos.id}`)).toHaveLength(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { notifyNoVideoEnabled: true } });
+    }
+  });
 });
 
 describe("notifyStuckMaterials: PENDING_REVIEW без видео", () => {

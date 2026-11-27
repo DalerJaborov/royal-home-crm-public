@@ -157,7 +157,7 @@ export function withoutOwnRepeats(decision: { steps: OperatorStepOut[]; language
       continue;
     }
     if (OPERATOR_FACT_KEYS.has(step.key)) { if (!factSeen(step)) kept.push(step); continue; }
-    if (step.key === "ask_role" || step.key === "greet" || step.key === "greet_assalom" || !seen(step)) { kept.push(step); continue; }
+    if (step.key === "ask_role" || step.key === "ask_role_brand" || step.key === "greet" || step.key === "greet_assalom" || !seen(step)) { kept.push(step); continue; }
     const variants = OPERATOR_PHRASES[step.key][decision.language].length;
     const other = Array.from({ length: variants - 1 }, (_, i) => ({ ...step, variant: step.variant + i + 1 })).find(candidate => !seen(candidate));
     if (other) kept.push(other);

@@ -437,6 +437,17 @@ export function operatorContextLanguage(recent: OperatorTurnInput["recent"]): Op
 /** «Когда позвонят?», «где агент?», «кай занг мезанед?», «что с заявкой?» (сложенный алфавит, без \w и \b). */
 const STATUS_QUESTION = new RegExp(`${BW}(?:когда|скоро\\s+ли|кай|кадай|кай\\s+вакт)${EW}[^.!?]{0,30}(?:(?:по|пере)?звон${TAIL}|свяж${TAIL}|занг${TAIL}|тамос${TAIL}|агент${TAIL})` +
   `|${BW}(?:что|чи)\\s+(?:с|бо)\\s+(?:заявк${TAIL}|дархост${TAIL})|${BW}(?:где|кучо|куҷо)\\s+(?:агент${TAIL}|ваш\\s+агент)`, "u");
+/**
+ * Клиент отрицает, что о чём-то просил: «Какой дархост, я же ничего ещё не сказал», «какая заявка?», «я ничего не просил»,
+ * «кадом дархост», «ман ҳеҷ чиз нагуфтам» (живой случай 27.11.2026, 1a59f7b1). Это не вопрос о заявке: ни «напомнил агенту»,
+ * ни «заявка у агента» на него не звучат (decide.ts).
+ */
+const DENIES_REQUEST = new RegExp(String.raw`${BW}(?:я|мы|ман|мо)${EW}(?:\s+(?:же|ведь|еще|хеч|хич))*\s+(?:ничего|ни\s+чего|хеч\s+чиз|хич\s+чиз|чизе)` +
+  String.raw`(?:\s+(?:же|ведь|еще|вам|вас))*\s+(?:не\s+)?(?:сказал${TAIL}|говорил${TAIL}|писал${TAIL}|просил${TAIL}|оставлял${TAIL}|заказывал${TAIL}|` +
+  String.raw`спрашивал${TAIL}|нагуфт${TAIL}|напурсид${TAIL}|нанавишт${TAIL}|нахост${TAIL})` +
+  String.raw`|${BW}(?:какая|какой|какую|какие|кадом)\s+(?:еще\s+)?(?:заявк${TAIL}|дархост${TAIL})` +
+  String.raw`|${BW}не\s+(?:оставлял${TAIL}|подавал${TAIL}|делал${TAIL})\s+(?:никак${TAIL}\s+)?заявк${TAIL}` +
+  String.raw`|${BW}дархост\s+(?:надод${TAIL}|нагузошт${TAIL}|нафирист${TAIL})`, "u");
 /** «Когда вы работаете?», «до скольки работаете?», «соати кор» — время работы. */
 const HOURS_QUESTION = new RegExp(`${BW}(?:график${TAIL}|до\\s+скольки|часы\\s+работ${TAIL}|соати\\s+кор${TAIL}|вакти\\s+кор${TAIL}|вақти\\s+кор${TAIL})` +
   `|${BW}(?:когда|кай)${EW}[^.!?]{0,20}(?:работ${TAIL}|кор\\s+мекун${TAIL}|открыт${TAIL})`, "u");
@@ -508,6 +519,7 @@ function codeFacts(input: OperatorTurnInput) {
     stockQuestion: !isAdTemplateOpener(own) && HOUSE_WORD.test(folded) && STOCK_PLACE.test(folded) && STOCK_HAVE.test(folded) &&
       (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
     nextStepQuestion: !isAdTemplateOpener(own) && NEXT_STEP.test(folded),
+    deniesRequest: DENIES_REQUEST.test(folded),
     // Одна ссылка (Reels, пост) без своих слов — не вопрос: «Это точно скажет агент» на голую ссылку бессмысленно (прод c319ee90).
     linkOnly: /https?:\/\/|www\./iu.test(own) && letterCount(own.replace(/(?:https?:\/\/|www\.)\S+/giu, " ")) < 2,
     // Явная просьба о языке («пишите на русском», «не понимаю по-таджикски», «бо тоҷикӣ нависед») меняет язык всегда; иначе
@@ -595,6 +607,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
     agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
     installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
+    deniesRequest: code.deniesRequest,
     propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
@@ -812,6 +825,9 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
     (input.recent ?? []).some(turn => turn.role === "user" && isAdTemplateOpener(clientOwnWords(turn.text)))) {
     rejected.push("question"); question = "none";
   }
+  // «Какой дархост, я же ничего ещё не сказал» (27.11.2026): модель видит в истории «заявка у агента» и метит это вопросом о
+  // статусе или жалобой. Отрицание просьбы — не вопрос о заявке и не жалоба руководству: код сильнее модели.
+  if (code.deniesRequest && question === "status" && fallback.question !== "status") { rejected.push("question"); question = "none"; }
   const codeTime = code.callbackTime && (when || rejected.includes("callbackWhen") || operatorAsksCall(code.own)) ? code.callbackTime : null;
   const preference = { textOnly: answer.textOnly || fallback.callback.textOnly, noCall: (answer.noCall || fallback.callback.noCall) && !answer.textOnly };
   return {
@@ -824,6 +840,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       ...(roleConflict ? { roleConflict: true } : {}),
       agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
       installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
+    deniesRequest: code.deniesRequest,
       propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
       roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
@@ -848,7 +865,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,
       // Грубость и жалоба закрывают разговор для бота: модель ИЛИ код; лишний раз позвать человека дешевле, чем спорить.
-      rude: answer.rude || code.rude, complaint: answer.complaint || fallback.complaint,
+      rude: answer.rude || code.rude, complaint: (answer.complaint && !code.deniesRequest) || fallback.complaint,
       botQuestion: answer.botQuestion || fallback.botQuestion,
       // Ипотека, рассрочка, «дома в Душанбе есть?» — наше дело, ответ знаем (прод 23.11.2026): модель метит «кредит» как не по теме.
       offTopic: (answer.offTopic && !code.installmentQuestion && !code.stockQuestion || code.spam) && role === null,

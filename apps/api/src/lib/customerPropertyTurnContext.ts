@@ -13,6 +13,7 @@ import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { customerPropertyTurnTerminal } from "./customerPropertyHistory.js";
 import { boundedCustomerPropertyBatch } from "./customerPropertyHistory.js";
 import { traceCustomerPropertyResolution } from "./botTurnTrace.js";
+import { linkResolvedCustomerFocus } from "./customerFocusOwner.js";
 
 interface Input {
   channel: string; subscriberId: string; text: string; accountExternalId?: string;
@@ -119,6 +120,8 @@ export async function resolveCustomerPropertyTurnContext(
     if (!persisted) return null;
     const resolution = await resolveCustomerPropertyEvidence(persisted.focus.evidence, owner, customerPropertyRegistry);
     if (!await completeCustomerPropertyFocus(owner, persisted, resolution)) return null;
+    // The owner agent learns about this chat; never blocks or fails the turn (27.11.2026, lib/customerFocusOwner.ts).
+    void linkResolvedCustomerFocus(ticket.conversationId, { status: resolution.status, propertyId: resolution.propertyId, evidence: persisted.focus.evidence });
     traceCustomerPropertyResolution({ status: resolution.status, propertyId: resolution.propertyId, provenanceKinds: resolution.provenance.map((item) => item.kind), candidateCount: resolution.candidates.length });
     snapshot = await readCustomerPropertyFocus(ticket);
     if (!snapshot || snapshot.focus.generation !== persisted.focus.generation || snapshot.revision !== persisted.revision) return null;

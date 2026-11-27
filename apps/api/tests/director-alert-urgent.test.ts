@@ -138,6 +138,7 @@ describe("Срочные тревоги помечены срочными", () =
     "src/lib/instagramIdentityGuard.ts", // бот молчит в Instagram
     "src/lib/customerAgentRevisionAlert.ts", // новый бот остановлен
     "src/lib/clientWaitingAlert.ts", // клиент ждёт ответа, агента нет
+    "src/lib/botSilenceWatch.ts", // бот замолчал в канале (27.11.2026)
   ];
   for (const file of critical) {
     it(file, () => {

@@ -27,6 +27,7 @@ import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
 import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
+import { lastMessageSql, messagesCountSql } from "../lib/lastMessageSql.js";
 import { ownBotConversationSql, ownBotConversationMineSql, ownBotConversationWhere } from "../lib/ownBotConversationScope.js";
 import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
@@ -52,6 +53,7 @@ import { chatArchiveCutoff, chatArchivedSql } from "../lib/chatArchive.js";
 import { buildChatInterest, type ChatInterest } from "../lib/chatInterest.js";
 import { contactAvatarLink } from "../lib/contactAvatar.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { setChatArchiveMark, CHAT_ARCHIVE_MARKED, CHAT_ARCHIVE_RESTORED } from "../lib/chatArchiveMark.js";
 import { loadSendContext, sendPropertiesFromConversation } from "../lib/conversationPropertySend.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
@@ -92,6 +94,8 @@ conversationsRouter.use("/:id", async (req, res, next) => {
   // `/groups/:groupId` has its own linked-client/direct-source ownership checks
   // below. The generic `/:id` middleware also matches its `groups` prefix.
   if (req.params.id === "groups") return next();
+  // `/archive-mark` ищет свои переписки сам (lib/chatArchiveMark.ts, в том числе `client:…` и `td_…`).
+  if (req.params.id === "archive-mark") return next();
   if (agentId && !(await conversationBelongsTo(req.params.id, agentId))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
@@ -309,12 +313,15 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     shieldPause: null,
     messages: messages.map(({ sourceOrder: _sourceOrder, ...message }) => message),
     contact: null,
+    ...(await loadDetailAvatar(sourceList.map((source) => source.id), req.agent!.id)),
     grouped: true,
     sources: sourceList,
   });
 });
 
 const clientSelect = { select: { id: true, shortId: true, fullName: true, phone: true } } as const;
+/** Последняя реплика диалога `c` одной распаковкой поля (lib/lastMessageSql.ts). */
+const LAST_MESSAGE_C = lastMessageSql(Prisma.sql`c.messages`);
 
 function fromTelegram(c: {
   id: string;
@@ -433,7 +440,7 @@ async function loadPageCandidates(
           SELECT c.id, c.channel, c.name, c."subscriberId", c."accountId", acc.title AS "accountTitle",
                  c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
-                 CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+                 ${LAST_MESSAGE_C} AS "lastMessage",
                  cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
                  cl."fullName" AS "clientFullName", cl.phone AS "clientPhone",
                  cl.kind AS "clientKind", cl.source AS "clientSource",
@@ -476,7 +483,7 @@ async function loadPageCandidates(
                  c."chatId" AS "subscriberId",
                  c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
-                 CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+                 ${LAST_MESSAGE_C} AS "lastMessage",
                  cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
                  cl."fullName" AS "clientFullName", cl.phone AS "clientPhone",
                  cl.kind AS "clientKind", cl.source AS "clientSource",
@@ -769,8 +776,7 @@ async function loadInboxAlerts(
       SELECT c.id, c."clientId", cl."fullName" AS "clientFullName", c.name, c."lastMessageAt"
       FROM "BotConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
-      WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
-        AND (${waitingForHumanSql(conversationWaitingParts())})
+      WHERE (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -784,8 +790,7 @@ async function loadInboxAlerts(
              c."lastMessageAt"
       FROM "TelegramConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
-      WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
-        AND (${waitingForHumanSql(conversationWaitingParts())})
+      WHERE (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -1068,11 +1073,11 @@ async function loadGroupedInboxRows(input: {
     SELECT c.id, c.id AS "sourceId", 'bot'::text AS kind, c.channel,
       c.name, c."subscriberId", c."accountId", acc.title AS "accountTitle",
       c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
-      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
-      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      0::int AS "messagesCount",
+      ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "BotConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     LEFT JOIN "MessengerAccount" acc ON acc.id = c."accountId"
     WHERE (${channel ?? null}::text IS NULL OR c.channel = ${channel ?? null})
@@ -1084,16 +1089,17 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
   const telegramRows = includeTelegram ? Prisma.sql`
     SELECT ${TG_PREFIX} || c.id AS id, ${TG_PREFIX} || c.id AS "sourceId", 'telegram'::text AS kind, ${TELEGRAM_CHANNEL}::text AS channel,
       CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name, c."chatId" AS "subscriberId",
       NULL::text AS "accountId", NULL::text AS "accountTitle", c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt",
-      c."pausedUntil", c."botPausedAt", CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
-      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      c."pausedUntil", c."botPausedAt", 0::int AS "messagesCount",
+      ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "TelegramConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
       AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
@@ -1102,17 +1108,18 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
   const directRows = includeDirect ? Prisma.sql`
     SELECT 'td_' || c.id AS id, 'td_' || c.id AS "sourceId", 'telegram-direct'::text AS kind, 'TELEGRAM_DIRECT'::text AS channel,
       CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name,
       c."chatId" || ':' || c."topicId" AS "subscriberId", NULL::text AS "accountId", NULL::text AS "accountTitle",
       c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", NULL::timestamp AS "botPausedAt",
-      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
-      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      0::int AS "messagesCount",
+      ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "TelegramDirectConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
       AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
@@ -1121,14 +1128,18 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
 
+  /** Строка ответа: источник страницы плюс сводка, повторённая в каждой строке. Пустая страница —
+   *  одна строка только со сводкой (`groupId` = NULL), чтобы числа на вкладках приходили и тогда. */
   type GroupedSourceRow = ListRow & {
     kind: "bot" | "telegram" | "telegram-direct";
-    groupId: string;
+    groupId: string | null;
     sourceIds: string[];
     channels: string[];
-    groupMessagesCount: number;
+    /** Реплик в этом источнике — считается только для строк страницы. */
+    sourceMessagesCount: number | null;
     groupUnread: boolean;
     groupUnreadCount: number;
     awaitingHumanSince: Date | null;
@@ -1137,6 +1148,8 @@ async function loadGroupedInboxRows(input: {
     countNeedsHuman: bigint;
     countPaused: bigint;
     countMine: bigint;
+    countArchived: bigint;
+    isArchived: boolean;
   };
   // Те же условия «ждёт человека», что у плоского списка (lib/inboxWaiting.ts), но над
   // колонками объединённой выборки: у неё нет присоединённого `cl`, поэтому отметка
@@ -1157,32 +1170,10 @@ async function loadGroupedInboxRows(input: {
   // Числа на вкладках всегда про основной список: открытый «Архив» их не раздувает (поиск архив не прячет, и числа тоже).
   const hideInCounts = archiveOn && !like;
   const archiveCutoff = chatArchiveCutoff(now);
-  const archivedSql = chatArchivedSql({ cutoff: archiveCutoff, now });
-  const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint; countArchived: bigint }[]>(Prisma.sql`
-    WITH source_rows AS (${sourceRowsSql}), keyed AS (
-      SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
-        COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
-        COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
-        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused",
-        ${archivedSql} AS "isArchived"
-      FROM source_rows s
-    ), grouped AS (
-      SELECT "groupId", BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
-        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine", BOOL_AND("isArchived") AS "isArchived"
-      FROM keyed GROUP BY "groupId"
-    )
-    SELECT COUNT(*) FILTER (WHERE NOT (${hideInCounts}::boolean AND "isArchived")) AS "groupTotal",
-      COUNT(*) FILTER (WHERE "waitingUser" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countNeedsHuman",
-      COUNT(*) FILTER (WHERE "isPaused" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countPaused",
-      COUNT(*) FILTER (WHERE "isMine" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countMine",
-      COUNT(*) FILTER (WHERE ${archiveOn}::boolean AND "isArchived") AS "countArchived",
-      COUNT(*) FILTER (WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR "waitingUser")
-        AND (${segments.paused ?? false}::boolean = FALSE OR "isPaused")
-        AND (${segments.mine ?? false}::boolean = FALSE OR "isMine")
-        AND (${archivedView}::boolean = FALSE OR "isArchived")
-        AND NOT (${hideArchived}::boolean AND "isArchived")) AS "countAll"
-    FROM grouped
-  `);
+  const archivedSql = chatArchivedSql({ cutoff: archiveCutoff, now, viewerId: input.viewerAgentId });
+  // ОДИН ПРОХОД ВМЕСТО ДВУХ (27.11.2026): сводка для чисел на вкладках раньше считалась отдельным запросом
+  // по той же выборке — вся переписка разворачивалась дважды на каждое открытие «Чатов». Теперь она едет в
+  // той же выдаче (CTE metrics), а пустая страница всё равно возвращает одну строку со сводкой (LEFT JOIN).
   const rows = await prisma.$queryRaw<GroupedSourceRow[]>(Prisma.sql`
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
@@ -1195,7 +1186,7 @@ async function loadGroupedInboxRows(input: {
       SELECT "groupId", MAX("activityAt") AS "activityAt", BOOL_OR("agentAttentionRequestedAt" IS NOT NULL) AS attention,
         BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
         BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine", BOOL_AND("isArchived") AS "isArchived",
-        SUM("messagesCount")::int AS "groupMessagesCount", ARRAY_AGG(DISTINCT channel ORDER BY channel) AS channels,
+        ARRAY_AGG(DISTINCT channel ORDER BY channel) AS channels,
         ARRAY_AGG("sourceId" ORDER BY "activityAt" DESC, "sourceId" DESC) AS "sourceIds",
         MAX("agentAttentionRequestedAt") AS "agentAttentionRequestedAt",
         MIN("activityAt") FILTER (WHERE "waitingUser") AS "awaitingHumanSince"
@@ -1204,12 +1195,12 @@ async function loadGroupedInboxRows(input: {
       SELECT COUNT(*) FILTER (WHERE NOT (${hideInCounts}::boolean AND "isArchived")) AS "groupTotal",
         COUNT(*) FILTER (WHERE "waitingUser" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countNeedsHuman",
         COUNT(*) FILTER (WHERE "isPaused" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countPaused",
-        COUNT(*) FILTER (WHERE "isMine" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countMine"
+        COUNT(*) FILTER (WHERE "isMine" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countMine",
+        COUNT(*) FILTER (WHERE ${archiveOn}::boolean AND "isArchived") AS "countArchived"
       FROM grouped
     ), selected AS (
-      SELECT g.*, m."groupTotal", m."countNeedsHuman", m."countPaused", m."countMine",
-        ROW_NUMBER() OVER (ORDER BY g.attention DESC, g."activityAt" DESC, g."groupId" DESC) AS rn
-      FROM grouped g CROSS JOIN metrics m
+      SELECT g.*, ROW_NUMBER() OVER (ORDER BY g.attention DESC, g."activityAt" DESC, g."groupId" DESC) AS rn
+      FROM grouped g
       WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR g."waitingUser")
         AND (${segments.paused ?? false}::boolean = FALSE OR g."isPaused")
         AND (${segments.mine ?? false}::boolean = FALSE OR g."isMine")
@@ -1217,24 +1208,40 @@ async function loadGroupedInboxRows(input: {
         AND NOT (${hideArchived}::boolean AND g."isArchived")
     ), page_groups AS (
       SELECT * FROM selected WHERE rn > ${(page - 1) * GROUPED_PAGE_SIZE} AND rn <= ${page * GROUPED_PAGE_SIZE}
+    ), page_src AS MATERIALIZED (
+      SELECT k.*, p."sourceIds", p.channels, p."waitingUser" AS "groupUnread", 0::int AS "groupUnreadCount",
+        p."awaitingHumanSince", p.rn
+      FROM page_groups p JOIN keyed k ON k."groupId" = p."groupId"
+    ), page_rows AS (
+      -- Число реплик — только у источников страницы (до сорока строк), а не у всех трёх тысяч:
+      -- это та же распаковка поля переписки (lib/lastMessageSql.ts). MATERIALIZED выше обязателен:
+      -- без него планировщик считал подзапрос ДО соединения, для каждой пары «группа × источник»
+      -- (126 280 раз, 8 с на проде, замер 27.11.2026).
+      SELECT k.*,
+        CASE k.kind
+          WHEN 'bot' THEN (SELECT ${messagesCountSql(Prisma.sql`b.messages`)} FROM "BotConversation" b WHERE b.id = k."sourceId")
+          WHEN 'telegram' THEN (SELECT ${messagesCountSql(Prisma.sql`t.messages`)} FROM "TelegramConversation" t WHERE t.id = substr(k."sourceId", length(${TG_PREFIX}::text) + 1))
+          ELSE (SELECT ${messagesCountSql(Prisma.sql`d.messages`)} FROM "TelegramDirectConversation" d WHERE d.id = substr(k."sourceId", length('td_') + 1))
+        END AS "sourceMessagesCount"
+      FROM page_src k
     )
-    SELECT k.*, p."groupId", p."sourceIds", p.channels, p."groupMessagesCount", p."groupTotal",
-      p."waitingUser" AS "groupUnread", 0::int AS "groupUnreadCount", p."awaitingHumanSince",
-      p."countNeedsHuman", p."countPaused", p."countMine",
+    SELECT r.*, m."groupTotal", m."countNeedsHuman", m."countPaused", m."countMine", m."countArchived",
       (SELECT COUNT(*) FROM selected) AS "countAll"
-    FROM page_groups p JOIN keyed k ON k."groupId" = p."groupId"
-    ORDER BY p.rn, k."activityAt" DESC, k."sourceId" DESC
+    FROM metrics m LEFT JOIN page_rows r ON TRUE
+    ORDER BY r.rn, r."activityAt" DESC, r."sourceId" DESC
   `);
 
-  const groups = new Map<string, { sources: ListRow[]; meta: GroupedSourceRow }>();
+  const groups = new Map<string, { sources: GroupedSourceRow[]; meta: GroupedSourceRow & { groupId: string } }>();
   for (const row of rows) {
-    const group = groups.get(row.groupId) ?? { sources: [], meta: row };
+    if (row.groupId === null) continue; // строка только со сводкой: страница пуста
+    const group = groups.get(row.groupId) ?? { sources: [], meta: { ...row, groupId: row.groupId } };
     group.sources.push(row);
     groups.set(row.groupId, group);
   }
   const pageRows = [...groups.values()];
-  const unreadCounts = await loadUnreadCounts(pageRows.flatMap(({ sources }) => sources));
-  const [labels, enrichment] = await Promise.all([
+  // Три дозапроса по строкам страницы независимы — параллельно, а не друг за другом.
+  const [unreadCounts, labels, enrichment] = await Promise.all([
+    loadUnreadCounts(pageRows.flatMap(({ sources }) => sources)),
     loadClientDisplayLabels(pageRows.flatMap(({ sources }) => sources.map((r) => r.clientId)), { ownAgentId: ownAgentId ?? undefined, canSeeOrigin }),
     loadRowEnrichment(pageRows.flatMap(({ sources }) => sources.map((r) => r.id))),
   ]);
@@ -1254,7 +1261,7 @@ async function loadGroupedInboxRows(input: {
       channel: channels.length === 1 ? channels[0]! : "MULTI",
       channels: canSeeOrigin ? channels : [],
       sourceConversationIds: meta.sourceIds,
-      messagesCount: Number(meta.groupMessagesCount),
+      messagesCount: sources.reduce((sum, source) => sum + Number(source.sourceMessagesCount ?? 0), 0),
       unread: sources.some((source) => {
         const last = source.lastMessage && typeof source.lastMessage === "object" ? source.lastMessage : null;
         const lastAt = source.lastMessageAt ?? source.updatedAt;
@@ -1282,9 +1289,11 @@ async function loadGroupedInboxRows(input: {
       channels: row.channels,
       unread: row.unread,
       unreadCount: row.unreadCount,
+      // Строка в архиве (для этого зрителя): в поиске у неё «Вернуть», а не «В архив».
+      archived: archiveOn && sources.every((source) => source.isArchived === true),
     };
   });
-  const summary = countRows[0];
+  const summary = rows[0];
   const counts = summary ? {
     all: Number(summary.groupTotal), needsHuman: Number(summary.countNeedsHuman),
     paused: Number(summary.countPaused), mine: Number(summary.countMine), archived: Number(summary.countArchived),
@@ -1332,6 +1341,16 @@ async function loadRowEnrichment(sourceIds: string[]): Promise<Map<string, RowEn
   return out;
 }
 
+/** Миниатюра собеседника и закреплённый за ним цвет для шапки открытой переписки (те же, что у строки списка). */
+async function loadDetailAvatar(sourceIds: string[], viewerAgentId: string): Promise<{ avatarUrl: string | null; avatarSeed: string | null }> {
+  const found = await loadRowEnrichment(sourceIds);
+  const all = sourceIds.map((id) => found.get(id));
+  return {
+    avatarUrl: contactAvatarLink(all.find((e) => e?.avatarKey)?.avatarKey ?? null, viewerAgentId),
+    avatarSeed: all.find((e) => e?.profileId)?.profileId ?? null,
+  };
+}
+
 conversationsRouter.get("/", requireAuth, async (req, res) => {
   const parsed = conversationQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -1360,17 +1379,28 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   const canSeeOrigin = can(req, "clients.viewOrigin");
   const phonesAllowed = can(req, "clients.viewPhone");
   if (grouped) {
-    const archiveEnabled = await automationSwitchOn("chatArchiveEnabled");
-    const result = await loadGroupedInboxRows({
-      channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed, archiveEnabled,
-    });
-    const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT")
-      ? 0
-      : await prisma.telegramDirectConversation.count({
+    // Всё, что не зависит от самой выборки, идёт ПАРАЛЛЕЛЬНО с ней (27.11.2026): раньше пять шагов шли друг
+    // за другом, и время ответа было их суммой.
+    const directCountP = accountId || (channel && channel !== "TELEGRAM_DIRECT")
+      ? Promise.resolve(0)
+      : prisma.telegramDirectConversation.count({
           where: ownAgentId
             ? { client: { is: { assignedAgentId: ownAgentId, deletedAt: null, acceptedAt: { not: null } } } }
-        : { OR: [{ clientId: null }, { client: { is: { deletedAt: null } } }] },
+            : { OR: [{ clientId: null }, { client: { is: { deletedAt: null } } }] },
         });
+    // Все обещания уходят в Promise.all сразу, без await между созданием и ним: иначе отказ одного, пока ждём
+    // другое, стал бы «необработанным отказом» и уронил процесс.
+    const [{ archiveEnabled, result }, directCount, accounts, alerts] = await Promise.all([
+      automationSwitchOn("chatArchiveEnabled").then(async (archiveEnabled) => ({
+        archiveEnabled,
+        result: await loadGroupedInboxRows({
+          channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed, archiveEnabled,
+        }),
+      })),
+      directCountP,
+      canSeeOrigin ? listAccounts() : Promise.resolve([]),
+      loadInboxAlerts(ownAgentId, canSeeOrigin, phonesAllowed),
+    ]);
     res.json({
       items: result.items,
       total: result.total,
@@ -1379,11 +1409,11 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
       archiveEnabled,
       channels: canSeeOrigin ? [...new Set([...channels, ...(directCount > 0 ? ["TELEGRAM_DIRECT"] : [])])].sort() : [],
       accounts: canSeeOrigin
-        ? (await listAccounts()).filter((a) => a.enabled).map((a) => ({ id: a.id, title: a.title, channel: a.channel }))
+        ? accounts.filter((a) => a.enabled).map((a) => ({ id: a.id, title: a.title, channel: a.channel }))
         : [],
       counts: result.counts,
       groupedIncomplete: result.truncated,
-      alerts: await loadInboxAlerts(ownAgentId, canSeeOrigin, phonesAllowed),
+      alerts,
     });
     return;
   }
@@ -1622,6 +1652,8 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
     ),
     /** Что бот знает о человеке вообще — см. lib/contactProfileView.ts. */
     contact,
+    // Та же миниатюра, что в списке: шапка переписки не должна показывать буквы, когда у собеседника есть фото.
+    ...(await loadDetailAvatar([req.params.id], req.agent!.id)),
   });
 });
 
@@ -2086,6 +2118,34 @@ conversationsRouter.post("/:id/spam-restore", requireAuth, requirePermission("cl
   // Кто и когда вернул разговор боту — в журнале действий.
   logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
   res.json({ ok: true });
+});
+
+/**
+ * «В архив» и «Вернуть» из строки списка чатов (27.11.2026, lib/chatArchiveMark.ts). Идентификатор — как в списке:
+ * `client:…`, `tg_…`, `td_…` или id диалога бота. Новое входящее сообщение само возвращает чат в список.
+ */
+const archiveMarkSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  action: z.enum(["archive", "restore"]),
+});
+conversationsRouter.post("/archive-mark", requireAuth, async (req, res) => {
+  const parsed = archiveMarkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  if (!can(req, "messages.view") && !can(req, "messages.viewOwn")) {
+    return res.status(403).json({ error: "Нет доступа к чатам" });
+  }
+  const { id, action } = parsed.data;
+  const updated = await setChatArchiveMark({
+    id,
+    mark: action === "archive" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIVE_RESTORED,
+    ownAgentId: chatScopeAgentId(req),
+    viewerId: req.agent!.id,
+  });
+  if (updated === 0) return res.status(404).json({ error: "Диалог не найден" });
+  logAudit(req, action === "archive" ? "CHAT_ARCHIVED" : "CHAT_UNARCHIVED", "BotConversation", id);
+  res.json({ ok: true, updated });
 });
 
 /** «Вернуть боту» прямо из инбокса — снимает паузу, ИИ снова отвечает сам.

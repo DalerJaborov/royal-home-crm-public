@@ -58,6 +58,11 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   received_orphaned_after_deadline: "сообщение не дошло до бота вовремя (сбой очереди), ответа не было",
   // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
+  // lib/customerAgentRevisionAlert.ts: the core is stopped after a CRM update (incident 26.11.2026); the owner reads words, not codes.
+  current_artifact_revision_mismatch: "бот остановился после обновления CRM и клиенту не ответил",
+  current_artifact_verification_unavailable: "бот остановился после обновления CRM и клиенту не ответил",
+  // customerIngressClassification.ts: another of our WhatsApp numbers is not known in digits (lib/whatsappOwnNumbers.ts).
+  own_phone_identity_unavailable: "бот не смог проверить, что пишет не наш же номер WhatsApp, и не ответил",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 /** customerAgentEnrollment.ts, kill switch off: a WhatsApp customer wrote to our other number while their one chat lives on the first one. */
@@ -121,11 +126,21 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
         await tx.$executeRaw`UPDATE "BotConversation" SET "lastMessageAt"=now() WHERE "id"=${native.id}
           AND CASE WHEN jsonb_typeof("pendingMessages")='array' THEN jsonb_array_length("pendingMessages") ELSE 0 END = 0`;
       }
-      return { conversationId: native.id, fresh: !row.present, content };
+      return { conversationId: native.id, fresh: !row.present, content, clientId: row.clientId };
     }, { maxWait: 5000, timeout: 10000 });
     if (!recorded) return { ...base, conversationId: null, excerpt: "", unrecorded: "chat_deleted" };
     if (recorded.fresh) {
       void publishMessageNew("bot", recorded.conversationId, "IN");
+      // Номер клиента — в его карточку, как у состоявшегося хода (27.11.2026). В переписку легла копия с замаскированным
+      // новым номером (scrubMentionedClientPhonesInText), поэтому дверь зовём с исходными словами клиента, после записи.
+      if (recorded.clientId && input.inputText.trim()) {
+        const clientId = recorded.clientId, conversationId = recorded.conversationId;
+        const at = input.providerOccurredAt ? new Date(input.providerOccurredAt) : new Date();
+        // Повтор при параллельной правке карточки: второго шанса у этого номера нет — копия в переписке замаскирована.
+        void import("./clientPhoneCapture.js")
+          .then(({ captureClientPhoneWithRetry }) => captureClientPhoneWithRetry({ kind: "CONVERSATION", id: conversationId, clientId, at, text: input.inputText }))
+          .catch((error) => console.error("[contact-capture] held:", error instanceof Error ? error.name : "UnknownError"));
+      }
       // Бот не отвечает, а файл клиента сотруднику нужен больше всего: сохраняем сразу, пока ссылка Meta жива (26.11.2026).
       if (input.media.length) keepIngressMediaInBackground({ channel: input.channel, peer: input.peer, mid: input.eventId,
         ...(input.accountExternalId ? { accountExternalId: input.accountExternalId } : {}),

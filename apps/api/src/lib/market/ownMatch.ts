@@ -43,6 +43,9 @@ import { distanceMeters } from "../geo.js";
 import { loadMoneyContext, toTjs } from "../money.js";
 import { logSystemError } from "../systemError.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
+import { automationSwitchOn } from "../automationSwitches.js";
+import { createNotificationsStrict } from "../notifications.js";
+import { publishNotificationNew } from "../livePublish.js";
 
 // ───────────────────────────── Правила совпадения ─────────────────────────────
 
@@ -501,6 +504,9 @@ async function notifyPending(stats: OwnMatchingStats): Promise<void> {
 }
 
 async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof loadMoneyContext>>, stats: OwnMatchingStats): Promise<void> {
+  // Владелец 27.11.2026 («Все пять групп»): совпадения с площадками по умолчанию только в колокольчик, без звонка телефона.
+  // Один раз на пачку; не прочитали Настройки — тоже тихо.
+  const pushOn = rows.length > 0 && (await automationSwitchOn("notifyMarketMatchPushEnabled").catch(() => false));
   for (const m of rows) {
     const agentId = m.property.assignedAgentId;
     if (!agentId) continue;
@@ -522,7 +528,7 @@ async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof lo
         data: { goneNotifiedAt: at },
       });
       if (claim.count !== 1) continue;
-      const sent = await safePush(agentId, { ...base, title: "Объявление сняли с площадки", body: `Ваш объект «${title}» больше не виден на ${site}` });
+      const sent = await safePush(pushOn, agentId, { ...base, title: "Объявление сняли с площадки", body: `Ваш объект «${title}» больше не виден на ${site}` });
       if (!sent) {
         await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, goneNotifiedAt: at }, data: { goneNotifiedAt: null } });
         continue;
@@ -539,7 +545,7 @@ async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof lo
       });
       if (claim.count !== 1) continue;
       const price = listingPrice != null ? `: ${fmt(listingPrice)} с${ours}` : "";
-      const sent = await safePush(agentId, { ...base, title: "Ваш объект есть на площадке", body: `Ваш объект «${title}» найден на ${site}${price}` });
+      const sent = await safePush(pushOn, agentId, { ...base, title: "Ваш объект есть на площадке", body: `Ваш объект «${title}» найден на ${site}${price}` });
       if (!sent) {
         await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, notifiedAt: at }, data: { notifiedAt: null } });
         continue;
@@ -562,7 +568,7 @@ async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof lo
       data: { lastPriceTjs: listingPrice },
     });
     if (claim.count !== 1) continue;
-    const sent = await safePush(agentId, {
+    const sent = await safePush(pushOn, agentId, {
       ...base,
       title: "Цена на площадке изменилась",
       body: `«${title}» на ${site}: ${fmt(last)} → ${fmt(listingPrice)} с${ours}`,
@@ -576,9 +582,14 @@ async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof lo
 }
 
 /** true — отправка не бросила. Ошибка пишется в журнал без номеров и текста пуша. */
-async function safePush(agentId: string, payload: Parameters<typeof sendPushToAgent>[1]): Promise<boolean> {
+async function safePush(pushOn: boolean, agentId: string, payload: Parameters<typeof sendPushToAgent>[1] & { kind: string }): Promise<boolean> {
   try {
-    await sendPushToAgent(agentId, payload);
+    if (pushOn) await sendPushToAgent(agentId, payload);
+    // Строгая запись: сбой ленты обязан бросить, иначе метка notifiedAt останется и событие пропадёт (ревью 27.11).
+    else {
+      await createNotificationsStrict([agentId], payload);
+      publishNotificationNew([agentId]);
+    }
     return true;
   } catch (err) {
     void logSystemError("api", `Пуш о совпадении с площадкой не ушёл: ${err instanceof Error ? err.name : "ошибка"}`, { url: payload.url });
