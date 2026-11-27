@@ -224,7 +224,8 @@ WhatsApp-незнакомые шли **только** на 2020 (без очер
   sudo /opt/royalhome-wa-gateway/bin/wa-calling.sh enable --dry-run   # покажет тело запроса
   sudo /opt/royalhome-wa-gateway/bin/wa-calling.sh enable
   ```
-  Тело: `calling.status=ENABLED`, `call_icon_visibility=DISABLE_ALL`, `callback_permission_status=DISABLED`,
+  Тело: `calling.status=ENABLED`, `call_icon_visibility=DISABLE_ALL` (`callback_permission_status` enable не трогает
+  с 27.11.2026 — обратные звонки отдельно: `wa-calling.sh callback-on|callback-off [--number=…]`),
   `srtp_key_exchange_protocol=SDES`, `audio.additional_codecs=["PCMA"]`, `sip.status=ENABLED`,
   `sip.webhook_delivery=ENABLED`, `sip.servers=[{hostname: wa-sip.royalhome.tj, port: 5061}]`. Ключ WhatsApp берётся
   внутри контейнера CRM её же загрузчиком (`loadCredentials`) и наружу не выходит.

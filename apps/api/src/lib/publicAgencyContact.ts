@@ -18,6 +18,15 @@ export function isPublicAgencyPhone(digits: string): boolean {
 
 const RETIRED_PHONE_DIGITS = "992777776001";
 
+/**
+ * Номер самого агентства (действующий или прежний) в любой записи: «+992 44 650 14 14», «446501414».
+ * Клиент, процитировавший его, своим номером его не оставлял: ни карточка, ни запасной номер (27.11.2026).
+ */
+export function isOwnAgencyNumber(phone: string): boolean {
+  const digits = phone.replace(/\D/g, "");
+  return [digits, digits.slice(-9)].some((d) => isPublicAgencyPhone(d) || isRetiredPublicAgencyPhone(d));
+}
+
 function phonePattern(digits: string): string {
   const separated = (value: string) => value.split("").join("[ \\t()\\-]*");
   return `(?:\\+?${separated(digits)}|${separated(digits.slice(-9))})(?!\\d)`;

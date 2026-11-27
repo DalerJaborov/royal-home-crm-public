@@ -4630,6 +4630,27 @@ model MessengerAccount {
   @@index([channel, enabled])
 }
 
+/// НАШИ НОМЕРА WHATSAPP: phone_number_id у Meta → сам номер цифрами (27.11.2026).
+///
+/// Зачем: бот не должен отвечать НАШЕМУ ЖЕ номеру. Пока номер был один, «свой» узнавался
+/// по получателю в самом сообщении (metadata.display_phone_number). С вторым номером
+/// («Арван», строка MessengerAccount) нужен и номер ДРУГОГО нашего аккаунта — а его
+/// нигде не было, и ядро держало ВСЕ сообщения основного номера без ответа
+/// (own_phone_identity_unavailable, 18 сообщений 26.11). Одна дверь — lib/whatsappOwnNumbers.ts.
+///
+/// Заполняется само: из подписанных вебхуков (metadata каждого события номера), при
+/// подключении номера и, если номера ещё нет, одним запросом к Meta. Руками не ведётся.
+model WhatsappOwnNumber {
+  /// phone_number_id — тот же, что Settings.metaWaPhoneId или MessengerAccount.externalId.
+  phoneNumberId String   @id
+  /// Номер только цифрами, с кодом страны: 992877914444.
+  digits        String
+  /// Откуда узнали: webhook | connect | graph.
+  source        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())
@@ -4732,6 +4753,8 @@ model BotConversation {
   /// изменится сама. Не оформилось с первого раза — это уже вопрос к человеку, и он
   /// получает сигнал (см. leftForHuman там же).
   watchdogAttemptedAt DateTime?
+  /// Последний проход «номер из переписки — в карточку» (lib/phoneLeadWatchdog.ts): разбираем заново только новое.
+  phoneSweepAt       DateTime?
   /// СТОРОЖ МОЛЧАНИЯ (14.11.2026, lib/clientSilenceSweep.ts): момент ПЕРВОЙ
   /// неотвеченной реплики клиента, о которой уже сказали сотруднику. Одна тревога
   /// на один эпизод молчания: клиент дописал ещё — эпизод тот же; ему ответили и он
@@ -4999,6 +5022,8 @@ model CustomerPropertyIngressTicket {
   @@index([endpointScopeId])
   // Applied SQL index name after PostgreSQL's 63-byte identifier truncation.
   @@index([processingState, nextAttemptAt, leaseUntil], map: "CustomerPropertyIngressTicket_processingState_nextAttemptAt_le_")
+  /// Сторож «бот замолчал» (lib/botSilenceWatch.ts): сообщения за последние 6 часов.
+  @@index([receivedAt])
 }
 
 /// One physical publication. Provider acceptance and local projection are distinct.
@@ -5054,6 +5079,9 @@ model CustomerOutboxPart {
   @@index([conversationId])
   @@index([publicMetaCommentId, publicSourceRevision], map: "customer_outbox_public_meta_source_idx")
   @@index([publicTelegramCommentId, publicSourceRevision], map: "customer_outbox_public_tg_source_idx")
+  /// «Есть ли у сообщения ответ» (lib/botSilenceWatch.ts, lib/customerTurnSilence.ts) и «когда бот последний раз ответил».
+  @@index([ticketEventKey])
+  @@index([acceptedAt])
 }
 
 /// Explicit owner-approved bot corrections, separate from genuine customer IN.
@@ -7478,6 +7506,8 @@ model Settings {
   botSpamFilterEnabled                  Boolean @default(true)
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
+  shabnamGroupLiveEnabled               Boolean @default(true)
+  shabnamGroupLiveShadowEnabled         Boolean @default(false)
   /// «Шабнам отвечает в группах без обращения» (24.11.2026, жалоба владельца «молчит, пока не позовёшь»).
   /// ВКЛ. ВЫКЛ — в рабочих группах Шабнам отвечает только тем, кто её позвал. telegram/assistantBot.ts.
   shabnamGroupUnaddressedEnabled        Boolean @default(true)
@@ -7519,6 +7549,24 @@ model Settings {
   /// ВКЛ: узнавание по приметам (lib/propertyMatch.ts) отдаёт заявку хозяину объекта, сверяет названное имя с
   /// хозяином, при похожих — подсказка руководству. ВЫКЛ — объект только номером/адресом/ссылкой/объявлением.
   callObjectToOwnerEnabled              Boolean @default(true)
+  /// Клиент в WhatsApp без ответа бота: карточка сама (27.11.2026, lib/unansweredChatTurn.ts).
+  chatUnansweredCardEnabled             Boolean @default(true)
+  /// Номер одним сообщением в переписке с карточкой — в запасные номера (27.11.2026, ревью #497).
+  chatBarePhoneToCardEnabled            Boolean @default(true)
+  /// «Бот замолчал: сразу сказать руководству» (владелец 27.11.2026, инцидент 26.11: бот молчал с 16:00 до 20:22).
+  /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
+  /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
+  botSilenceWatchEnabled                Boolean @default(true)
+  /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
+  /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
+  /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
+  chatObjectToOwnerEnabled              Boolean @default(true)
+  callAdObjectToOwnerEnabled            Boolean @default(true)
+  objectInterestPullsQueueLeadEnabled   Boolean @default(true)
+  /// Пуш хозяину объекта, когда объектом интересуется клиент ДРУГОГО агента. ВЫКЛ (владелец 27.11: «пусть ничего не получает»).
+  notifyOwnerOfOtherAgentClientEnabled  Boolean @default(false)
+  /// Пуши хозяину объекта по переписке без карточки клиента. ВЫКЛ (владелец 27.11: «просто интересуется… отключи»).
+  notifyOwnerBeforeLeadEnabled          Boolean @default(false)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -11567,6 +11615,14 @@ model AssistantTelegramGroup {
   /// Separate opt-in. A later opt-in starts a new evidence window.
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
+  /// LISTEN | HELP | LIVE; пусто = LIVE (telegram/assistantGroupLive.ts).
+  chatMode             String?
+  liveWindowStartAt    DateTime?
+  liveWindowCount      Int      @default(0)
+  lastLiveReplyAt      DateTime?
+  /// Сутки по Душанбе (ГГГГ-ММ-ДД) и число живых реплик в них: потолок LIVE_MAX_PER_DAY.
+  liveDayKey           String?
+  liveDayCount         Int      @default(0)
   /// Директор или админ выключил память группы командой /assistant_memory off (24.11.2026).
   /// Пока стоит, автопамять (рубильник shabnamGroupAutoMemoryEnabled) её не включает обратно.
   contextOptOutAt      DateTime?
@@ -12288,4 +12344,26 @@ model CustomerPendingMedia {
 
   @@unique([channel, subscriberId, mid])
   @@index([createdAt])
+}
+
+/// ЭПИЗОД «БОТ ЗАМОЛЧАЛ» (27.11.2026, lib/botSilenceWatch.ts). Открытый эпизод (recoveredAt IS NULL) один на всю
+/// систему (частичный уникальный индекс в миграции 20261127130000_bot_silence_watch). Нужен, чтобы сказать
+/// руководству один раз, напоминать не чаще раза в час и сказать «бот снова отвечает, без ответа остались N человек».
+/// Только служебные поля, без текстов клиентов.
+model BotSilenceIncident {
+  id          String    @id @default(uuid())
+  /// Группы «канал:аккаунт», где бот замолчал («WHATSAPP:main», «INSTAGRAM:<id MessengerAccount>»), по мере обнаружения.
+  groups      String[]
+  /// Когда написал первый клиент, оставшийся без ответа: «бот молчит с».
+  startedAt   DateTime
+  detectedAt  DateTime  @default(now())
+  /// Последнее уведомление руководству (первое или напоминание).
+  lastAlertAt DateTime
+  /// Последний тик, когда в группах эпизода кто-то ждал ответа; никто не ждёт 6 часов — эпизод закрывается молча.
+  lastActiveAt DateTime
+  /// Ключи переписок, оставшихся без ответа за эпизод (id переписки или области ядра), для «без ответа остались N».
+  missedKeys  Json      @default("[]")
+  recoveredAt DateTime?
+
+  @@index([recoveredAt])
 }
