@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 789,
-  "cron": 147,
+  "cron": 148,
   "jobs": 37,
-  "conditions": 4335,
-  "untranslatedUnique": 498,
-  "untranslatedTotal": 640,
-  "partialUnique": 1147,
+  "conditions": 4344,
+  "untranslatedUnique": 499,
+  "untranslatedTotal": 641,
+  "partialUnique": 1151,
   "translatedShare": 85
  },
  "untranslated": [
@@ -27,6 +27,7 @@
   "!(\"telegramChatId\" in row)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
   "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
@@ -67067,6 +67068,113 @@
       },
       {
        "t": "если разосланных тревог больше 0 или передан выше больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "bot-silence-watch",
+   "when": "2-59/5 * * * *",
+   "label": "bot-silence-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))"
+        },
+        {
+         "t": "поломка: «очередь тревог руководству недоступна»",
+         "k": "do",
+         "a": [
+          "все изменения разом: либо всё, либо ничего",
+          "заводит: бот silence incident",
+          "меняет: бот silence incident"
+         ],
+         "c": [
+          {
+           "t": "если нет: locked",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "поломка: «очередь тревог руководству недоступна»",
+           "k": "do",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «open»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «update» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «recover» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид — «close» и есть open",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть разосланных тревог",
        "k": "if",
        "a": [],
        "c": []
