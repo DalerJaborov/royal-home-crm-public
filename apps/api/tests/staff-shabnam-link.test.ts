@@ -1,8 +1,6 @@
-import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
-useTelegramClientBot();
+// Бот только для сотрудников (27.11.2026) ВКЛ, как по умолчанию: привязка и монтажёр обязаны работать и так.
 
 /**
  * ШАБНАМ: ЛЁГКОЕ ПОДКЛЮЧЕНИЕ СОТРУДНИКА И ЗАЩИТА ОТ ПРИВЯЗКИ «НЕ В ТОТ АККАУНТ» (25.11.2026).

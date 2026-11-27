@@ -53,6 +53,8 @@ export const groupQuietPlugin: AssistantReadToolPlugin = {
     },
   },
   statusPhrase: "Меняю режим группы…",
+  // Меняет общий режим группы — запись: режиму просмотра (акционер) закрыто, в ходе «только прочитать» нет (ревью #506).
+  sideEffect: "shared",
   allowed: inDirectGroupTurn,
   async run(raw, ctx) {
     const group = ctx.actor.groupChat;

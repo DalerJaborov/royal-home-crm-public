@@ -26,7 +26,8 @@ import { staffWriteTools } from "./staffWriteTools.js";
 import { transferPropertyTool } from "./transferPropertyTool.js";
 import type { AssistantToolPlugin } from "./types.js";
 import type { AssistantActor } from "../actor.js";
-import { isReadOnlyRole } from "@royal-home/shared";
+import { readOnlyRoleBlocked } from "./writeGate.js";
+export { pluginWrites, readOnlyRoleBlocked } from "./writeGate.js";
 
 export type { AssistantToolPlugin } from "./types.js";
 
@@ -77,6 +78,6 @@ export function listAssistantToolPlugins(): AssistantToolPlugin[] {
  * (lib/assistantActions.ts, assertRoleMayWrite) — это подсказка модели, а там защита.
  */
 export function assistantPluginAllowed(plugin: AssistantToolPlugin, actor: AssistantActor): boolean {
-  if (plugin.level !== "A" && isReadOnlyRole(actor.role) && !plugin.executor.readOnlyRoleAllowed) return false;
+  if (readOnlyRoleBlocked(plugin, actor.role)) return false;
   return plugin.allowed ? plugin.allowed(actor) : true;
 }

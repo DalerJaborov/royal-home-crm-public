@@ -16,7 +16,7 @@
   "paths": 790,
   "cron": 148,
   "jobs": 37,
-  "conditions": 4355,
+  "conditions": 4354,
   "untranslatedUnique": 500,
   "untranslatedTotal": 642,
   "partialUnique": 1155,
@@ -70368,13 +70368,6 @@
          "k": "try",
          "a": [],
          "c": [
-          {
-           "t": "и так по каждому",
-           "k": "loop",
-           "a": [],
-           "c": [],
-           "more": true
-          },
           {
            "t": "если recipients количество — «0»",
            "k": "if",

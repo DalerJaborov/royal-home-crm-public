@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **790**. Развилок в самих путях: **2528**; вместе с задачами по расписанию и фоновыми заданиями — **4394**. Модулей: **87**.
+Путей: **790**. Развилок в самих путях: **2528**; вместе с задачами по расписанию и фоновыми заданиями — **4393**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21790,16 +21790,10 @@
     - const release = ()
       · меняет в базе: settings
     - пробует
-      - const candidates = await prisma.agent.findMany({ where: { role: { in: await reportRecipientRoles(["DIRECTOR"]…
-        · читает в базе: agent
-      - для каждого: const c of candidates
-        - const access = await loadAgentAccess(c.id);
-          · зовёт loadAgentAccess()
-        - если access?.isActive && access.permissions.has("finance.view") && c.telegramChatId
-          - recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
-            · дословно из кода
+      - const recipients = await findAutoPdfRecipients("finance.view");
+        · зовёт findAutoPdfRecipients()
       - если recipients.length === 0
-        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…
+        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или у…
           · запись в журнал ошибок
       - для каждого: const r of recipients
         - пробует
@@ -21808,7 +21802,7 @@
           - logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.p…
             · зовёт logAgentAudit()
         - если сорвалось
-          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…
+          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(…
             · запись в журнал ошибок
       - если delivered === 0
         - await release();

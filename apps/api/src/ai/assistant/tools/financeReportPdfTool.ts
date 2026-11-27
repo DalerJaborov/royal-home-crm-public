@@ -42,6 +42,8 @@ export const sendFinanceReportPdfTool: AssistantReadToolPlugin = {
     },
   },
   statusPhrase: "Собираю PDF-отчёт…",
+  // Шлёт файл — действие, не чтение (ревью #506): нет в ходах «только прочитать», по одному. Только себе — акционеру можно.
+  sideEffect: "own",
   allowed: (actor) => financeReadAllowed(actor),
   async run(raw, ctx) {
     const actor = ctx.actor;
@@ -58,14 +60,15 @@ export const sendFinanceReportPdfTool: AssistantReadToolPlugin = {
       },
       "finance",
       parsed.data.month ? { month: parsed.data.month } : {},
-      { source: "assistant" },
+      { source: "assistant", ...(ctx.signal ? { signal: ctx.signal } : {}) },
     );
-    if (outcome.ok) return { ok: true, sent: "Файл отправлен в личный Telegram", period: outcome.periodLabel };
+    if (outcome.ok) return { ok: true, done: true, sent: "Файл отправлен в личный Telegram", period: outcome.periodLabel };
     if (outcome.code === "NO_TELEGRAM") {
       return { error: "Telegram не привязан: CRM → Профиль → «Личный чат с ботом CRM в Telegram» → «Привязать»" };
     }
     if (outcome.code === "INPUT") return { error: outcome.error };
     if (outcome.code === "TOO_OFTEN") return { error: outcome.error };
+    if (outcome.code === "ABORTED") return { error: outcome.error, code: "ABORTED" };
     return { error: "Не получилось собрать или отправить отчёт. Попробуйте позже" };
   },
 };

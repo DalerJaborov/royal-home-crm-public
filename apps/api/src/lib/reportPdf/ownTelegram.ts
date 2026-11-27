@@ -29,12 +29,17 @@ const lastSentAt = new Map<string, number>();
 
 export type OwnTelegramPdfOutcome =
   | { ok: true; periodLabel: string; periodKey: string; filename: string }
-  | { ok: false; status: number; error: string; code: "NO_TELEGRAM" | "TOO_OFTEN" | "INPUT" | "BUSY" | "TIMEOUT" | "TELEGRAM" | "FAILED"; retryAfterSec?: number };
+  | { ok: false; status: number; error: string; code: "NO_TELEGRAM" | "TOO_OFTEN" | "INPUT" | "BUSY" | "TIMEOUT" | "TELEGRAM" | "FAILED" | "ABORTED"; retryAfterSec?: number };
 
 export interface OwnTelegramPdfOptions {
   /** Откуда просьба — в журнал действий. */
   source: "screen" | "assistant";
   now?: Date;
+  /**
+   * Срок ответа помощницы. Истёк, пока собирался файл, — НЕ отправляем: человек уже
+   * получил «не успела», и файл, пришедший молча следом, выглядел бы как сбой (ревью #506).
+   */
+  signal?: AbortSignal;
 }
 
 /** Для тестов: сбросить счётчик частоты. */
@@ -73,6 +78,10 @@ export async function sendReportPdfToOwnTelegram(
     return timeout
       ? { ok: false, status: 504, code: "TIMEOUT", error: "Отчёт собирается слишком долго. Попробуйте позже или сократите период" }
       : { ok: false, status: 500, code: "FAILED", error: "Не удалось собрать PDF. Попробуйте позже" };
+  }
+  if (opts.signal?.aborted) {
+    lastSentAt.delete(viewer.agentId);
+    return { ok: false, status: 504, code: "ABORTED", error: "Не успела собрать отчёт вовремя, файл не отправлен. Попросите ещё раз" };
   }
   try {
     await sendDocumentFile(chatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.periodLabel}`);

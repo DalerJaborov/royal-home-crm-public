@@ -1,4 +1,4 @@
-import { isReadOnlyRole } from "@royal-home/shared";
+import { readOnlyRoleBlocked } from "./writeGate.js";
 import {
   AssistantActionError,
   confirmAssistantAction,
@@ -39,6 +39,8 @@ export interface RunPluginHooks {
   question?: string;
   /** Ключ хода (Telegram: чат + сообщение) — для ключа повтора записи (add_expenses). */
   turnKey?: string;
+  /** Срок ответа помощницы: действие без карточки проверяет его перед необратимым шагом. */
+  signal?: AbortSignal;
 }
 
 /** Потолок одной строки превью в ответе модели (превью короткое: подписи, а не переписка). */
@@ -98,10 +100,12 @@ export async function runAssistantToolPlugin(
 ): Promise<unknown> {
   try {
     if (actor.hiddenTools?.has(plugin.name)) return { error: "Этот инструмент недоступен в этом чате" };
-    if (plugin.level !== "A" && isReadOnlyRole(actor.role) && !plugin.executor.readOnlyRoleAllowed) {
+    if (readOnlyRoleBlocked(plugin, actor.role)) {
       return { error: "Режим просмотра: изменения недоступны", code: "READ_ONLY_ROLE" };
     }
-    if (plugin.level === "A") return await plugin.run(args, { actor, ...(hooks.question ? { question: hooks.question } : {}) });
+    if (plugin.level === "A") {
+      return await plugin.run(args, { actor, ...(hooks.question ? { question: hooks.question } : {}), ...(hooks.signal ? { signal: hooks.signal } : {}) });
+    }
 
     const actionActor = actionActorFrom(actor, hooks.channel);
     const bound = plugin.bindContext ? plugin.bindContext(args, { question: hooks.question, turnKey: hooks.turnKey }) : args;

@@ -1,3 +1,6 @@
+import { mentionsJobSeeking } from "../ai/jobSeekerCall.js";
+import { BW, EW } from "../ai/wordBoundary.js";
+import { logSystemAudit } from "../lib/audit.js";
 import { prisma } from "../db.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { staffLinkDeepLink } from "../lib/telegramAgentLink.js";
@@ -25,17 +28,52 @@ export async function telegramStaffOnlyOn(): Promise<boolean> {
 }
 
 /**
- * ПАМЯТКА ВМЕСТО ДИАЛОГА — ТОЛЬКО НЕЗНАКОМЦУ (защита от тихой потери).
+ * ПАМЯТКА ВМЕСТО ДИАЛОГА — ТОЛЬКО НОВОМУ НЕЗНАКОМЦУ (защита от тихой потери, ревью #506).
  *
- * Переписка Telegram, уже привязанная к карточке клиента, — это живой клиент агента:
- * его новое сообщение обязано лечь в чат CRM, как раньше, иначе агент его не увидит
- * вовсе (Telegram второй раз не пришлёт). Поэтому такой чат идёт прежним путём даже при
- * включённом рубильнике; памятку получают только чаты без карточки клиента.
+ * Прежним путём (запись в чат CRM, бот, оператор) при включённом рубильнике идут:
+ *  - переписка с карточкой клиента: живой клиент агента, его сообщение обязано лечь в CRM;
+ *  - любая переписка с активностью за последние 30 дней (последнее сообщение, правка,
+ *    пауза бота под оператором, квалификация без карточки) — разговор уже идёт;
+ *  - кандидат на работу: черновик с намерением «работа» или слова соискателя в сообщении
+ *    («ищу работу», «кор ҳаст?») — анкета кандидата из Telegram не теряется.
+ * Остальное — памятка, а каждое такое входящее записывается в журнал действий
+ * (TELEGRAM_STAFF_ONLY_INBOUND, chatId и начало текста), чтобы его можно было найти.
  */
-export async function staffOnlyGateApplies(chatId: string): Promise<boolean> {
+export const STAFF_ONLY_ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const CANDIDATE_EXTRA = new RegExp(
+  String.raw`${BW}(?:кор\s+(?:ҳаст|хаст|бор)|работ\p{L}*\s+(?:есть|ест)|есть\s+работ\p{L}*|ваканси\p{L}*\s+есть)${EW}`,
+  "iu",
+);
+
+export function looksLikeCandidate(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim();
+  return mentionsJobSeeking(t) || CANDIDATE_EXTRA.test(t);
+}
+
+export async function staffOnlyGateApplies(chatId: string, text?: string | null, now = new Date()): Promise<boolean> {
   if (!(await telegramStaffOnlyOn())) return false;
-  const conversation = await prisma.telegramConversation.findUnique({ where: { chatId }, select: { clientId: true } });
-  return !conversation?.clientId;
+  if (looksLikeCandidate(text)) return false;
+  const conversation = await prisma.telegramConversation.findUnique({
+    where: { chatId },
+    select: { clientId: true, lastMessageAt: true, updatedAt: true, pausedUntil: true, botPausedAt: true, leadDraft: true },
+  });
+  if (!conversation) return true;
+  if (conversation.clientId) return false;
+  const since = now.getTime() - STAFF_ONLY_ACTIVE_WINDOW_MS;
+  const recent = (d: Date | null) => d !== null && d.getTime() >= since;
+  if (recent(conversation.lastMessageAt) || recent(conversation.updatedAt) || recent(conversation.botPausedAt)) return false;
+  if (conversation.pausedUntil && conversation.pausedUntil.getTime() > now.getTime()) return false;
+  if ((conversation.leadDraft as { intent?: unknown } | null)?.intent === "job") return false;
+  return true;
+}
+
+/** Входящее незнакомца, получившего памятку: не теряем молча — строка в журнале действий. */
+export function recordStaffOnlyInbound(chatId: string, info: { username?: string | null; text?: string | null; kind: "message" | "callback" }): void {
+  logSystemAudit("TELEGRAM_STAFF_ONLY_INBOUND", "TelegramConversation", chatId, {
+    kind: info.kind,
+    ...(info.username ? { username: info.username } : {}),
+    ...(info.text ? { text: info.text.slice(0, 500) } : {}),
+  });
 }
 
 export const STAFF_ONLY_NOTICE_COOLDOWN_MS = 10 * 60_000;

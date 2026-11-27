@@ -38,3 +38,17 @@ describe("сумма жирным целиком", () => {
     expect(sanitizeAssistantReply("Итого 3 561,25 TJS", true)).toContain("3 561,25 TJS");
   });
 });
+
+describe("тысячи только группами по три (ревью #506)", () => {
+  it("телефон перед суммой не прячется от маски: «927001122 500 TJS»", () => {
+    const safe = sanitizeAssistantReply("Позвоните 927001122 500 TJS задаток", true);
+    expect(safe).not.toContain("927001122");
+    expect(safe).toContain("500 TJS");
+    expect(decorateHtml("927001122 500 TJS")).toContain("<b>500 TJS</b>");
+    expect(decorateHtml("927001122 500 TJS")).not.toContain("<b>927001122");
+  });
+
+  it("сплошная сумма без разделителей — жирным целиком", () => {
+    expect(decorateHtml("Расход 1638 TJS")).toContain("<b>1638 TJS</b>");
+  });
+});

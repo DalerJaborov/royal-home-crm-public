@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 790,
-  "forks": 4394,
+  "forks": 4393,
   "mounts": 87,
   "cron": 148,
   "jobs": 37,
@@ -97740,41 +97740,11 @@
          "c": [
           {
            "k": "do",
-           "t": "const candidates = await prisma.agent.findMany({ where: { role: { in: await reportRecipientRoles([\"DIRECTOR\"]…",
+           "t": "const recipients = await findAutoPdfRecipients(\"finance.view\");",
            "a": [
-            "читает в базе: agent"
+            "зовёт findAutoPdfRecipients()"
            ],
            "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const access = await loadAgentAccess(c.id);",
-             "a": [
-              "зовёт loadAgentAccess()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
           },
           {
            "k": "if",
@@ -97783,7 +97753,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
+             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или у…",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -97826,7 +97796,7 @@
              "c": [
               {
                "k": "do",
-               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
+               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(…",
                "a": [
                 "запись в журнал ошибок"
                ],

@@ -1,4 +1,4 @@
-import { READ_ONLY_ROLES, type PermissionId, type Role } from "@royal-home/shared";
+import { READ_ONLY_ROLES, parsePermissionOverrides, resolvePermissions, type PermissionId, type Role } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { automationSwitchOn } from "./automationSwitches.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -39,4 +39,38 @@ export async function findReportRecipientsByRoles(base: readonly Role[]): Promis
   const roles = await reportRecipientRoles(base);
   const rows = await prisma.agent.findMany({ where: { role: { in: roles }, isActive: true }, select: { id: true } });
   return rows.map((r) => r.id);
+}
+
+/**
+ * КРУГ АВТОМАТИЧЕСКИХ PDF (решение владельца 27.11.2026): ежемесячный финансовый PDF и
+ * любой другой PDF, который CRM рассылает сама, получают директор, администратор и
+ * учредитель (акционер, под рубильником «Отчёты акционеру»). Один список на все рассылки:
+ * новый автоматический PDF зовёт `findAutoPdfRecipients`, а не пишет свой набор ролей
+ * (сторож — tests/shareholder-reports-27-11.test.ts, «одна дверь автоматических PDF»).
+ */
+export const AUTO_PDF_BASE_ROLES: readonly Role[] = ["DIRECTOR", "ADMIN"];
+/** Потолок выборки: получателей единицы, предел — от случайной рассылки «всем». */
+const AUTO_PDF_RECIPIENTS_LIMIT = 200;
+
+export interface AutoPdfRecipient {
+  id: string;
+  chatId: string;
+}
+
+/**
+ * Получатели автоматического PDF в личный Telegram: роль из круга выше, работает, свой
+ * Telegram привязан и есть право `permission` (права считаются поверх пресета роли, как
+ * в findAgentsWithPermission: сняли директору финансы — файла ему нет).
+ */
+export async function findAutoPdfRecipients(permission: PermissionId): Promise<AutoPdfRecipient[]> {
+  const roles = await reportRecipientRoles(AUTO_PDF_BASE_ROLES);
+  const rows = await prisma.agent.findMany({
+    where: { role: { in: roles }, isActive: true, telegramChatId: { not: null } },
+    select: { id: true, role: true, permissions: true, telegramChatId: true },
+    orderBy: { createdAt: "asc" },
+    take: AUTO_PDF_RECIPIENTS_LIMIT,
+  });
+  return rows
+    .filter((a) => resolvePermissions(a.role as Role, parsePermissionOverrides(a.permissions)).has(permission))
+    .map((a) => ({ id: a.id, chatId: String(a.telegramChatId) }));
 }
