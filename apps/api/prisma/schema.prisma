@@ -4990,6 +4990,8 @@ model CustomerPropertyIngressTicket {
   @@index([endpointScopeId])
   // Applied SQL index name after PostgreSQL's 63-byte identifier truncation.
   @@index([processingState, nextAttemptAt, leaseUntil], map: "CustomerPropertyIngressTicket_processingState_nextAttemptAt_le_")
+  /// Сторож «бот замолчал» (lib/botSilenceWatch.ts): сообщения за последние 6 часов.
+  @@index([receivedAt])
 }
 
 /// One physical publication. Provider acceptance and local projection are distinct.
@@ -5045,6 +5047,9 @@ model CustomerOutboxPart {
   @@index([conversationId])
   @@index([publicMetaCommentId, publicSourceRevision], map: "customer_outbox_public_meta_source_idx")
   @@index([publicTelegramCommentId, publicSourceRevision], map: "customer_outbox_public_tg_source_idx")
+  /// «Есть ли у сообщения ответ» (lib/botSilenceWatch.ts, lib/customerTurnSilence.ts) и «когда бот последний раз ответил».
+  @@index([ticketEventKey])
+  @@index([acceptedAt])
 }
 
 /// Explicit owner-approved bot corrections, separate from genuine customer IN.
@@ -12301,13 +12306,15 @@ model CustomerPendingMedia {
 /// Только служебные поля, без текстов клиентов.
 model BotSilenceIncident {
   id          String    @id @default(uuid())
-  /// Каналы, где бот замолчал (INSTAGRAM, FACEBOOK, WHATSAPP, WEBSITE), по мере обнаружения.
-  channels    String[]
+  /// Группы «канал:аккаунт», где бот замолчал («WHATSAPP:main», «INSTAGRAM:<id MessengerAccount>»), по мере обнаружения.
+  groups      String[]
   /// Когда написал первый клиент, оставшийся без ответа: «бот молчит с».
   startedAt   DateTime
   detectedAt  DateTime  @default(now())
   /// Последнее уведомление руководству (первое или напоминание).
   lastAlertAt DateTime
+  /// Последний тик, когда в группах эпизода кто-то ждал ответа; никто не ждёт 6 часов — эпизод закрывается молча.
+  lastActiveAt DateTime
   /// Ключи переписок, оставшихся без ответа за эпизод (id переписки или области ядра), для «без ответа остались N».
   missedKeys  Json      @default("[]")
   recoveredAt DateTime?

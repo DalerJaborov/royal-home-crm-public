@@ -1,10 +1,11 @@
 import { pluralizeRu } from "@royal-home/shared";
-import { prisma, type TxClient } from "../db.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { prisma } from "../db.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
+import { loadBotAnswerSwitches } from "../messengers/botChannels.js";
 import { automationSwitchOn } from "./automationSwitches.js";
 import { episodeAllIntentional, humanRepliedSince, INTENTIONAL_SILENCE_REASONS, waitingEpisodeOf } from "./clientWaitingAlert.js";
 import { isCustomerAgentChannelOff } from "./customerAgentChannelOff.js";
-import { BOT_STOPPED_TITLE } from "./customerAgentRevisionAlert.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
@@ -18,37 +19,42 @@ import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
  * чтобы сторож узнал сразу и сказал мне, админу и директору. Только по-человечески, а не по-технически».
  *
  * ПО ПРИЗНАКУ, А НЕ ПО ПРИЧИНЕ. Сторож не знает, ПОЧЕМУ бот молчит (версия, ключ Meta, упавший процесс, очередь,
- * ИИ — любая будущая причина): он смотрит только на итог в базе. Канал «замолчал», когда одновременно:
+ * ИИ — любая будущая причина): он смотрит только на итог в базе. Считает он по ГРУППЕ «канал + наш аккаунт»
+ * (номер WhatsApp, страница, аккаунт Instagram, чат сайта): живой аккаунт не прячет мёртвый (26.11 основной WhatsApp
+ * молчал, пока второй номер отвечал). Группа «замолчала», когда одновременно:
  *   1. трое и больше клиентов (SILENCE_MIN_CUSTOMERS) ждут ответа дольше 10 минут (SILENCE_GRACE_MS), и
- *   2. с того момента, как написал первый из них, бот не ответил в этом канале НИКОМУ.
- * Второе условие и отличает поломку от медлительности или отдельных намеренных молчаний: работающий бот отвечает
- * хоть кому-то, и тогда пункт 2 ложен. Ночью и при малом потоке условие то же: если трое подряд написали и бот не
- * ответил ни одному, это поломка в любой час (бот работает круглые сутки). Окно «ждёт ответа» — 6 часов: старое
- * молчание — дело сторожа «клиент ждёт ответа» и утреннего отчёта.
+ *   2. с того момента, как написал первый из них, бот не ответил в этой группе НИКОМУ.
+ * Второе условие отличает поломку от медлительности и от отдельных намеренных молчаний: работающий бот отвечает
+ * хоть кому-то, и тогда пункт 2 ложен. Окно «ждёт ответа» — 6 часов.
  *
  * ДВА ИСТОЧНИКА ОДНОГО ПРИЗНАКА. (а) Переписка CRM (`BotConversation.messages`): хвост реплик клиента без ответа —
  * то же правило, что у сторожа «клиент ждёт ответа» (`waitingEpisodeOf`, одна дверь). (б) Сообщения нового ядра
- * (`CustomerPropertyIngressTicket`), не получившие ответа: на случай поломки ДО того, как текст лёг в переписку.
- * Человек считается один раз (ключ: переписка, без неё — область ядра). Ответ бота — его реплика сразу после реплики
- * клиента в переписке или принятая площадкой часть ответа ядра (`CustomerOutboxPart.acceptedAt`).
+ * (`CustomerPropertyIngressTicket`), не получившие ответа: на случай поломки ДО того, как текст лёг в переписку
+ * (новая пустая переписка, старая переписка вне выборки). Человек считается один раз (ключ: переписка, без неё —
+ * область ядра). Ответ бота — его реплика сразу после реплики клиента или принятая площадкой часть ответа ядра.
  *
- * КОГО НЕ СЧИТАЕМ (бот молчит намеренно или переписку ведёт человек): молчание из единого списка намеренных
- * (lib/customerIntendedSilence.ts: эхо своих сообщений, спам, свои сотрудники, повтор вложения…), пауза бота,
- * отписавшихся, клиентов в корзине, заглушённый спам, переписку, где сотрудник отвечал за последние сутки, и канал,
- * выключенный аварийным рубильником (CUSTOMER_AGENT_CHANNEL_OFF). Комментарии сюда не входят (это не переписки).
+ * НАМЕРЕННО ВЫКЛЮЧЕННОЕ НЕ ТРЕВОЖИТ НИКОГДА: общий рубильник бота, рубильник канала, выключенный Meta, чат сайта
+ * (одна дверь — messengers/botChannels.ts::loadBotAnswerSwitches, то же правило, что у ядра), выключенный аккаунт
+ * (`MessengerAccount.enabled`), аварийный `CUSTOMER_AGENT_CHANNEL_OFF`. Аккаунт, у которого Meta отозвала доступ
+ * (`accessLostAt`), тоже не смотрим: о нём уже говорит сторож ключей канала, а здесь он открывал бы и закрывал
+ * эпизод каждую ночь. Не считаются и люди: намеренное молчание (единый список lib/customerIntendedSilence.ts),
+ * пауза бота, отписка, корзина, заглушённый спам, переписка, где сотрудник отвечал за последние сутки.
  *
- * КОМУ И КАК. Директору и администратору (владелец — директор) через очередь тревог руководству, срочно (мимо часов
- * алармов; ночью по общему правилу только колокольчик, звонок утром). Один эпизод — одно уведомление; пока он длится,
- * напоминание не чаще раза в час (SILENCE_REMIND_MS) и только если люди всё ещё ждут; когда бот снова ответил в
- * каждом замолчавшем канале — «Бот снова отвечает, без ответа остались N человек». Простыми словами, без кодов.
- * Эпизод хранится в `BotSilenceIncident` (переживает выкат), решение — под замком базы (api и worker не задвоят).
+ * КОМУ И КОГДА. Директору и администратору (владелец — директор) через очередь тревог руководству, срочно: мимо
+ * часов алармов, днём телефон звонит сразу. НОЧЬЮ (21:00–08:00 по Душанбе) действует общее правило владельца
+ * «ночью пуши запрещены всем» (lib/pushQuietHours.ts): запись в колокольчике появляется сразу, а звонок телефона —
+ * в 08:00. Звонить ночью может только вид `realtime` — это решение владельца, здесь его нет.
+ * Один эпизод — одно уведомление; пока он длится, напоминание не чаще раза в час и только если люди всё ещё ждут;
+ * когда бот снова ответил в каждой замолчавшей группе — «Бот снова отвечает». Если в замолчавших группах никто не
+ * ждёт 6 часов (SILENCE_STALE_CLOSE_MS), эпизод закрывается молча: следующее молчание — новый эпизод и новое
+ * уведомление. Эпизод хранится в `BotSilenceIncident` (переживает выкат), решение — под замком базы.
  *
  * РУБИЛЬНИК: `botSilenceWatchEnabled` (Настройки → Автоматика → Бот клиентов), по умолчанию ВКЛ.
  */
 
 export const SILENCE_WATCHED_CHANNELS = ["INSTAGRAM", "WHATSAPP", "FACEBOOK", "WEBSITE"] as const;
 export type SilenceChannel = (typeof SILENCE_WATCHED_CHANNELS)[number];
-/** Сколько клиентов без ответа в канале нужно для тревоги. Один-два — это сторож «клиент ждёт ответа», не поломка бота. */
+/** Сколько клиентов без ответа в группе нужно для тревоги. Один-два — это сторож «клиент ждёт ответа», не поломка бота. */
 export const SILENCE_MIN_CUSTOMERS = 3;
 /** Сколько клиент ждёт, прежде чем считаться «без ответа»: обычный ход бота — секунды, склейка сообщений — до минуты. */
 export const SILENCE_GRACE_MS = 10 * 60_000;
@@ -56,6 +62,8 @@ export const SILENCE_GRACE_MS = 10 * 60_000;
 export const SILENCE_LOOKBACK_MS = 6 * 60 * 60_000;
 /** Напоминание руководству не чаще. */
 export const SILENCE_REMIND_MS = 60 * 60_000;
+/** В замолчавших группах никто не ждёт столько — эпизод закрывается молча (не висит открытым неделями). */
+export const SILENCE_STALE_CLOSE_MS = 6 * 60 * 60_000;
 /** Сотрудник отвечал в переписке за это время — её ведёт человек, молчание бота там не сигнал. */
 const HUMAN_LED_MS = 24 * 60 * 60_000;
 const ROW_LIMIT = 1500;
@@ -65,6 +73,8 @@ const MISSED_KEYS_CAP = 500;
 const LOCK_KEY = "bot-silence-watch";
 const ALERT_URL = "/messages";
 const ALERT_ROLES = ["DIRECTOR", "ADMIN"] as const;
+/** Аккаунт «по умолчанию»: переписка без строки MessengerAccount (основной номер WhatsApp из Настроек, чат сайта). */
+const MAIN = "main";
 
 const CHANNEL_WORD: Record<SilenceChannel, string> = {
   INSTAGRAM: "Instagram",
@@ -78,87 +88,108 @@ function watched(channel: string | null | undefined): SilenceChannel | null {
   return (SILENCE_WATCHED_CHANNELS as readonly string[]).includes(up) ? (up as SilenceChannel) : null;
 }
 
+/** Группа «канал + наш аккаунт»: «WHATSAPP:main», «INSTAGRAM:<id аккаунта>». */
+export function groupKey(channel: SilenceChannel, accountId: string | null | undefined): string {
+  return `${channel}:${accountId || MAIN}`;
+}
+const channelOfGroup = (group: string): SilenceChannel | null => watched(group.split(":")[0]);
+
 export interface WaitingCustomer {
   /** Один человек — один ключ: id переписки CRM, без неё — область ядра. */
   key: string;
-  channel: SilenceChannel;
+  group: string;
   /** С какого момента ждёт ответа. */
   since: Date;
 }
 
 export interface SilenceSnapshot {
-  /** Все, кто ждёт ответа дольше SILENCE_GRACE_MS (в окне SILENCE_LOOKBACK_MS), без исключённых. */
+  /** Все, кто ждёт ответа дольше SILENCE_GRACE_MS (в окне SILENCE_LOOKBACK_MS), без исключённых и без выключенных групп. */
   waiting: WaitingCustomer[];
-  /** Последний ответ бота клиенту по каждому каналу (в окне), null — не было. */
-  lastBotAnswerAt: Partial<Record<SilenceChannel, Date>>;
+  /** Последний ответ бота клиенту по группе (в окне); нет записи — не было. */
+  lastBotAnswerAt: Record<string, Date>;
+  /** Последний ответ сотрудника по ключу человека (для «без ответа остались N»: кому ответили люди, тот не пропущен). */
+  lastHumanAnswerAt: Record<string, Date>;
+  /** Группы, где бот выключен намеренно, и аккаунты, о которых говорит другой сторож: о них тревоги нет. */
+  offGroups: ReadonlySet<string>;
+  /** Название группы простыми словами («WhatsApp», «Instagram Арван», «чате на сайте»). */
+  labels: Record<string, string>;
 }
 
-/** Замолчавшие каналы и кто в них ждёт (пришёл ПОСЛЕ последнего ответа бота). Чистая функция. */
-export function silentChannels(snapshot: SilenceSnapshot): Map<SilenceChannel, WaitingCustomer[]> {
-  const out = new Map<SilenceChannel, WaitingCustomer[]>();
-  for (const channel of SILENCE_WATCHED_CHANNELS) {
-    const last = snapshot.lastBotAnswerAt[channel]?.getTime() ?? -Infinity;
-    const stuck = snapshot.waiting.filter((w) => w.channel === channel && w.since.getTime() > last);
-    if (stuck.length >= SILENCE_MIN_CUSTOMERS) out.set(channel, stuck);
+/** Замолчавшие группы и кто в них ждёт (пришёл ПОСЛЕ последнего ответа бота в группе). Чистая функция. */
+export function silentGroups(snapshot: Pick<SilenceSnapshot, "waiting" | "lastBotAnswerAt" | "offGroups">): Map<string, WaitingCustomer[]> {
+  const byGroup = new Map<string, WaitingCustomer[]>();
+  for (const w of snapshot.waiting) {
+    if (snapshot.offGroups.has(w.group)) continue;
+    const last = snapshot.lastBotAnswerAt[w.group]?.getTime() ?? -Infinity;
+    if (w.since.getTime() <= last) continue;
+    byGroup.set(w.group, [...(byGroup.get(w.group) ?? []), w]);
   }
-  return out;
+  for (const [group, stuck] of byGroup) if (stuck.length < SILENCE_MIN_CUSTOMERS) byGroup.delete(group);
+  return byGroup;
 }
 
 export interface OpenIncident {
   id: string;
-  channels: string[];
+  groups: string[];
   startedAt: Date;
   lastAlertAt: Date;
+  /** Последний тик, когда в группах эпизода кто-то ждал ответа после последнего ответа бота. */
+  lastActiveAt: Date;
   missedKeys: string[];
 }
 
 export type SilenceDecision =
   | { kind: "none" }
-  | { kind: "open"; channels: SilenceChannel[]; startedAt: Date; waiting: number; keys: string[] }
-  | { kind: "update"; channels: SilenceChannel[]; keys: string[]; remind: boolean; waiting: number }
+  | { kind: "open"; groups: string[]; startedAt: Date; waiting: number; keys: string[] }
+  | { kind: "update"; groups: string[]; keys: string[]; remind: boolean; waiting: number; active: boolean }
   | { kind: "recover"; missed: number; stillWaiting: number }
-  | { kind: "close" };
+  | { kind: "close"; why: "off" | "stale" };
 
-/**
- * Что делать на этом тике. Чистая функция — проверяется без базы.
- * `offChannels` — выключенные намеренно: о них эпизод молчит и не ждёт их «восстановления».
- */
-export function decideBotSilence(snapshot: SilenceSnapshot, open: OpenIncident | null, now: Date,
-  offChannels: ReadonlySet<string> = new Set()): SilenceDecision {
-  const silent = silentChannels(snapshot);
-  for (const channel of offChannels) silent.delete(channel as SilenceChannel);
+/** Что делать на этом тике. Чистая функция — проверяется без базы. */
+export function decideBotSilence(snapshot: SilenceSnapshot, open: OpenIncident | null, now: Date): SilenceDecision {
+  const silent = silentGroups(snapshot);
   const stuck = [...silent.values()].flat();
   if (!open) {
     if (!silent.size) return { kind: "none" };
-    return { kind: "open", channels: [...silent.keys()], startedAt: new Date(Math.min(...stuck.map((w) => w.since.getTime()))),
+    return { kind: "open", groups: [...silent.keys()], startedAt: new Date(Math.min(...stuck.map((w) => w.since.getTime()))),
       waiting: stuck.length, keys: stuck.map((w) => w.key) };
   }
+  const live = open.groups.filter((g) => !snapshot.offGroups.has(g) && channelOfGroup(g) !== null);
   if (silent.size) {
-    const channels = [...new Set([...open.channels.filter((c): c is SilenceChannel => watched(c) !== null), ...silent.keys()])];
+    const groups = [...new Set([...live, ...silent.keys()])];
     const keys = [...new Set([...open.missedKeys, ...stuck.map((w) => w.key)])].slice(0, MISSED_KEYS_CAP);
-    return { kind: "update", channels, keys, remind: now.getTime() - open.lastAlertAt.getTime() >= SILENCE_REMIND_MS, waiting: stuck.length };
+    return { kind: "update", groups, keys, remind: now.getTime() - open.lastAlertAt.getTime() >= SILENCE_REMIND_MS,
+      waiting: stuck.length, active: true };
   }
-  // Бот снова отвечает, только если ответил КОМУ-ТО после начала молчания в каждом замолчавшем канале. Люди, которым
-  // ответили вручную, бота не «чинят»: тогда эпизод открыт, но молчит, пока не наберутся новые трое или бот не ответит.
-  const live = open.channels.filter((c) => !offChannels.has(c) && watched(c) !== null);
-  // Все замолчавшие каналы потом выключили намеренно: «бот снова отвечает» было бы неправдой — эпизод закрывается молча.
-  if (!live.length) return { kind: "close" };
-  const answered = live.every((c) => (snapshot.lastBotAnswerAt[c as SilenceChannel]?.getTime() ?? -Infinity) > open.startedAt.getTime());
-  if (!answered) return { kind: "none" };
-  const waitingNow = new Set(snapshot.waiting.map((w) => w.key));
-  return { kind: "recover", missed: open.missedKeys.length, stillWaiting: open.missedKeys.filter((k) => waitingNow.has(k)).length };
+  // Все замолчавшие группы потом выключили намеренно: «бот снова отвечает» было бы неправдой — закрываем молча.
+  if (!live.length) return { kind: "close", why: "off" };
+  // Бот снова отвечает, только если ответил КОМУ-ТО после начала молчания в каждой замолчавшей группе. Ручные ответы
+  // сотрудников бота не «чинят»: тогда эпизод открыт и молчит, пока не наберутся новые трое или бот не ответит.
+  if (live.every((g) => (snapshot.lastBotAnswerAt[g]?.getTime() ?? -Infinity) > open.startedAt.getTime())) {
+    const waitingNow = new Set(snapshot.waiting.map((w) => w.key));
+    // Кому за время молчания ответил сотрудник, тот не «остался без ответа».
+    const missed = open.missedKeys.filter((k) => !((snapshot.lastHumanAnswerAt[k]?.getTime() ?? -Infinity) > open.startedAt.getTime()));
+    return { kind: "recover", missed: missed.length, stillWaiting: missed.filter((k) => waitingNow.has(k)).length };
+  }
+  // Кто-то в группах эпизода ещё ждёт после последнего ответа бота — эпизод жив, просто ниже порога.
+  const anyoneStuck = snapshot.waiting.some((w) => live.includes(w.group) &&
+    w.since.getTime() > (snapshot.lastBotAnswerAt[w.group]?.getTime() ?? -Infinity));
+  if (anyoneStuck) return { kind: "update", groups: live, keys: open.missedKeys, remind: false, waiting: 0, active: true };
+  if (now.getTime() - open.lastActiveAt.getTime() >= SILENCE_STALE_CLOSE_MS) return { kind: "close", why: "stale" };
+  return { kind: "none" };
 }
 
 // ---------------------------------------------------------------- тексты: по-человечески, без кодов и английских слов
 
 const people = (n: number) => `${n} ${pluralizeRu(n, ["человек", "человека", "человек"])}`;
 
-/** «в Instagram и WhatsApp», «в Instagram, Facebook и чате на сайте». */
-export function channelsInWords(channels: readonly string[]): string {
-  const words = SILENCE_WATCHED_CHANNELS.filter((c) => channels.includes(c)).map((c) => CHANNEL_WORD[c]);
+/** «в WhatsApp и Instagram Арван», «в Instagram, Facebook и чате на сайте». Порядок — как в списке каналов. */
+export function groupsInWords(groups: readonly string[], labels: Readonly<Record<string, string>>): string {
+  const order = (g: string) => SILENCE_WATCHED_CHANNELS.indexOf(channelOfGroup(g) ?? "WEBSITE");
+  const words = [...new Set([...groups].sort((a, b) => order(a) - order(b) || a.localeCompare(b))
+    .map((g) => labels[g] ?? CHANNEL_WORD[channelOfGroup(g) ?? "WEBSITE"]))];
   if (!words.length) return "";
-  const list = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} и ${words[words.length - 1]}`;
-  return `в ${list}`;
+  return `в ${words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} и ${words[words.length - 1]}`}`;
 }
 
 /** «16:05» сегодня, «26.11 в 23:50» — если молчание началось в другой день (по Душанбе). */
@@ -169,56 +200,75 @@ export function sinceInWords(since: Date, now: Date): string {
   return `${day.slice(8, 10)}.${day.slice(5, 7)} в ${time}`;
 }
 
-export function silenceAlertText(input: { channels: readonly string[]; since: Date; waiting: number; reminder: boolean; now: Date }):
-  { title: string; body: string } {
-  const where = channelsInWords(input.channels);
+/**
+ * Заголовок намеренно другой, чем у тревоги «бот остановился после обновления CRM» (customerAgentRevisionAlert.ts):
+ * та говорит о причине сразу, эта — о том, что клиенты ждут; два одинаковых пуша подряд читались бы как дубль.
+ */
+export function silenceAlertText(input: { groups: readonly string[]; labels: Readonly<Record<string, string>>; since: Date; waiting: number;
+  reminder: boolean; now: Date }): { title: string; body: string } {
+  const where = groupsInWords(input.groups, input.labels);
   const since = sinceInWords(input.since, input.now);
   return {
-    title: input.reminder ? "Бот всё ещё не отвечает клиентам" : BOT_STOPPED_TITLE,
+    title: input.reminder ? "Бот всё ещё не отвечает клиентам" : "Клиенты ждут: бот не отвечает",
     body: `${input.reminder ? "Бот всё ещё не отвечает" : "Бот перестал отвечать"} клиентам ${where} с ${since}. ` +
       `Без ответа уже ${people(input.waiting)}. Пока бот молчит, ответьте им вручную в CRM → Чаты и сообщите разработчику.`,
   };
 }
 
-export function silenceRecoveredText(input: { channels: readonly string[]; since: Date; missed: number; stillWaiting: number; now: Date }):
-  { title: string; body: string } {
-  const where = channelsInWords(input.channels);
-  const tail = input.stillWaiting > 0
-    ? ` Ещё ждут ответа: ${people(input.stillWaiting)}, ответьте им в CRM → Чаты.`
-    : " Проверьте их в CRM → Чаты.";
-  return {
-    title: "Бот снова отвечает клиентам",
-    body: `Бот снова отвечает клиентам ${where}. Пока он молчал (с ${sinceInWords(input.since, input.now)}), ` +
-      `без ответа ${pluralizeRu(input.missed, ["остался", "остались", "остались"])} ${people(input.missed)}.${tail}`,
-  };
+export function silenceRecoveredText(input: { groups: readonly string[]; labels: Readonly<Record<string, string>>; since: Date;
+  missed: number; stillWaiting: number; now: Date }): { title: string; body: string } {
+  const head = `Бот снова отвечает клиентам ${groupsInWords(input.groups, input.labels)}. Пока он молчал (с ${sinceInWords(input.since, input.now)}), `;
+  const body = input.missed === 0
+    ? `${head}всем написавшим ответили сотрудники.`
+    : `${head}без ответа ${pluralizeRu(input.missed, ["остался", "остались", "остались"])} ${people(input.missed)}.` +
+      (input.stillWaiting > 0 ? ` Ещё ждут ответа: ${people(input.stillWaiting)}, ответьте им в CRM → Чаты.` : " Проверьте их в CRM → Чаты.");
+  return { title: "Бот снова отвечает клиентам", body };
 }
 
 // ---------------------------------------------------------------- снимок из базы
 
 type ConversationRow = {
-  id: string; channel: string; messages: unknown; leadDraft: unknown; pausedUntil: Date | null; optedOutAt: Date | null; brandName: string | null;
+  id: string; channel: string; accountId: string | null; messages: unknown; leadDraft: unknown; pausedUntil: Date | null;
+  optedOutAt: Date | null; clientDeleted: boolean;
 };
-type TicketRow = { eventKey: string; conversationId: string | null; scopeKey: string; receivedAt: Date; channel: string | null; brandName: string | null };
+type TicketRow = { eventKey: string; conversationId: string | null; scopeKey: string; receivedAt: Date; channel: string | null; accountId: string | null };
+type AccountRow = { id: string; channel: string; enabled: boolean; accessLostAt: Date | null; brandName: string | null; title: string };
 type MessageLike = { role?: unknown; at?: unknown; deliveryStatus?: unknown; by?: { kind?: unknown } | null };
 
 const BOT_SILENT_AUTHORS = new Set(["agent", "manual", "system"]);
+const HUMAN_AUTHORS = new Set(["agent", "manual"]);
 const isoAt = (raw: unknown): Date | null => {
   if (typeof raw !== "string") return null;
   const at = new Date(raw);
   return Number.isNaN(at.getTime()) ? null : at;
 };
+const authorOf = (m: MessageLike): string | undefined => {
+  const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
+  return typeof kind === "string" ? kind : undefined;
+};
 
-/** Последний ответ бота клиенту в переписке: его реплика сразу после реплики клиента, доставленная. Чистая функция. */
-export function lastBotAnswerIn(messages: unknown): Date | null {
+/** Последний ответ бота клиенту в переписке (не позже `now`): его реплика сразу после реплики клиента. Чистая функция. */
+export function lastBotAnswerIn(messages: unknown, now: Date = new Date(8.64e15)): Date | null {
   if (!Array.isArray(messages)) return null;
   let last: Date | null = null;
   for (let i = 1; i < messages.length; i++) {
     const m = messages[i] as MessageLike | null;
     const prev = messages[i - 1] as MessageLike | null;
     if (!m || m.role !== "assistant" || prev?.role !== "user" || m.deliveryStatus === "failed") continue;
-    const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
-    if (typeof kind === "string" && BOT_SILENT_AUTHORS.has(kind)) continue;
+    const kind = authorOf(m);
+    if (kind && BOT_SILENT_AUTHORS.has(kind)) continue;
     const at = isoAt(m.at);
+    if (at && at <= now && (!last || at > last)) last = at;
+  }
+  return last;
+}
+
+function lastHumanAnswerIn(messages: unknown): Date | null {
+  if (!Array.isArray(messages)) return null;
+  let last: Date | null = null;
+  for (const raw of messages as Array<MessageLike | null>) {
+    const kind = raw && raw.role === "assistant" ? authorOf(raw) : undefined;
+    const at = kind && HUMAN_AUTHORS.has(kind) ? isoAt(raw!.at) : null;
     if (at && (!last || at > last)) last = at;
   }
   return last;
@@ -226,44 +276,71 @@ export function lastBotAnswerIn(messages: unknown): Date | null {
 
 /** Переписку ведёт человек или бот в ней молчит по решению людей — не считаем. */
 function conversationExcluded(row: ConversationRow, now: Date): boolean {
-  if (row.optedOutAt) return true;
+  if (row.clientDeleted || row.optedOutAt) return true;
   if (row.pausedUntil && row.pausedUntil.getTime() > now.getTime()) return true;
   const draft = row.leadDraft;
   const spam = draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>).spamMute : undefined;
   if (customerSpamMuteActive(customerSpamMuteFrom(spam), now)) return true;
-  if (humanRepliedSince(row.messages, new Date(now.getTime() - HUMAN_LED_MS))) return true;
-  return isCustomerAgentChannelOff(row.channel, process.env, row.brandName);
+  return humanRepliedSince(row.messages, new Date(now.getTime() - HUMAN_LED_MS));
 }
 
-export async function loadSilenceSnapshot(now: Date, db: Pick<TxClient, "$queryRaw" | "customerPropertyIngressTicket"> = prisma): Promise<SilenceSnapshot> {
+/** Выключенные группы: рубильники бота (одна дверь), выключенный аккаунт, отозванный Meta доступ, аварийный рубильник. */
+export function offGroupsOf(switches: Readonly<Record<SilenceChannel, boolean>>, accounts: readonly AccountRow[],
+  env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const off = new Set<string>();
+  for (const channel of SILENCE_WATCHED_CHANNELS) {
+    const channelOff = !switches[channel] || isCustomerAgentChannelOff(channel, env, null);
+    if (channelOff) off.add(groupKey(channel, null));
+    for (const account of accounts.filter((a) => watched(a.channel) === channel)) {
+      if (channelOff || !account.enabled || account.accessLostAt || isCustomerAgentChannelOff(channel, env, account.brandName)) {
+        off.add(groupKey(channel, account.id));
+      }
+    }
+  }
+  return off;
+}
+
+function labelsOf(accounts: readonly AccountRow[]): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const channel of SILENCE_WATCHED_CHANNELS) labels[groupKey(channel, null)] = CHANNEL_WORD[channel];
+  for (const account of accounts) {
+    const channel = watched(account.channel);
+    if (!channel) continue;
+    const name = (account.brandName ?? "").trim() || account.title.trim();
+    labels[groupKey(channel, account.id)] = name ? `${CHANNEL_WORD[channel]} ${name}` : CHANNEL_WORD[channel];
+  }
+  return labels;
+}
+
+/** Выборка переписок одним запросом; хвост ленты (20 реплик) хватает и на «кто ждёт», и на «когда бот ответил». */
+function conversationsWhere(where: Prisma.Sql) {
+  return prisma.$queryRaw<ConversationRow[]>`
+    SELECT bc.id, bc.channel, bc."accountId", bc."leadDraft", bc."pausedUntil", bc."optedOutAt",
+      (c."deletedAt" IS NOT NULL) AS "clientDeleted",
+      (SELECT jsonb_agg(x.e ORDER BY x.o) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(bc.messages) = 'array' THEN bc.messages ELSE '[]'::jsonb END)
+        WITH ORDINALITY AS x(e, o) WHERE x.o > jsonb_array_length(CASE WHEN jsonb_typeof(bc.messages) = 'array' THEN bc.messages ELSE '[]'::jsonb END) - 20) AS messages
+    FROM "BotConversation" bc
+    LEFT JOIN "Client" c ON c.id = bc."clientId"
+    WHERE ${where}`;
+}
+
+export async function loadSilenceSnapshot(now: Date): Promise<SilenceSnapshot> {
   const from = new Date(now.getTime() - SILENCE_LOOKBACK_MS);
   const graceEdge = new Date(now.getTime() - SILENCE_GRACE_MS);
   const channels = [...SILENCE_WATCHED_CHANNELS];
   const intended = [...CUSTOMER_TURN_INTENDED_SILENCE];
-  // Хвост переписки (20 реплик) — его хватает и на «кто ждёт», и на «когда бот ответил»; целые ленты не тянем.
-  const [rows, tickets, outbox] = await Promise.all([
-    db.$queryRaw<ConversationRow[]>`
-      SELECT bc.id, bc.channel, bc."leadDraft", bc."pausedUntil", bc."optedOutAt", ma."brandName",
-        (SELECT jsonb_agg(x.e ORDER BY x.o) FROM jsonb_array_elements(bc.messages) WITH ORDINALITY AS x(e, o)
-          WHERE x.o > jsonb_array_length(bc.messages) - 20) AS messages
-      FROM "BotConversation" bc
-      LEFT JOIN "Client" c ON c.id = bc."clientId"
-      LEFT JOIN "MessengerAccount" ma ON ma.id = bc."accountId"
-      WHERE bc."lastMessageAt" >= ${from} AND upper(bc.channel) = ANY(${channels}::text[])
-        AND c."deletedAt" IS NULL
-        AND jsonb_typeof(bc.messages) = 'array' AND jsonb_array_length(bc.messages) > 0
-      ORDER BY bc."lastMessageAt" DESC
-      LIMIT ${ROW_LIMIT}`,
+  // Верхняя граница `<= now` везде: снимок «на момент now» (и тесты на прошлом времени не видят чужих свежих строк).
+  const [rows, tickets, outbox, accounts, switches] = await Promise.all([
+    conversationsWhere(Prisma.sql`bc."lastMessageAt" >= ${from} AND bc."lastMessageAt" <= ${now}
+      AND upper(bc.channel) = ANY(${channels}::text[]) ORDER BY bc."lastMessageAt" DESC LIMIT ${ROW_LIMIT}`),
     // Сообщения ядра без ответа: не запланирован ответ, нет ни одной части ответа, не перекрыты более новым отвеченным
     // сообщением того же человека, причина не из списка намеренного молчания.
-    db.$queryRaw<TicketRow[]>`
+    prisma.$queryRaw<TicketRow[]>`
       SELECT t."eventKey", t."conversationId", t."scopeKey", t."receivedAt",
-        upper(COALESCE(es.channel, bc.channel)) AS channel, COALESCE(ma."brandName", bma."brandName") AS "brandName"
+        upper(COALESCE(es.channel, bc.channel)) AS channel, COALESCE(es."messengerAccountId", bc."accountId") AS "accountId"
       FROM "CustomerPropertyIngressTicket" t
       LEFT JOIN "CustomerEndpointScope" es ON es.id = t."endpointScopeId"
-      LEFT JOIN "MessengerAccount" ma ON ma.id = es."messengerAccountId"
       LEFT JOIN "BotConversation" bc ON bc.id = t."conversationId"
-      LEFT JOIN "MessengerAccount" bma ON bma.id = bc."accountId"
       WHERE t."receivedAt" >= ${from} AND t."receivedAt" <= ${graceEdge}
         AND t."tombstonedAt" IS NULL
         AND t."processingState" IN ('RECEIVED', 'CLAIMED', 'HELD')
@@ -274,64 +351,78 @@ export async function loadSilenceSnapshot(now: Date, db: Pick<TxClient, "$queryR
       ORDER BY t."receivedAt" ASC
       LIMIT ${TICKET_LIMIT}`,
     // Принятые площадкой части ответов ядра в личные сообщения (не комментарии) — тоже «бот ответил».
-    db.$queryRaw<Array<{ channel: string; at: Date | null }>>`
-      SELECT upper(p.channel) AS channel, max(p."acceptedAt") AS at
+    prisma.$queryRaw<Array<{ channel: string; accountId: string | null; at: Date | null }>>`
+      SELECT upper(p.channel) AS channel, es."messengerAccountId" AS "accountId", max(p."acceptedAt") AS at
       FROM "CustomerOutboxPart" p
-      WHERE p."acceptedAt" >= ${from} AND p."ticketEventKey" IS NOT NULL
-      GROUP BY 1`,
+      JOIN "CustomerEndpointScope" es ON es.id = p."endpointScopeId"
+      WHERE p."acceptedAt" >= ${from} AND p."acceptedAt" <= ${now} AND p."ticketEventKey" IS NOT NULL
+      GROUP BY 1, 2`,
+    prisma.messengerAccount.findMany({ select: { id: true, channel: true, enabled: true, accessLostAt: true, brandName: true, title: true },
+      take: 500 }),
+    loadBotAnswerSwitches(),
   ]);
+  // Сообщение ядра указывает на переписку вне выборки (новая пустая, давно не писавшая): дочитываем её по id.
+  const sampled = new Set(rows.map((r) => r.id));
+  const missing = [...new Set(tickets.map((t) => t.conversationId).filter((id): id is string => !!id && !sampled.has(id)))];
+  const extra = missing.length ? await conversationsWhere(Prisma.sql`bc.id = ANY(${missing}::text[])`) : [];
 
-  const lastBotAnswerAt: Partial<Record<SilenceChannel, Date>> = {};
-  const bump = (channel: SilenceChannel | null, at: Date | null) => {
-    if (channel && at && (!lastBotAnswerAt[channel] || at > lastBotAnswerAt[channel]!)) lastBotAnswerAt[channel] = at;
+  const offGroups = offGroupsOf(switches, accounts);
+  const lastBotAnswerAt: Record<string, Date> = {};
+  const lastHumanAnswerAt: Record<string, Date> = {};
+  const bump = (group: string | null, at: Date | null) => {
+    if (group && at && at <= now && (!lastBotAnswerAt[group] || at > lastBotAnswerAt[group])) lastBotAnswerAt[group] = at;
   };
-  for (const row of outbox) bump(watched(row.channel), row.at);
+  for (const row of outbox) {
+    const channel = watched(row.channel);
+    if (channel) bump(groupKey(channel, row.accountId), row.at);
+  }
 
-  const byConversation = new Map(rows.map((row) => [row.id, row]));
+  const byConversation = new Map([...rows, ...extra].map((row) => [row.id, row]));
   const waiting = new Map<string, WaitingCustomer>();
-  const episodes: Array<{ row: ConversationRow; channel: SilenceChannel; episode: NonNullable<ReturnType<typeof waitingEpisodeOf>> }> = [];
-  for (const row of rows) {
+  const episodes: Array<{ row: ConversationRow; group: string; episode: NonNullable<ReturnType<typeof waitingEpisodeOf>> }> = [];
+  for (const row of byConversation.values()) {
     const channel = watched(row.channel);
     if (!channel) continue;
-    bump(channel, lastBotAnswerIn(row.messages));
+    const group = groupKey(channel, row.accountId);
+    bump(group, lastBotAnswerIn(row.messages, now));
+    const human = lastHumanAnswerIn(row.messages);
+    if (human) lastHumanAnswerAt[row.id] = human;
+    if (offGroups.has(group)) continue;
     const episode = waitingEpisodeOf(row.messages);
     if (!episode || episode.since < from || episode.since > graceEdge || conversationExcluded(row, now)) continue;
-    episodes.push({ row, channel, episode });
+    episodes.push({ row, group, episode });
   }
   // Намеренное молчание ядра (все реплики эпизода удержаны по списку намеренных) — тем же правилом, что у сторожа
   // «клиент ждёт ответа»; причины тикетов одним запросом на всю пачку, не в цикле.
   const keys = [...new Set(episodes.flatMap((e) => e.episode.eventKeys))];
   const codes = keys.length
-    ? await db.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: keys } }, select: { eventKey: true, errorCode: true } })
+    ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: keys } }, select: { eventKey: true, errorCode: true } })
     : [];
   const intentional = new Set(codes.filter((t) => t.errorCode && INTENTIONAL_SILENCE_REASONS.has(t.errorCode)).map((t) => t.eventKey));
-  for (const { row, channel, episode } of episodes) {
+  for (const { row, group, episode } of episodes) {
     if (episodeAllIntentional(episode, intentional)) continue;
-    waiting.set(row.id, { key: row.id, channel, since: episode.since });
+    waiting.set(row.id, { key: row.id, group, since: episode.since });
   }
 
   for (const ticket of tickets) {
     const channel = watched(ticket.channel);
     if (!channel) continue;
+    const group = groupKey(channel, ticket.accountId);
     const key = ticket.conversationId ?? `scope:${ticket.scopeKey}`;
-    if (waiting.has(key)) continue;
+    if (offGroups.has(group) || waiting.has(key)) continue;
     const row = ticket.conversationId ? byConversation.get(ticket.conversationId) : undefined;
+    // Переписку удалили (id есть, строки нет): человек ушёл из CRM по решению сотрудника — не считаем.
+    if (ticket.conversationId && !row) continue;
     if (row) {
       if (conversationExcluded(row, now)) continue;
       // В переписке после этого сообщения уже ответили (бот старым путём или человек): не ждёт.
       const answered = Array.isArray(row.messages) && (row.messages as MessageLike[]).some((m) => m?.role === "assistant" &&
         m.deliveryStatus !== "failed" && (isoAt(m.at)?.getTime() ?? 0) > ticket.receivedAt.getTime());
       if (answered) continue;
-      // Переписка ждёт по своей ленте, но реплика клиента в окно не попала (или её там нет) — считаем по тикету.
-    } else if (ticket.conversationId) {
-      // Переписка вне выборки (старше окна, удалённый клиент) — по её правилам не судим, тикет не считаем.
-      continue;
-    } else if (isCustomerAgentChannelOff(channel, process.env, ticket.brandName)) {
-      continue;
     }
-    waiting.set(key, { key, channel, since: ticket.receivedAt });
+    waiting.set(key, { key, group, since: ticket.receivedAt });
   }
-  return { waiting: [...waiting.values()], lastBotAnswerAt };
+  return { waiting: [...waiting.values()], lastBotAnswerAt, lastHumanAnswerAt, offGroups, labels: labelsOf(accounts) };
 }
 
 // ---------------------------------------------------------------- тик
@@ -341,55 +432,49 @@ export interface BotSilenceTickResult {
   alerted: boolean;
 }
 
-/** Каналы, выключенные аварийным рубильником целиком (без разбора по аккаунтам): о них тревоги нет. */
-function channelsOff(): Set<string> {
-  return new Set(SILENCE_WATCHED_CHANNELS.filter((c) => isCustomerAgentChannelOff(c, process.env, null)));
-}
-
 export async function runBotSilenceWatchTick(now: Date = new Date()): Promise<BotSilenceTickResult> {
   if (!(await automationSwitchOn("botSilenceWatchEnabled"))) return { action: "off", alerted: false };
   const snapshot = await loadSilenceSnapshot(now);
-  const off = channelsOff();
   return prisma.$transaction(async (tx) => {
     // Решение и запись — под одним замком: два процесса не заведут два эпизода и не пошлют одно уведомление дважды.
     const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext(${LOCK_KEY})) AS locked`;
     if (!locked) return { action: "busy" as const, alerted: false };
     const row = await tx.botSilenceIncident.findFirst({ where: { recoveredAt: null }, orderBy: { detectedAt: "desc" } });
     const open: OpenIncident | null = row
-      ? { id: row.id, channels: row.channels, startedAt: row.startedAt, lastAlertAt: row.lastAlertAt,
+      ? { id: row.id, groups: row.groups, startedAt: row.startedAt, lastAlertAt: row.lastAlertAt, lastActiveAt: row.lastActiveAt,
           missedKeys: Array.isArray(row.missedKeys) ? (row.missedKeys as unknown[]).filter((k): k is string => typeof k === "string") : [] }
       : null;
-    const decision = decideBotSilence(snapshot, open, now, off);
-    const send = (tag: string, text: { title: string; body: string }, urgent: boolean) => enqueueDirectorAlert({
-      ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], ...(urgent ? { level: "CRITICAL" as const, severity: "critical" as const } : {}),
-    }, tx);
+    const decision = decideBotSilence(snapshot, open, now);
+    const send = async (tag: string, text: { title: string; body: string }, urgent: boolean) => {
+      const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES],
+        ...(urgent ? { level: "CRITICAL" as const, severity: "critical" as const } : {}) }, tx);
+      // Не встало — откат всей записи эпизода: следующий тик попробует снова.
+      if (!queued) throw new Error("очередь тревог руководству недоступна");
+      return true;
+    };
+    const labels = snapshot.labels;
     if (decision.kind === "open") {
-      const created = await tx.botSilenceIncident.create({ data: { channels: decision.channels, startedAt: decision.startedAt,
-        detectedAt: now, lastAlertAt: now, missedKeys: decision.keys } });
-      const alerted = await send(`bot-silence-${created.id}`,
-        silenceAlertText({ channels: decision.channels, since: decision.startedAt, waiting: decision.waiting, reminder: false, now }), true);
-      if (!alerted) throw new Error("очередь тревог руководству недоступна");
-      return { action: decision.kind, alerted };
+      const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.startedAt,
+        detectedAt: now, lastAlertAt: now, lastActiveAt: now, missedKeys: decision.keys } });
+      await send(`bot-silence-${created.id}`,
+        silenceAlertText({ groups: decision.groups, labels, since: decision.startedAt, waiting: decision.waiting, reminder: false, now }), true);
+      return { action: decision.kind, alerted: true };
     }
     if (decision.kind === "update" && open) {
-      let alerted = false;
       if (decision.remind) {
-        alerted = await send(`bot-silence-${open.id}`,
-          silenceAlertText({ channels: decision.channels, since: open.startedAt, waiting: decision.waiting, reminder: true, now }), true);
-        if (!alerted) throw new Error("очередь тревог руководству недоступна");
+        await send(`bot-silence-${open.id}`,
+          silenceAlertText({ groups: decision.groups, labels, since: open.startedAt, waiting: decision.waiting, reminder: true, now }), true);
       }
-      await tx.botSilenceIncident.update({ where: { id: open.id }, data: { channels: decision.channels, missedKeys: decision.keys,
-        ...(alerted ? { lastAlertAt: now } : {}) } });
-      return { action: decision.kind, alerted };
+      await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: decision.keys,
+        ...(decision.active ? { lastActiveAt: now } : {}), ...(decision.remind ? { lastAlertAt: now } : {}) } });
+      return { action: decision.kind, alerted: decision.remind };
     }
     if (decision.kind === "recover" && open) {
-      // Кто-то ещё ждёт — сказать сразу; всем уже ответили — «к сведению», звонок телефона в часы алармов.
-      const alerted = await send(`bot-silence-ok-${open.id}`,
-        silenceRecoveredText({ channels: open.channels, since: open.startedAt, missed: decision.missed, stillWaiting: decision.stillWaiting, now }),
-        decision.stillWaiting > 0);
-      if (!alerted) throw new Error("очередь тревог руководству недоступна");
+      // Кто-то ещё ждёт — сказать сразу; иначе «к сведению», звонок телефона в часы алармов.
+      await send(`bot-silence-ok-${open.id}`, silenceRecoveredText({ groups: open.groups, labels, since: open.startedAt,
+        missed: decision.missed, stillWaiting: decision.stillWaiting, now }), decision.stillWaiting > 0);
       await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
-      return { action: decision.kind, alerted };
+      return { action: decision.kind, alerted: true };
     }
     if (decision.kind === "close" && open) {
       await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
