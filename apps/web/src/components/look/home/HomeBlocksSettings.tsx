@@ -5,7 +5,7 @@ import { RhButton, RhSwitch } from "../ui";
 import { useCan } from "../../../lib/permissions";
 import { useDashboardHome } from "../../../lib/homeDashboard";
 import { homeBlocksAllowed, homeBlockVisible, mergeHomeOrder } from "./core";
-import { HOME_BLOCKS, HOME_LAYOUT, useHomeLayoutPrefs } from "./registry";
+import { HOME_BLOCKS, homeLayoutFor, useHomeLayoutPrefs } from "./registry";
 
 /**
  * Профиль → Оформление → «Главная» (только «Новый вид», home-core 20.11.2026).
@@ -29,12 +29,13 @@ export function HomeBlocksSettings() {
   const setHomeBlocks = useUiPrefs((s) => s.setHomeBlocks);
   const { order, hidden } = useHomeLayoutPrefs(role ?? "default");
   const can = useCan();
-  // Главная руководителя — дашборд с полосой срочного (lib/homeDashboard): выключать там нечего.
+  // Главная руководителя с правом на отчёты (lib/homeDashboard) — блоки макета сверху: их и
+  // выключают (пачка home2, 27.11.2026); «Аналитика» ниже не выключается — это ТЗ директора.
   const dashboardHome = useDashboardHome();
-  if (!role || dashboardHome) return null;
+  if (!role) return null;
   // Только блоки, которые человеку вообще что-то рисуют: без нужного права блок пуст,
   // и выключатель для него был бы обманом (ревью #326).
-  const blocks = homeBlocksAllowed(role, HOME_BLOCKS, HOME_LAYOUT).filter((block) => homeBlockVisible(block, role, can));
+  const blocks = homeBlocksAllowed(role, HOME_BLOCKS, homeLayoutFor(dashboardHome)).filter((block) => homeBlockVisible(block, role, can));
   if (blocks.length < 2) return null;
   const defaults = blocks.map((block) => block.id);
   const byId = new Map(blocks.map((block) => [block.id, block]));

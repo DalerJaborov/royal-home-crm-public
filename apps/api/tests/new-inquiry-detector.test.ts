@@ -60,7 +60,7 @@ async function makeClient(kind: "BUYER" | "SELLER") {
 }
 
 describe("detectNewInquiryFromKnownClient", () => {
-  it("явно новое дело — пишет заметку, пушит агента, меняет kind", async () => {
+  it("явно новое дело — пишет заметку и меняет kind; пуша по умолчанию нет", async () => {
     const client = await makeClient("SELLER");
     callAi.mockResolvedValueOnce({
       isNewInquiry: true,
@@ -80,9 +80,25 @@ describe("detectNewInquiryFromKnownClient", () => {
     const updated = await prisma.client.findUnique({ where: { id: client.id } });
     expect(updated?.kind).toBe("BUYER");
 
-    const call = sendPushToAgent.mock.calls.find(([id]) => id === agentId);
-    expect(call).toBeDefined();
-    expect((call![1] as Record<string, string>).title).toContain("новом деле");
+    // По умолчанию (владелец 27.11.2026) повтора поверх «Ваш клиент написал» нет — запись выше есть, пуша нет.
+    expect(sendPushToAgent.mock.calls.find(([id]) => id === agentId)).toBeUndefined();
+    // Сменился тип клиента — это не повтор: одна строка в колокольчике без звонка телефона (ревью 27.11).
+    expect(await prisma.notification.count({ where: { agentId, tag: `new-inquiry-${client.id}` } })).toBe(1);
+  });
+
+  it("рубильник notifyRepeatContactPushEnabled ВКЛ — пуш «пишет о новом деле», как раньше", async () => {
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: { notifyRepeatContactPushEnabled: true } });
+    try {
+      const client = await makeClient("SELLER");
+      callAi.mockResolvedValueOnce({ isNewInquiry: true, kind: "BUYER", summary: "Хочет купить 2-комнатную в Сино" });
+      sendPushToAgent.mockClear();
+      await detectNewInquiryFromKnownClient(client.id, "Кстати, хочу купить квартиру в Сино, 2 комнаты");
+      const call = sendPushToAgent.mock.calls.find(([id]) => id === agentId);
+      expect(call).toBeDefined();
+      expect((call![1] as Record<string, string>).title).toContain("новом деле");
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { notifyRepeatContactPushEnabled: false } });
+    }
   });
 
   it("продолжение старого дела — ничего не пишет и не пушит", async () => {

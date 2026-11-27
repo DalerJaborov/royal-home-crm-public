@@ -282,6 +282,64 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(menu).not.toMatch(/бот/i);
   });
 
+  // Макет C (27.11.2026): окно сведений — крупная шапка, одна главная кнопка, остальное свёрнуто, повторов нет.
+  async function openContactSheet(client: unknown) {
+    h.api.mockImplementation(async (path: string) => (path === "/clients/client" ? client : undefined));
+    mount();
+    click(byLabel("Ещё"));
+    click(item("menuitem", "Сведения о контакте"));
+    for (let i = 0; i < 10; i++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    return document.querySelector('[data-testid="contact-sheet"]') as HTMLElement;
+  }
+  const sheetButtons = (sheet: HTMLElement) => [...sheet.querySelectorAll("button")].map((b) => b.textContent?.trim());
+  it("contact sheet: accepted client — one primary «Открыть карточку клиента», «Позвонить» beside it, no second card button", async () => {
+    h.perms = AGENT;
+    const sheet = await openContactSheet({ id: "client", pendingAcceptance: false, assignedAgentId: "actor" });
+    expect(sheet, "окно открылось").toBeTruthy();
+    expect(sheet.querySelectorAll('[data-action]')).toHaveLength(1);
+    expect(sheet.querySelector('[data-action="card"]')?.textContent).toContain("Открыть карточку клиента");
+    expect(sheetButtons(sheet)).toContain("Позвонить");
+    expect(sheetButtons(sheet).filter((t) => t === "Карточка клиента")).toHaveLength(0);
+    expect(sheet.textContent).not.toContain("Принять заявку");
+  });
+  it("contact sheet: a lead waiting for me — «Принять заявку» is primary, «Карточка клиента» becomes secondary", async () => {
+    h.perms = AGENT;
+    const sheet = await openContactSheet({ id: "client", pendingAcceptance: true, assignedAgentId: "actor" });
+    expect(sheet.querySelector('[data-action="accept"]')?.textContent).toContain("Принять заявку");
+    expect(sheet.querySelectorAll('[data-action]')).toHaveLength(1);
+    expect(sheetButtons(sheet)).toEqual(expect.arrayContaining(["Позвонить", "Карточка клиента"]));
+    click(sheet.querySelector('[data-action="accept"]'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(h.api).toHaveBeenCalledWith("/clients/client/accept", expect.objectContaining({ method: "POST" }));
+  });
+  it("contact sheet: someone else's pending lead — no «Принять» for me", async () => {
+    h.perms = AGENT;
+    const sheet = await openContactSheet({ id: "client", pendingAcceptance: true, assignedAgentId: "other" });
+    expect(sheet.textContent).not.toContain("Принять заявку");
+    expect(sheet.querySelector('[data-action="card"]')).toBeTruthy();
+  });
+  it("contact sheet: «Что знает бот» and «Подробности» are collapsed, every old fact is still there, channel and counters not twice", async () => {
+    h.perms = AGENT;
+    const sheet = await openContactSheet({ id: "client", pendingAcceptance: false, assignedAgentId: "actor" });
+    const blocks = [...sheet.querySelectorAll("details")];
+    expect(blocks.map((d) => d.querySelector("summary span")?.textContent)).toEqual(["Что знает бот", "Подробности"]);
+    expect(blocks.every((d) => !d.open)).toBe(true);
+    const text = sheet.textContent ?? "";
+    for (const kept of ["Телефон", "Имя в профиле", "Первое обращение", "Сообщений", "Идентификатор в канале", "peer", "Досье ещё нет"]) expect(text, kept).toContain(kept);
+    // Канал назван под именем один раз (само имя-заглушка «Продавец из Instagram» — данные, а не повтор строки).
+    expect(sheet.querySelectorAll(".ry-csheet-sub")).toHaveLength(1);
+    expect(sheet.querySelector(".ry-csheet-sub")?.textContent).toBe("Instagram");
+    expect(text.match(/Первое обращение/g) ?? []).toHaveLength(1);
+  });
+  it("contact sheet: no card — no primary button, linking stays reachable; close returns to the chat", async () => {
+    h.perms = new Set(["messages.view", "clients.merge", "clients.viewAll"]); h.noCard = true;
+    const sheet = await openContactSheet(undefined);
+    expect(sheet.querySelectorAll("[data-action]")).toHaveLength(0);
+    expect(sheet.textContent).toContain("Связать с клиентом");
+    click(sheet.querySelector('[aria-label="Закрыть сведения о контакте"]'));
+    expect(document.querySelector('[data-testid="contact-sheet"]')).toBeNull();
+  });
+
   it("director «⋯»: the bot pause lives here, with the same terms; a paused bot — «Вернуть боту»", () => {
     h.perms = DIRECTOR;
     mount();

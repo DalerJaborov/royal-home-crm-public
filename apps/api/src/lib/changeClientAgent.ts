@@ -406,6 +406,11 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
     ) {
       data.assignReason = null;
     }
+    // «Вы уже вели эту переписку» — правда только о том, кому сторож отдал карточку (доводка #497): новому держателю она
+    // врала бы. Снятие в очередь причину не стирает — держателя нет, врать некому.
+    if (data.assignReason === undefined && input.toAgentId != null && before.assignReason === "staff_led_conversation") {
+      data.assignReason = null;
+    }
   }
 
   // Гонка «клиент попал в Корзину между чтением и записью» (заявка на

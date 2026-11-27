@@ -39,7 +39,8 @@ export interface McHero {
   leadsToday: { count: number; deltaVsYesterday: number };
   firstResponse: { medianMinYesterday: number | null; noneCountYesterday: number };
   missedCallsToday: number;
-  dealsInPipeline: { count: number; byStage: { status: string; count: number }[]; items?: McZoneItem[] };
+  /** `stuckTotal` — клиентов «Не связывались» по общему правилу (сервер присылает с 17.11.2026; в старом ответе нет). */
+  dealsInPipeline: { count: number; byStage: { status: string; count: number }[]; items?: McZoneItem[]; stuckTotal?: number };
 }
 
 export interface McFirstLineItem {

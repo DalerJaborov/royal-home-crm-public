@@ -80,6 +80,8 @@ export interface ConversationListItem {
    * `unread` — список тогда рисует точку, как раньше.
    */
   unreadCount?: number;
+  /** Строка в архиве у этого зрителя (27.11.2026): в поиске показывает «Вернуть». */
+  archived?: boolean;
   messagesCount: number;
   /** Наш аккаунт-получатель: показывается меткой в списке, чтобы не путать переписки. */
   accountId: string | null;
@@ -164,6 +166,9 @@ export interface ConversationDetail {
    * чем досье появились: панель об этом пишет прямо, а не показывает пустоту.
    */
   contact: ContactProfileView | null;
+  /** Миниатюра и закреплённый цвет собеседника — те же, что у строки списка (шапка переписки). */
+  avatarUrl?: string | null;
+  avatarSeed?: string | null;
   /** Source metadata for messages in a grouped timeline. */
   grouped?: boolean;
   sources?: Array<{ id: string; channel: string | null; canReply: boolean; pausedUntil: string | null }>;
