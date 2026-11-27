@@ -63,6 +63,8 @@ afterEach(() => {
 });
 
 async function recording(send: (blob: Blob) => Promise<unknown>) {
+  // React в этом тесте подменён (хуки без отрисовки), поэтому хук зовётся напрямую.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const hook = useVoiceRecorderSession(send);
   hook.handlers.onClick();
   await vi.advanceTimersByTimeAsync(0);
