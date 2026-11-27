@@ -340,6 +340,11 @@ export interface OperatorContext {
   brandName: string;
   /** Переписка на номере или странице отдельного бренда (MessengerAccount.brandName задан, «Арван»): первое слово — от его имени. */
   ownBrand?: boolean;
+  /**
+   * Бот уже поздоровался и спросил «купить или продать?» ДО первого слова клиента (приветствие WhatsApp, 27.11.2026): в
+   * переписке есть доставленная реплика с отметкой `botWelcome`. Для чистой памяти это прошлый ход бота (state.ts).
+   */
+  botWelcomed?: boolean;
   /** Телефон офиса для клиентов (lib/publicAgencyContact.ts): один раз, когда номер так и не дали. */
   officePhone: string;
   sellerCommissionPercent: number;
