@@ -61,6 +61,7 @@ import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.
 import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyAcceptedRefusal, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
   noteInstagramBackupKeyDead, noteInstagramKeyRefused, noteInstagramProbeSucceeded } from "../lib/instagramAccountAccess.js";
 import { isProviderDefinitiveRejection } from "../lib/metaProviderRejection.js";
+import { whatsappCommandsEnabled, whatsappCommandText } from "./whatsappCommands.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -1067,6 +1068,43 @@ export function whatsappOrderText(msg: WhatsAppIncomingMessage): string | undefi
   return parts.length ? parts.join(" · ") : undefined;
 }
 
+/**
+ * СЛУЖЕБНОЕ УВЕДОМЛЕНИЕ САМОЙ META ПО ТЕКСТУ (27.11.2026, живой случай: на втором номере WhatsApp
+ * пришло «Continue setting up your account…» — напоминание Meta о настройке Business-аккаунта
+ * приходит обычным `text` от служебного отправителя; бот принял его за клиента, ответил
+ * «номер получил, агент позвонит» и завёл карточку покупателя).
+ *
+ * У такого сообщения нет структурного признака (type=text, отправитель — обычный wa_id), поэтому
+ * ловим ТОЛЬКО точные известные начала уведомлений Meta. Якорь `^` — фраза должна начинать
+ * сообщение: клиент, цитирующий её внутри своего текста, под сторожа не попадает. Список
+ * намеренно узкий: ложный отброс настоящего клиента хуже одного лишнего ответа. Новое
+ * уведомление Meta — дописать фразу сюда, это одно место для WhatsApp, Instagram и Messenger
+ * (parseIncoming — общая дверь вебхука и ядра клиентского бота).
+ */
+const META_SERVICE_NOTICE_RE: RegExp[] = [
+  /^\s*continue setting up your (whatsapp business )?account/i,
+  /^\s*finish setting up your (whatsapp business )?account/i,
+  /^\s*complete (the setup of )?your whatsapp business (account|profile)/i,
+  /^\s*your whatsapp business (account|platform|api)/i,
+  /^\s*get started with the whatsapp business (app|platform|api)/i,
+];
+
+export function metaServiceNoticeReason(text: string | undefined | null): string | null {
+  if (!text) return null;
+  const head = text.slice(0, 200);
+  return META_SERVICE_NOTICE_RE.some((re) => re.test(head)) ? "уведомление Meta о настройке аккаунта" : null;
+}
+
+/** Служебное уведомление Meta мимо бота: одна строка в журнал ошибок (по отправителю — раз в сутки). */
+function logMetaServiceNotice(channel: MetaChannel, from: string, messageId: string | undefined, reason: string): void {
+  console.log(`[вебхук] ${channel}: служебное уведомление Meta мимо бота (${reason}) id=${messageId ?? "?"}`);
+  void logSystemError(
+    "meta",
+    `${channel}: ${reason} от ${from} принято как служебное и не передано боту (клиента и заявки не создано)`,
+    { dedupKey: `meta-service-notice:${channel}:${from}` }
+  );
+}
+
 export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""),
   options: { captureCustomerReferences?: true } = {}): MetaIncoming[] {
   // Capturing original public references grants no property read or execution
@@ -1129,6 +1167,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             );
             continue;
           }
+          const noticeReason = metaServiceNoticeReason(msg.text?.body ?? msg.button?.text);
+          if (noticeReason) {
+            logMetaServiceNotice("WHATSAPP", from, msg.id, noticeReason);
+            continue;
+          }
           // Кнопка под одобренным текстом — это ответ словами («Да, присылайте»), а
           // не вложение: без этого в переписке лёг бы пустой пузырь «[вложение: button]».
           // Ответ кнопкой/строкой списка интерактивного сообщения и заказ из каталога —
@@ -1178,7 +1221,10 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             : undefined;
           const interactiveText = whatsappInteractiveReplyText(msg);
           const orderText = whatsappOrderText(msg);
-          const text = msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
+          // Команда «/харидан» из меню WhatsApp — слова человека для ядра (messengers/whatsappCommands.ts, 27.11.2026).
+          // Только у обычного текста: подпись к фото или ответ кнопкой командой не бывают.
+          const commandText = (msg.type ?? "text") === "text" && whatsappCommandsEnabled() ? whatsappCommandText(msg.text?.body) : null;
+          const text = commandText ?? msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
           // ATTACHMENT_HINTS (sharedMedia.ts) знает "location"/"contact" в единственном
           // числе; WhatsApp шлёt тип "contacts" во множественном — приводим к общему ключу.
           const attachmentType = isText ? undefined : msg.type === "contacts" ? "contact" : msg.type;
@@ -1342,6 +1388,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           ? templateAttachmentText(attachment?.payload)
           : "";
       const typedText = event.message.text ?? "";
+      const noticeReason = metaServiceNoticeReason(typedText);
+      if (noticeReason) {
+        logMetaServiceNotice(channel, senderId, event.message.mid, noticeReason);
+        continue;
+      }
       const ownText =
         fallbackUrl && !typedText.includes(fallbackUrl) ? [typedText, fallbackUrl].filter(Boolean).join(" ") : typedText;
       const text = templateText ? [ownText, `📋 ${templateText}`].filter(Boolean).join("\n") : ownText;

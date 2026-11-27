@@ -134,6 +134,9 @@ services:
       # «Агент не может дозвониться» и «Телефон агента не отвечает» — только самому агенту (владелец 26.11.2026).
       # NO_ANSWER_LEADERSHIP_ALERTS=1 в .env.production возвращает тревоги руководству без правки кода.
       NO_ANSWER_LEADERSHIP_ALERTS: "${NO_ANSWER_LEADERSHIP_ALERTS:-}"
+      # JIT Postgres выключен на соединениях приложения (27.11.2026, скорость «Чатов»): PG_JIT=on в .env.production
+      # возвращает его без правки кода.
+      PG_JIT: "${PG_JIT:-}"
       PORT: 4000
       # Пул потоков libuv (22.09.2026, вместе с параллельной обработкой фото —
       # см. routes/properties/photos.ts). Node по умолчанию даёт 4 потока на
@@ -179,6 +182,11 @@ services:
       # WhatsApp: own chat per our number (26.11.2026, lib/customerConversationScope.ts). Empty/on = each number
       # (Royal Home, Arvan) has its own chat with a person; off = the #475 fallback (one chat per person, held for staff).
       WHATSAPP_CHAT_PER_NUMBER: "${WHATSAPP_CHAT_PER_NUMBER:-}"
+      # WhatsApp welcome / callback request / slash commands (27.11.2026, messengers/whatsappCommands.ts and
+      # whatsappServiceEvents.ts). Empty/on = enabled on both numbers; off = that one feature is switched off.
+      WHATSAPP_WELCOME: "${WHATSAPP_WELCOME:-}"
+      WHATSAPP_CALLBACK_REQUESTS: "${WHATSAPP_CALLBACK_REQUESTS:-}"
+      WHATSAPP_COMMANDS: "${WHATSAPP_COMMANDS:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
