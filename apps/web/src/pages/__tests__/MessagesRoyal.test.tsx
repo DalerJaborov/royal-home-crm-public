@@ -395,9 +395,9 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       messages: [msg("user", "Первое", conversationId, "WHATSAPP"), msg("user", "Второе", instagramSource, "INSTAGRAM"), msg("assistant", "Ответ", conversationId, "WHATSAPP")],
     };
     const html = markup("client:client");
-    // Выбора канала строкой нет; единственный список в окне — срок паузы бота над полем ввода.
+    // Выбора канала строкой нет; срока паузы бота тоже нет (владелец 27.11.2026: пауза без выбора срока).
     expect(html).not.toContain('aria-label="Куда ответить"');
-    expect(html.match(/<select/g)?.length).toBe(1);
+    expect(html).not.toContain("<select");
     expect(html).not.toContain("Выберите канал");
     expect(html).toContain('placeholder="Сообщение в Instagram"');
     expect(h.replyTarget).toBe(instagramSource);
