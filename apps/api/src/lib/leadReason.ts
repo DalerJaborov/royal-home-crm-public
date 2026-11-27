@@ -51,6 +51,9 @@ export function leadReasonText(c: ReasonInput, property: PropertyRef | null): Le
   if (c.assignReason === "requested_by_client") {
     return { text: "Клиент сам назвал вас", propertyShortId: null };
   }
+  if (c.assignReason === "staff_led_conversation") {
+    return { text: "Вы уже вели эту переписку", propertyShortId: null };
+  }
   if (c.assignReason === SUPERVISOR_ASSIGN_REASON) {
     return { text: "Назначил руководитель", propertyShortId: null };
   }
