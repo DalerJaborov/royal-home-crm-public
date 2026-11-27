@@ -5,7 +5,7 @@ import { describeError } from "../describeError.js";
 import { logSystemError } from "../systemError.js";
 
 /** Сколько дней реклама, с которой клиент пришёл в переписку, ещё говорит о его звонке. */
-export const CALL_AD_WINDOW_DAYS = 30;
+export const CALL_AD_WINDOW_DAYS = 14;
 
 /**
  * ЗВОНОК КЛИЕНТА С РЕКЛАМЫ ОБЪЕКТА — ХОЗЯИНУ ОБЪЕКТА (27.11.2026, рубильник callAdObjectToOwnerEnabled).
@@ -16,7 +16,9 @@ export const CALL_AD_WINDOW_DAYS = 30;
  *
  * Берётся объект, который уже записан в переписку этого клиента при переходе с рекламы
  * (`BotConversation.adPropertyId`: lib/adAttribution.ts, объявление ровно про один объект), если переписка началась
- * не раньше чем за CALL_AD_WINDOW_DAYS дней. Правило «только покупатель, только реклама объекта» — общее
+ * не раньше чем за CALL_AD_WINDOW_DAYS дней (объект рекламы пишется первым касанием, при создании переписки, поэтому
+ * её createdAt и есть время перехода с рекламы). Снявшего трубку реклама НЕ перебивает (ревью 27.11): он уже говорил
+ * с человеком, а реклама — лишь догадка о том, по какому объекту звонок; она решает только звонок без ответившего. Правило «только покупатель, только реклама объекта» — общее
  * (lib/adPropertyRule.ts). Самая свежая такая переписка побеждает. Не бросает: подсказка, а не условие звонка.
  */
 export async function recentCallerAdPropertyId(clientId: string, kind: string | null | undefined): Promise<string | null> {

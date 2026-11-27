@@ -38,6 +38,7 @@ const clientIds: string[] = [];
 const callIds: string[] = [];
 const conversationIds: string[] = [];
 const extraPropertyIds: string[] = [];
+const ticketKeys: string[] = [];
 
 async function setSwitch(data: { chatObjectToOwnerEnabled?: boolean; callAdObjectToOwnerEnabled?: boolean }) {
   await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", ...data }, update: data });
@@ -60,7 +61,7 @@ async function adConversation(clientId: string, createdAt = new Date()) {
   return conv;
 }
 
-async function qualify(clientId: string, phone: string) {
+async function qualify(clientId: string, phone: string, answeredByAgentId: string | null = null) {
   const call = await prisma.incomingCall.create({ data: { channelId: `oto-${runId}-${callIds.length}`, phone, clientId, answered: true } });
   callIds.push(call.id);
   const delegate = prisma.settings;
@@ -71,7 +72,7 @@ async function qualify(clientId: string, phone: string) {
   }) as never);
   try {
     const result = await qualifyIncomingCall({
-      callId: call.id, operatorId: null, answeredByAgentId: answererId, knownPropertyId: null,
+      callId: call.id, operatorId: null, answeredByAgentId, knownPropertyId: null,
       data: { kind: "BUYER", fullName: "Фарход" },
     });
     expect("error" in result).toBe(false);
@@ -102,6 +103,7 @@ afterAll(async () => {
   await setSwitch({ chatObjectToOwnerEnabled: true, callAdObjectToOwnerEnabled: true });
   await prisma.conversationProperty.deleteMany({ where: { conversationId: { in: conversationIds } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: conversationIds } } });
+  await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: ticketKeys } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.auditLog.deleteMany({ where: { entityId: { in: clientIds } } });
   await prisma.incomingCall.deleteMany({ where: { id: { in: callIds } } });
@@ -113,7 +115,7 @@ afterAll(async () => {
 });
 
 describe("звонок клиента, пришедшего в переписку с рекламы объекта", () => {
-  it("расшифровка объект не назвала — заявка хозяину объекта рекламы, а не снявшему трубку", async () => {
+  it("трубку никто не снял, расшифровка объект не назвала — заявка хозяину объекта рекламы, а не в очередь", async () => {
     const client = await makeClient("звонок с рекламы");
     await adConversation(client.id);
     const after = await qualify(client.id, client.phone);
@@ -124,11 +126,17 @@ describe("звонок клиента, пришедшего в переписк�
     expect(note).not.toBeNull();
   });
 
-  it("переписка с рекламы старше 30 дней — звонок у снявшего трубку, как раньше", async () => {
-    const client = await makeClient("старая реклама");
-    await adConversation(client.id, new Date(Date.now() - 45 * 24 * 60 * 60 * 1000));
-    const after = await qualify(client.id, client.phone);
+  it("трубку снял агент — реклама из переписки его не перебивает (ревью 27.11)", async () => {
+    const client = await makeClient("реклама, снял трубку");
+    await adConversation(client.id);
+    const after = await qualify(client.id, client.phone, answererId);
     expect(after.assignedAgentId).toBe(answererId);
+  });
+
+  it("переписка с рекламы старше 14 дней — объект рекламы не подсказывается", async () => {
+    const client = await makeClient("старая реклама");
+    await adConversation(client.id, new Date(Date.now() - 20 * 24 * 60 * 60 * 1000));
+    expect(await recentCallerAdPropertyId(client.id, "BUYER")).toBeNull();
   });
 
   it("продавцу и при выключенном рубильнике объект рекламы не подсказывается", async () => {
@@ -140,7 +148,7 @@ describe("звонок клиента, пришедшего в переписк�
     try {
       expect(await recentCallerAdPropertyId(client.id, "BUYER")).toBeNull();
       const after = await qualify(client.id, client.phone);
-      expect(after.assignedAgentId).toBe(answererId);
+      expect(after.assignReason).not.toBe("own_property_explicit");
     } finally {
       await setSwitch({ callAdObjectToOwnerEnabled: true });
     }
@@ -149,9 +157,14 @@ describe("звонок клиента, пришедшего в переписк�
 
 describe("новый бот: объект, узнанный в переписке, идёт с заявкой и будит хозяина", () => {
   const scopeKey = "a".repeat(64);
-  async function focusedConversation(status: "resolved" | "ambiguous", evidenceKind: "url" | "public_selector" = "url") {
+  const eventKey = (n: number) => `${String(runId % 1e9).padStart(9, "0")}${String(n).padStart(2, "0")}`.padEnd(64, "e").replace(/[^a-f0-9]/g, "e");
+  let tickets = 0;
+  async function focusedConversation(status: "resolved" | "ambiguous", evidenceKind: "url" | "public_selector" = "url", receivedAt = new Date()) {
+    const key = eventKey(tickets++);
+    await prisma.customerPropertyIngressTicket.create({ data: { eventKey: key, scopeKey, receivedAt } });
+    ticketKeys.push(key);
     const focus = {
-      version: 1, scopeKey, generation: randomUUID(), lastEvidenceOrder: "7", eventKey: "b".repeat(64), status,
+      version: 1, scopeKey, generation: randomUUID(), lastEvidenceOrder: "7", eventKey: key, status,
       propertyId: status === "resolved" ? propertyId : null,
       evidence: [{ kind: evidenceKind, origin: "message", reference: evidenceKind === "url" ? "https://royalhome.tj/listing/1" : `short:${propertyShortId}` }],
     };
@@ -169,6 +182,8 @@ describe("новый бот: объект, узнанный в переписк�
     expect(await customerFocusPropertyForLead(null, scopeKey)).toBeNull();
     const { conv: ambiguous } = await focusedConversation("ambiguous");
     expect(await customerFocusPropertyForLead(ambiguous.id, scopeKey)).toBeNull();
+    const { conv: stale } = await focusedConversation("resolved", "url", new Date(Date.now() - 20 * 24 * 60 * 60 * 1000));
+    expect(await customerFocusPropertyForLead(stale.id, scopeKey)).toBeNull();
     await setSwitch({ chatObjectToOwnerEnabled: false });
     try {
       expect(await customerFocusPropertyForLead(conv.id, scopeKey)).toBeNull();
@@ -210,6 +225,12 @@ describe("скриншот карточки объявления без наше
     } finally {
       await setSwitch({ chatObjectToOwnerEnabled: true });
     }
+  });
+  it("без площади или с несколькими ценами (лента объявлений) — не угадываем", async () => {
+    expect(await customerListingCardFactsSelectors({ subject: "listing_card", readableText: "2 комнаты, 351 234 сомони" })).toEqual([]);
+    expect(await customerListingCardFactsSelectors({ subject: "listing_card",
+      readableText: `${text}
+Ещё: 3 комнаты, 90 м², 600 000 сомони` })).toEqual([]);
   });
   it("два объекта с теми же ценой и площадью — не угадываем", async () => {
     const twinText = "3 комнаты, 81.3 м², 512 777 сомони";

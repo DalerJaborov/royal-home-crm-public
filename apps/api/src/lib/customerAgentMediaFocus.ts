@@ -74,7 +74,15 @@ async function customerPerceivedCaptionSelectors(media: Pick<CustomerAgentMediaP
 export async function customerListingCardFactsSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">): Promise<number[]> {
   if (media.subject !== "listing_card" || !media.readableText?.trim()) return [];
   if (!await automationSwitchOn("chatObjectToOwnerEnabled")) return [];
-  const found = await matchPropertyByFacts(parsePropertyFacts(media.readableText));
+  // Строже подписи поста (ревью 27.11): нужны и цена, и площадь; на скриншоте с несколькими площадями или ценами
+  // (лента объявлений, «было/стало») не узнаём — цифры могли прийти из разных карточек.
+  const text = media.readableText;
+  const areas = text.match(/(?:м²|м2|m²|m2|кв\.?\s*м)/giu) ?? [];
+  const prices = text.match(/\d[\d\s .,']{2,}\s*(?:TJS|сомон\p{L}*|смн|USD|\$|долл\p{L}*)|(?:\$|USD)\s*\d[\d\s .,']{2,}/giu) ?? [];
+  if (areas.length !== 1 || prices.length !== 1) return [];
+  const facts = parsePropertyFacts(text);
+  if (facts.price == null || facts.areaSqm == null) return [];
+  const found = await matchPropertyByFacts(facts);
   return found && !found.deletedAt && (found.status === "AVAILABLE" || found.status === "RESERVED") ? [found.shortId] : [];
 }
 async function customerSharedCaptionSelectors(captions: readonly string[], marks: CustomerOwnBrandMarks): Promise<number[]> {

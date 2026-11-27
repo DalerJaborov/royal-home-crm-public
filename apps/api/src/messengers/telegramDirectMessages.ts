@@ -743,8 +743,15 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
      * и Instagram давно кладут названный номер/ссылку в заявку (messengers/conversation.ts, telegram/bot.ts), а здесь
      * «объект №112» читался только моделью, и заявка уходила в общую очередь. Только покупателю: продавец описывает своё.
      */
-    const namedPropertyId = decision.kind === "BUYER" && (await automationSwitchOn("chatObjectToOwnerEnabled"))
-      ? await resolveMentionedPropertyId(clientWords).catch((err) => {
+    // Свежие слова первыми: в истории первый найденный номер — самый ранний (ревью 27.11).
+    const namedPropertyId = decision.kind === "BUYER" && (await automationSwitchOn("chatObjectToOwnerEnabled").catch(() => false))
+      ? await (async () => {
+          for (const words of [text ?? "", ...history.filter((m) => m.role === "user").map((m) => m.content).reverse()]) {
+            const found = words.trim() ? await resolveMentionedPropertyId(words) : null;
+            if (found) return found;
+          }
+          return null;
+        })().catch((err) => {
           void logSystemError("ai", `Telegram Direct: номер объекта в словах клиента не проверен: ${err instanceof Error ? err.message : String(err)}`);
           return null;
         })

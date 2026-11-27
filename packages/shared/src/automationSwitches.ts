@@ -52,6 +52,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "chatObjectToOwnerEnabled",
   "callAdObjectToOwnerEnabled",
   "objectInterestPullsQueueLeadEnabled",
+  "notifyOwnerOfOtherAgentClientEnabled",
+  "notifyOwnerBeforeLeadEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -70,9 +72,11 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   // Владелец 26.11.2026: «Шабнам вступает сама в беседу в группах». Пробный режим (решает, но не пишет) — опция для
   // руководства, по умолчанию выключен. Колонка `DEFAULT false`.
   "shabnamGroupLiveShadowEnabled",
-  // Владелец 27.11.2026 (п.6): «Оставить + показ хозяину» — клиент остаётся у своего агента, хозяину объекта уведомление.
-  // Перенос непринятой заявки из очереди — опция руководства, по умолчанию выключен. Колонка `DEFAULT false`.
-  "objectInterestPullsQueueLeadEnabled",
+  // Владелец 27.11.2026: «нет удали это пусть ничего не получает сам агент потом скажет» — клиент другого агента хозяину
+  // объекта пуша не шлёт; агент клиента скажет сам. Колонка `DEFAULT false`.
+  "notifyOwnerOfOtherAgentClientEnabled",
+  // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали… отключи».
+  "notifyOwnerBeforeLeadEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -238,8 +242,18 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
   },
   objectInterestPullsQueueLeadEnabled: {
     title: "Непринятая заявка переходит хозяину объекта",
-    on: "Клиент из общей очереди, которого агент ещё не принял, пишет про конкретный объект — заявка переходит агенту этого объекта. Принятых клиентов и клиентов, назвавших агента, это не касается: хозяину объекта приходит только уведомление.",
-    off: "Как решил владелец 27.11.2026: клиент остаётся у своего агента, хозяину объекта приходит уведомление «по вашему объекту пишут».",
+    on: "Клиент из общей очереди, которого агент ещё не принял, пишет про конкретный объект — заявка переходит агенту этого объекта. Только покупатель, отданный очередью: принятых клиентов, продавцов, клиентов, которых передал руководитель или которые назвали агента, это не касается.",
+    off: "Заявка остаётся у агента из очереди.",
+  },
+  notifyOwnerOfOtherAgentClientEnabled: {
+    title: "Хозяину объекта: пуш о клиенте другого агента",
+    on: "Клиент, которого уже ведёт другой агент, интересуется вашим объектом — вам приходит пуш «клиент другого агента интересуется вашим объектом».",
+    off: "Как решил владелец 27.11.2026: хозяин объекта ничего не получает, клиент остаётся у своего агента, и тот сам договаривается с хозяином. В истории клиента остаётся запись для его агента.",
+  },
+  notifyOwnerBeforeLeadEnabled: {
+    title: "Хозяину объекта: пуш, пока у клиента нет заявки",
+    on: "Человек пишет про ваш объект, но номера не оставил и карточки нет — вам приходит пуш «Интерес к вашему объекту» и «Новое сообщение по вашему объекту» на каждое его сообщение. Во всех каналах.",
+    off: "Как решил владелец 27.11.2026: пока у клиента нет карточки или заявки, хозяину объекта ничего не приходит. Как только заявка появилась — обычный пуш о новой заявке и о сообщениях клиента.",
   },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
@@ -284,7 +298,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

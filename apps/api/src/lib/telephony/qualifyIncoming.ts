@@ -251,7 +251,7 @@ export async function qualifyIncomingCall(input: {
    * Путь «объект по объявлению, с которого пришёл клиент» по Client.sourceAdId
    * намеренно НЕ сделан (ревью 26.11, В1): sourceAdId — первое касание и не
    * меняется, а засчитывался бы прямым указанием мимо защиты продавца. С 27.11
-   * реклама учитывается иначе: объект рекламы из СВЕЖЕЙ (30 дней) переписки,
+   * реклама учитывается иначе: объект рекламы из СВЕЖЕЙ (14 дней) переписки,
    * только покупателю и только когда расшифровка объект не назвала
    * (lib/telephony/callAdProperty.ts, рубильник callAdObjectToOwnerEnabled).
    */
@@ -288,8 +288,8 @@ export async function qualifyIncomingCall(input: {
     /**
      * РАСШИФРОВКА ОБЪЕКТ НЕ НАЗВАЛА, А КЛИЕНТ ПРИШЁЛ С РЕКЛАМЫ ОБЪЕКТА (27.11.2026, рубильник
      * callAdObjectToOwnerEnabled, lib/telephony/callAdProperty.ts). Объект рекламы из его свежей переписки
-     * считается названным прямо (как узнанный консультантом): «я по объявлению» — это про ту квартиру. Только
-     * покупатель; названный в звонке объект сильнее рекламы.
+     * направляет заявку хозяину, когда трубку никто не снял (робот, очередь). Только покупатель; названный в
+     * звонке объект сильнее рекламы; снявшего трубку реклама не перебивает.
      */
     const adPropertyId = !spoken.propertyId ? await recentCallerAdPropertyId(client.id, kind) : null;
     const adProperty = adPropertyId
@@ -348,7 +348,9 @@ export async function qualifyIncomingCall(input: {
 
   if (needsAgent && object) {
     const { identified, byRobot, byAd, strongByListing } = object;
-    const explicit = byRobot || byAd || identified.via === "hint";
+    // Реклама из переписки — не прямое указание в звонке: снявшего трубку не перебивает (ревью 27.11), решает
+    // только звонок без ответившего (ниже, через assignAgentForLead с propertyId).
+    const explicit = !byAd && (byRobot || identified.via === "hint");
     if (input.answeredByAgentId) {
       /**
        * «КТО СНЯЛ» УСТУПАЕТ «ЧЕЙ ОБЪЕКТ», ЕСЛИ ОБЪЕКТ НАЗВАН ПРЯМО (10.10.2026,

@@ -24,6 +24,9 @@ import { logSystemError } from "./systemError.js";
  * (то же правило, что у рекламы, lib/adPropertyRule.ts, и у звонка).
  */
 
+/** Сколько дней объект, узнанный в переписке, ещё направляет заявку покупателя. */
+export const FOCUS_FRESH_DAYS = 14;
+
 /** Чем клиент указал на объект — источник связи «диалог ↔ объект» (первое узнавание не перезаписывается). */
 export function focusInterestSource(evidence: readonly Pick<CustomerPropertyEvidence, "kind">[]): ConversationPropertySource {
   const kinds = new Set(evidence.map(item => item.kind));
@@ -56,6 +59,10 @@ export async function customerFocusPropertyForLead(nativeId: string | null | und
     const row = await prisma.botConversation.findUnique({ where: { id: nativeId }, select: { customerPropertyFocus: true } });
     const parsed = customerPropertyFocusSchema.safeParse(row?.customerPropertyFocus);
     if (!parsed.success || parsed.data.scopeKey !== scopeKey || parsed.data.status !== "resolved") return null;
+    // Старый фокус не решает за свежий разговор (ревью 27.11): объект, названный больше FOCUS_FRESH_DAYS назад,
+    // заявку не направляет — человек мог давно искать другое.
+    const owner = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey: parsed.data.eventKey }, select: { receivedAt: true } });
+    if (!owner || owner.receivedAt.getTime() < Date.now() - FOCUS_FRESH_DAYS * 24 * 60 * 60 * 1000) return null;
     return parsed.data.propertyId;
   } catch (err) {
     // Не прочитали фокус — заявка всё равно создаётся (обычной раздачей), но молча терять нельзя.

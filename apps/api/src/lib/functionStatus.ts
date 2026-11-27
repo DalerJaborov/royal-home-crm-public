@@ -257,11 +257,11 @@ const EVALUATORS: Record<string, Evaluator> = {
       : { state: "off", reason: `Выключено: ${ENV_NOT_SET("BOT_PROPERTY_CONTEXT_ENABLED")}. Бот не видит карточку объекта, с которого пришёл клиент.` },
 
   "object-interest-pull": ({ settings, env }) =>
-    objectInterestPullsQueueLead(settings.objectInterestPullsQueueLeadEnabled ?? false, env)
+    objectInterestPullsQueueLead(settings.objectInterestPullsQueueLeadEnabled ?? true, env)
       ? { state: "working", reason: "Непринятая заявка из очереди переходит хозяину объекта, о котором спросил клиент." }
       : { state: "off", reason: env.OBJECT_INTEREST_PULLS_QUEUE_LEAD === "0"
-          ? "Выключено переменной OBJECT_INTEREST_PULLS_QUEUE_LEAD=0 на сервере. Хозяину объекта уходит только уведомление, заявка остаётся в очереди."
-          : "Выключено рубильником «Непринятая заявка переходит хозяину объекта» в Настройках. Хозяину объекта уходит только уведомление, заявка остаётся в очереди." },
+          ? "Выключено переменной OBJECT_INTEREST_PULLS_QUEUE_LEAD=0 на сервере: заявка остаётся у агента из очереди."
+          : "Выключено рубильником «Непринятая заявка переходит хозяину объекта» в Настройках: заявка остаётся у агента из очереди." },
 
   "live-voice": ({ settings, spend }) => {
     if (!settings.liveVoiceEnabled) {
@@ -569,7 +569,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
     openaiEnabled: row?.openaiEnabled ?? false,
     missedCallSmsEnabled: row?.missedCallSmsEnabled ?? false,
-    objectInterestPullsQueueLeadEnabled: row?.objectInterestPullsQueueLeadEnabled ?? false,
+    objectInterestPullsQueueLeadEnabled: row?.objectInterestPullsQueueLeadEnabled ?? true,
     missedCallSmsSent7d,
     missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
   };
