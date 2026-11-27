@@ -131,8 +131,9 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
       if (recorded.clientId && input.inputText.trim()) {
         const clientId = recorded.clientId, conversationId = recorded.conversationId;
         const at = input.providerOccurredAt ? new Date(input.providerOccurredAt) : new Date();
+        // Повтор при параллельной правке карточки: второго шанса у этого номера нет — копия в переписке замаскирована.
         void import("./clientPhoneCapture.js")
-          .then(({ captureExplicitClientPhone }) => captureExplicitClientPhone({ kind: "CONVERSATION", id: conversationId, clientId, at, text: input.inputText }))
+          .then(({ captureClientPhoneWithRetry }) => captureClientPhoneWithRetry({ kind: "CONVERSATION", id: conversationId, clientId, at, text: input.inputText }))
           .catch((error) => console.error("[contact-capture] held:", error instanceof Error ? error.name : "UnknownError"));
       }
       // Бот не отвечает, а файл клиента сотруднику нужен больше всего: сохраняем сразу, пока ссылка Meta жива (26.11.2026).

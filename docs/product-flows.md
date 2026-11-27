@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4372**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4375**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24178,13 +24178,27 @@
       - return { alerted: 0, accepted: 0, attached };
         · дословно из кода
     - для каждого: const row of candidates
-      - если !canTakeItself
-        - если (row.promised || row.unanswered) && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
-          - continue;
-            · переходит к следующему
+      - если !eligible
+        - continue;
+          · переходит к следующему
+      - если row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK
+        - continue;
+          · переходит к следующему
+      - const tail = phoneTail(row.phone!);
+        · зовёт phoneTail()
+      - если takenTails.has(tail)
+        - continue;
+          · переходит к следующему
+      - если outcome === "reviewer"
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
+        - если row.unanswered
+          - acceptedUnanswered++;
+            · дословно из кода
+        - иначе
+          - accepted++;
+            · дословно из кода
         - void logSystemError( "ai", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…
           · запись в журнал ошибок
         - continue;
@@ -24196,7 +24210,7 @@
         - continue;
           · переходит к следующему
     - если leftForHuman.length === 0
-      - return { alerted: 0, accepted, attached };
+      - return { alerted: 0, accepted: accepted + acceptedUnanswered, attached };
         · дословно из кода
     - для каждого: const row of leftForHuman
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))

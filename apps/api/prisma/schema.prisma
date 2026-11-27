@@ -4723,6 +4723,8 @@ model BotConversation {
   /// изменится сама. Не оформилось с первого раза — это уже вопрос к человеку, и он
   /// получает сигнал (см. leftForHuman там же).
   watchdogAttemptedAt DateTime?
+  /// Последний проход «номер из переписки — в карточку» (lib/phoneLeadWatchdog.ts): разбираем заново только новое.
+  phoneSweepAt       DateTime?
   /// СТОРОЖ МОЛЧАНИЯ (14.11.2026, lib/clientSilenceSweep.ts): момент ПЕРВОЙ
   /// неотвеченной реплики клиента, о которой уже сказали сотруднику. Одна тревога
   /// на один эпизод молчания: клиент дописал ещё — эпизод тот же; ему ответили и он
@@ -7514,6 +7516,8 @@ model Settings {
   callObjectToOwnerEnabled              Boolean @default(true)
   /// Клиент в WhatsApp без ответа бота: карточка сама (27.11.2026, lib/unansweredChatTurn.ts).
   chatUnansweredCardEnabled             Boolean @default(true)
+  /// Номер одним сообщением в переписке с карточкой — в запасные номера (27.11.2026, ревью #497).
+  chatBarePhoneToCardEnabled            Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

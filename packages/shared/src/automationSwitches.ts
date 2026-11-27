@@ -50,6 +50,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "chatArchiveEnabled",
   "callObjectToOwnerEnabled",
   "chatUnansweredCardEnabled",
+  "chatBarePhoneToCardEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -223,8 +224,13 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
   // Владелец 27.11.2026: «кто оставил номер, должен попасть в CRM сам» (26.11 бот молчал, ~15 переписок WhatsApp без карточки).
   chatUnansweredCardEnabled: {
     title: "Клиент в WhatsApp без ответа бота: карточка сама",
-    on: "Клиент написал в WhatsApp по делу, а бот 20 минут не ответил (бот сломался, переписку ведёт сотрудник): карточка с его номером WhatsApp заводится сама и уходит агенту. Клиенту ничего не отправляется. Спам, вакансии, аренда и «спасибо» карточку не заводят.",
+    on: "Клиент написал в WhatsApp о покупке или продаже, а бот 20 минут не ответил из-за сбоя (или переписку уже вёл сотрудник): карточка с его номером WhatsApp заводится сама и уходит агенту, а если отвечал сотрудник — ему. Клиенту ничего не отправляется. Спам, вакансии, «спасибо», приветствие без вопроса и намеренное молчание бота карточку не заводят.",
     off: "Карточка по переписке WhatsApp заводится, только если клиент сам написал номер или бот пообещал звонок агента, как до 27.11.2026.",
+  },
+  chatBarePhoneToCardEnabled: {
+    title: "Номер одним сообщением — в карточку клиента",
+    on: "Клиент с карточкой прислал в переписке сообщение, где только номер («+992 900 12 34 56», «900123456 вотсап»): номер сам дописывается в его запасные номера. Если перед этим спрашивали номер хозяина, мужа или другого человека, решает сотрудник.",
+    off: "В карточку дописывается только номер со словами «мой номер …», как до 27.11.2026.",
   },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
@@ -278,7 +284,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

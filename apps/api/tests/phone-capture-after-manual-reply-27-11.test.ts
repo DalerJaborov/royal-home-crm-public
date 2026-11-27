@@ -192,7 +192,7 @@ describe("Номер в переписке без хода бота", () => {
   it("повторный тик (и повторная доставка) не заводит вторую карточку", async () => {
     const d = digits9();
     const id = await seed({ channel: "WHATSAPP", subscriberId: `992${d}`, messages: [
-      { role: "user", content: "Квартира в Шохмансуре сколько стоит?", heldRouting: true, at: ago(90) },
+      { role: "user", content: "Хочу купить квартиру в Шохмансуре, сколько стоит?", heldRouting: true, at: ago(90) },
     ] });
 
     await runPhoneLeadWatchdogTick();
@@ -211,10 +211,11 @@ describe("WhatsApp: что карточку НЕ заводит", () => {
     const ids = [
       await seed({ channel: "WHATSAPP", subscriberId: `992${answered}`, messages: [
         { role: "user", content: "Хона мехоҳам", at: ago(90) }, { role: "assistant", content: "Чанд ҳуҷра?", by: { kind: "bot" }, at: ago(89) }] }),
-      await seed({ channel: "WHATSAPP", subscriberId: `992${thanks}`, messages: [{ role: "user", content: "Рахмат", at: ago(90) }] }),
-      await seed({ channel: "WHATSAPP", subscriberId: `992${job}`, messages: [{ role: "user", content: "Ассалом, кор лозим, ваканси доред?", at: ago(90) }] }),
-      await seed({ channel: "WHATSAPP", subscriberId: `992${fresh}`, messages: [{ role: "user", content: "Хона мехоҳам дар Сино", at: ago(5) }] }),
-      await seed({ channel: "WHATSAPP", subscriberId: `992${spam}`, spam: true, messages: [{ role: "user", content: "Хона мехоҳам дар Сино", at: ago(90) }] }),
+      // У остальных сбой доказан (реплика записана мимо бота) — и всё равно не заявка.
+      await seed({ channel: "WHATSAPP", subscriberId: `992${thanks}`, messages: [{ role: "user", content: "Рахмат", heldRouting: true, at: ago(90) }] }),
+      await seed({ channel: "WHATSAPP", subscriberId: `992${job}`, messages: [{ role: "user", content: "Ассалом, кор лозим, ваканси доред?", heldRouting: true, at: ago(90) }] }),
+      await seed({ channel: "WHATSAPP", subscriberId: `992${fresh}`, messages: [{ role: "user", content: "Хона мехоҳам дар Сино", heldRouting: true, at: ago(5) }] }),
+      await seed({ channel: "WHATSAPP", subscriberId: `992${spam}`, spam: true, messages: [{ role: "user", content: "Хона мехоҳам дар Сино", heldRouting: true, at: ago(90) }] }),
     ];
 
     await runPhoneLeadWatchdogTick();

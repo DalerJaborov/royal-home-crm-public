@@ -32,7 +32,17 @@ const BARE_PHONE_FILLER = new Set(["номер", "мой", "моя", "телеф
  * Любые другие слова (муж, брат, собственник, «позвоните ему») — уже не «просто номер»: решает
  * человек, как и раньше. Только для переписки; в расшифровке звонка такого правила нет.
  */
-export function bareOwnPhoneFact(text: string): { phone: string; correction: false } | null {
+/**
+ * Вопрос сотрудника или бота перед сообщением спрашивал номер ДРУГОГО человека (хозяина, мужа, родственника, агента):
+ * тогда «просто номер» в ответ — его номер, а не клиента, и решает человек (ревью #497, S4).
+ */
+const OTHER_PERSON_NUMBER_QUESTION =
+  /(?<![\p{L}])(?:хозя\p{L}*|собственник\p{L}*|владел\p{L}*|соҳиб\p{L}*|сохиб\p{L}*|моликият\p{L}*|муж\p{L}{0,3}|жен[аыуе]|брат\p{L}{0,3}|сестр\p{L}*|мам[аыу]|пап[аыу]|родствен\p{L}*|друг(?:а|у|ом)?|сосед\p{L}*|риелтор\p{L}*|шавҳар\p{L}*|шавхар\p{L}*|бародар\p{L}*|додар\p{L}*|хоҳар\p{L}*|хохар\p{L}*|модар\p{L}*|падар\p{L}*|хеш\p{L}*|ҳамсоя\p{L}*|хамсоя\p{L}*|его|её|ее|их|ӯ)(?![\p{L}])/iu;
+/** «Ваш номер», «рақами шумо», «худатон» — вопрос о номере самого клиента. */
+const OWN_NUMBER_QUESTION = /(?<![\p{L}])(?:ваш\p{L}*|вас|вам|свой|своего|шумо|худатон|худат)(?![\p{L}])/iu;
+
+export function bareOwnPhoneFact(text: string, precedingQuestion?: string | null): { phone: string; correction: false } | null {
+  if (precedingQuestion && OTHER_PERSON_NUMBER_QUESTION.test(precedingQuestion) && !OWN_NUMBER_QUESTION.test(precedingQuestion)) return null;
   const candidates = [...text.matchAll(/(?<![\p{L}\p{N}])\+?\d[\d ()-]{7,22}\d(?![\p{L}\p{N}])/gu)];
   if (candidates.length !== 1) return null;
   const raw = candidates[0][0];
