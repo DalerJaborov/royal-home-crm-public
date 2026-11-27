@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4370,
+  "forks": 4374,
   "mounts": 87,
   "cron": 147,
   "jobs": 37,
@@ -84347,6 +84347,14 @@
     },
     {
      "k": "do",
+     "t": "await learnWhatsappOwnNumbersFromWebhook(req.body);",
+     "a": [
+      "зовёт learnWhatsappOwnNumbersFromWebhook()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
       "зовёт persistVerifiedCustomerIngressBatch()"
@@ -84984,7 +84992,7 @@
                 },
                 {
                  "k": "if",
-                 "t": "await isOwnAccountSender({ senderId: msg.senderId, senderName })",
+                 "t": "await isOwnAccountSender({ senderId: msg.senderId, senderName, channel: msg.channel })",
                  "a": [],
                  "c": [
                   {
@@ -99687,6 +99695,157 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сторожа ников Instagram\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { fetched, held, alerted } = await runWhatsappOwnNumberGuard();",
+       "a": [
+        "зовёт runWhatsappOwnNumberGuard()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const fetched = await fetchMissingWhatsappOwnNumbers();",
+         "a": [
+          "зовёт fetchMissingWhatsappOwnNumbers()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!held",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { fetched, held, alerted: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const [settings, accounts, registry] = await Promise.all([ prisma.settings.findUnique({ where: { id: \"singlet…",
+         "a": [
+          "читает в базе: settings",
+          "читает в базе: messengerAccount"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!missing.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { fetched, held, alerted: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await logSystemError(\"ai\", `Бот не отвечает в WhatsApp: ${held} входящих задержаны, потому что CRM не знает н…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const already = await prisma.pendingDirectorAlert.findFirst({ where: { tag: WA_OWN_NUMBER_ALERT_TAG, createdA…",
+         "a": [
+          "читает в базе: pendingDirectorAlert"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "already",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { fetched, held, alerted: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await enqueueDirectorAlert({ title: \"Бот молчит в WhatsApp — клиенты без ответа\", body: `CRM не знает номер $…",
+         "a": [
+          "зовёт enqueueDirectorAlert()"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runWhatsappOwnNumberGuard() — apps/api/src/lib/whatsappOwnNumberLookup.ts"
+      },
+      {
+       "k": "if",
+       "t": "fetched || held",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Номера WhatsApp: узнано ${fetched}, задержано входящих ${held}${alerted ? \", тревога дире…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа номеров WhatsApp\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
