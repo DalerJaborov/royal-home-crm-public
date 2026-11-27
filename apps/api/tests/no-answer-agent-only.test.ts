@@ -2,11 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 
 /**
- * Недозвон — только агенту (владелец 26.11.2026): «почему такие уведомления
- * приходят мне, администратору, я как это исправлю?». По умолчанию (рубильник
- * NO_ANSWER_LEADERSHIP_ALERTS не задан) исчерпанные попытки дают задачу и строку
- * в колокольчике ТОМУ АГЕНТУ, что звонил, а руководству — ничего. И причина
- * недозвона пишется словами по DIALSTATUS станции.
+ * Недозвон — никому (владелец 26–27.11.2026): «почему такие уведомления приходят
+ * мне, администратору», затем «уведомление можешь не отправлять никому больше».
+ * По умолчанию (рубильник NO_ANSWER_LEADERSHIP_ALERTS не задан) исчерпанные
+ * попытки не дают ни пуша, ни колокольчика, ни задачи — ни руководству, ни
+ * агенту. Причина недозвона пишется словами по DIALSTATUS станции в историю.
  */
 delete process.env.NO_ANSWER_LEADERSHIP_ALERTS;
 
@@ -39,27 +39,17 @@ afterAll(async () => {
   await prisma.agent.deleteMany({ where: { id: { in: [agentId, directorId] } } });
 });
 
-describe("исчерпанные попытки дозвона — только агенту", () => {
-  it("руководству ничего, агенту задача и строка в колокольчике с причиной", async () => {
-    await notifyNoAnswerEscalation({ id: clientId, fullName: `Клиент недозвона ${runId}`, shortId, kind: "BUYER" }, agentId, 3, "занято");
+describe("исчерпанные попытки дозвона — никому ничего", () => {
+  it("ни пуша руководству, ни задачи, ни колокольчика агенту", async () => {
+    await notifyNoAnswerEscalation({ id: clientId, fullName: `Клиент недозвона ${runId}`, shortId, kind: "BUYER" }, agentId, 3);
 
     expect(await prisma.pendingDirectorAlert.count({ where: { tag: `no-answer-${clientId}` } })).toBe(0);
-    expect(await prisma.interaction.count({ where: { clientId, autoTaskKind: "no_answer_supervisor_check" } })).toBe(0);
-
-    const task = await prisma.interaction.findFirst({ where: { clientId, autoTaskKind: "no_answer_agent_followup" } });
-    expect(task?.subjectAgentId).toBe(agentId);
-    expect(task?.nextAction).toContain("3 раза подряд");
-    expect(task?.nextAction).toContain("занято");
-    expect(task?.nextAction).toContain("WhatsApp");
-
-    const note = await prisma.notification.findFirst({ where: { agentId, kind: "no_answer_followup" } });
-    expect(note?.body).toContain("3 звонка подряд");
-    expect(await prisma.notification.count({ where: { agentId: directorId } })).toBe(0);
-  });
-
-  it("повторная эскалация не плодит вторую задачу", async () => {
-    await notifyNoAnswerEscalation({ id: clientId, fullName: `Клиент недозвона ${runId}`, shortId, kind: "BUYER" }, agentId, 3);
-    expect(await prisma.interaction.count({ where: { clientId, autoTaskKind: "no_answer_agent_followup", completedAt: null } })).toBe(1);
+    expect(
+      await prisma.interaction.count({
+        where: { clientId, autoTaskKind: { in: ["no_answer_supervisor_check", "no_answer_agent_followup"] } },
+      })
+    ).toBe(0);
+    expect(await prisma.notification.count({ where: { agentId: { in: [agentId, directorId] } } })).toBe(0);
   });
 });
 
