@@ -5954,7 +5954,7 @@
           · зовёт recordScoreEvent()
       - const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
         · читает в базе: agent
-      - void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…
+      - void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…
         · читает в базе: agent
         · push-уведомление
     - const closedMonthKey = existing.closedAt ? (()
@@ -21587,14 +21587,8 @@
     - для каждого: const [a, b] of pairs
       - const payload = { kind: "oversight" as const, title: "🔎 Похожие карточки — проверьте", body: `Найдено ${dush…
         · зовёт dushanbeDateTimeString()
-      - пробует
-        - await createNotifications(directorIds, payload);
-          · зовёт createNotifications()
-        - void sendPushToAgents(directorIds, payload).catch((err)
-          · push-уведомление
-      - если сорвалось
-        - console.error("[alarm] duplicate-fuzzy notification:", err);
-          · пишет строку в журнал сервера
+      - void sendPushToAgents(directorIds, payload).catch((err)
+        · push-уведомление
   - если found > 0
     - console.log(`[cron] Вероятных дублей по имени/номеру: ${found}`);
       · пишет строку в журнал сервера

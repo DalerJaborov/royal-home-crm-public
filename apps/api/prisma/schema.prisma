@@ -7558,6 +7558,12 @@ model Settings {
   notifyOwnerOfOtherAgentClientEnabled  Boolean @default(false)
   /// Пуши хозяину объекта по переписке без карточки клиента. ВЫКЛ (владелец 27.11: «просто интересуется… отключи»).
   notifyOwnerBeforeLeadEnabled          Boolean @default(false)
+  /// Лишние пуши агентам (владелец 27.11: «Все пять групп»), ВЫКЛ = тихо: повторы «снова на связи»,
+  /// совпадения с площадками, «сделка закрыта» всем, «клиент говорил с оператором» — только колокольчик.
+  notifyRepeatContactPushEnabled        Boolean @default(false)
+  notifyMarketMatchPushEnabled          Boolean @default(false)
+  notifyDealClosedTeamPushEnabled       Boolean @default(false)
+  notifyOperatorTalkedPushEnabled       Boolean @default(false)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

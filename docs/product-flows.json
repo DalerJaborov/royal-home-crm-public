@@ -26300,7 +26300,7 @@
           },
           {
            "k": "do",
-           "t": "void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…",
+           "t": "void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…",
            "a": [
             "читает в базе: agent",
             "push-уведомление"
@@ -96795,42 +96795,12 @@
            "c": []
           },
           {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await createNotifications(directorIds, payload);",
-             "a": [
-              "зовёт createNotifications()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void sendPushToAgents(directorIds, payload).catch((err)",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "console.error(\"[alarm] duplicate-fuzzy notification:\", err);",
-             "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "void sendPushToAgents(directorIds, payload).catch((err)",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
           }
          ]
         }

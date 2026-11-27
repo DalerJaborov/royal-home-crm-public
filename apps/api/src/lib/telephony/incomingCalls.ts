@@ -40,6 +40,8 @@ import { clientSourceForCall, inboundCallNotePrefix, incomingCallSourceFromChann
 import { whatsappLineBrand } from "../../messengers/accounts.js";
 import { findStaffPhone } from "../staffPhoneGuard.js";
 import { CONSULTANT_SESSION_WAIT_MS } from "./liveVoiceTimings.js";
+import { automationSwitchOn } from "../automationSwitches.js";
+import { notifyFeedOnly } from "../notifications.js";
 // Реэкспорт — эта константа жила здесь до 03.09.2026 (аудит циклов), переехала
 // в incomingCallConstants.ts, чтобы её мог взять autoLeadFromCall.ts, не
 // замыкая цикл через весь этот файл. Реэкспорт сохраняет прежнюю точку входа.
@@ -1786,6 +1788,11 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
        * доходит до оператора, и, если тот ответил, «Ваш клиент звонил в офис»
        * уходило бы человеку, который клиентов больше не ведёт.
        */
+      // Владелец 27.11.2026 («Все пять групп»): «Ваш клиент звонил в офис» по умолчанию только в колокольчик, без
+      // звонка телефона. Руководству при уволенном/замороженном агенте пуш остаётся: там нужно действие — назначить.
+      const operatorTalkPushOn = await automationSwitchOn("notifyOperatorTalkedPushEnabled").catch(() => false);
+      const notifyOperatorTalk = (ids: string[], payload: { title: string; body: string; url: string; tag: string }) =>
+        operatorTalkPushOn ? sendPushToAgents(ids, payload) : notifyFeedOnly(ids, { kind: "other", ...payload });
       if (assignedAgentUnavailable) {
         const supervisors = await findAgentsWithPermission("clients.assign");
         if (supervisors.length > 0) {
@@ -1802,7 +1809,7 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
           );
         }
       } else {
-        await sendPushToAgent(client.assignedAgentId, {
+        await notifyOperatorTalk([client.assignedAgentId], {
           title: "📞 Ваш клиент звонил в офис",
           body: `${formatClientName(client)} поговорил с оператором (${formatDuration(talkSeconds)}) — загляните в карточку`,
           url: `/clients/${client.shortId}`,

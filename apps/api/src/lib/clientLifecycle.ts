@@ -17,6 +17,7 @@ import { publishClientUpdated } from "./livePublish.js";
 import { sendPushToAgent } from "../push.js";
 import { returnAcceptDueFromNow } from "./workingDue.js";
 import { resumeWorkData } from "./clientContact.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 export { resumeWorkData } from "./clientContact.js";
 
 export interface ReactivateClientInput {
@@ -211,7 +212,8 @@ export async function reactivateClientFromLost(
 
     // Агент узнаёт о возврате сразу, а не через три четверти таймера (B1, 02.10.2026):
     // без пуша карточка тихо оживала у него, и первым сигналом было «скоро срок».
-    if (input.returnTimer && updated.assignedAgentId) {
+    // Повтор поверх «Ваш клиент написал» (владелец 27.11.2026) — по умолчанию не шлём; запись в истории есть.
+    if (input.returnTimer && updated.assignedAgentId && (await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false))) {
       void sendPushToAgent(updated.assignedAgentId, {
         title: "🔔 Ваш клиент снова обратился",
         body: `${updated.fullName} — был в «Потерянных», написал сам и снова у вас в работе`,

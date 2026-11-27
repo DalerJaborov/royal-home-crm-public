@@ -6,6 +6,7 @@ import { findAgentsWithPermission } from "./recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { logTimeline } from "./timeline.js";
 import { canAutomationChangeKind } from "./kindChangePolicy.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /**
  * КЛИЕНТ УЖЕ ПРИНЯТ — НО ПИШЕТ ПРО СОВСЕМ ДРУГОЕ (владелец 19.08.2026).
@@ -174,6 +175,9 @@ export async function detectNewInquiryFromKnownClient(
 
   const pushBody = `${client.fullName} — ${result.summary}`;
   if (client.assignedAgentId) {
+    // Повтор поверх «Ваш клиент написал» (владелец 27.11.2026) — по умолчанию не шлём; запись в истории есть.
+    // Клиенту без агента (ветка ниже) руководству по-прежнему шлём: «Ваш клиент написал» там не приходит никому.
+    if (!(await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false))) return;
     sendPushToAgent(client.assignedAgentId, {
       title: "🔔 Клиент пишет о новом деле",
       body: pushBody,

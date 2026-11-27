@@ -362,7 +362,30 @@ describe("Журнал входящих", () => {
       return sendPushToAgent.mock.calls.filter((c) => String((c[1] as { title?: string })?.title ?? "").includes("звонил в офис"));
     }
 
-    it("трубку снял оператор — пуш уходит ответственному агенту", async () => {
+    const setOperatorTalkPush = (on: boolean) =>
+      prisma.settings.upsert({
+        where: { id: "singleton" },
+        create: { id: "singleton", notifyOperatorTalkedPushEnabled: on },
+        update: { notifyOperatorTalkedPushEnabled: on },
+      });
+
+    it("по умолчанию (владелец 27.11.2026) — пуша нет, одна запись в колокольчике ответственного", async () => {
+      await setOperatorTalkPush(false);
+      const channelId = `in-${runId}-answered-feed`;
+      await ring(channelId, clientPhone.slice(-9));
+      await bridge(channelId);
+      await hangup(channelId);
+
+      expect(officeCallPushes()).toHaveLength(0);
+      const rows = await prisma.notification.findMany({ where: { agentId, tag: `incoming-answered-${channelId}` } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].count).toBe(1);
+      expect(rows[0].title).toContain("звонил в офис");
+    });
+
+    it("рубильник ВКЛ — трубку снял оператор, пуш уходит ответственному агенту", async () => {
+      await setOperatorTalkPush(true);
+      try {
       const channelId = `in-${runId}-answered-push`;
       await ring(channelId, clientPhone.slice(-9));
       await bridge(channelId);
@@ -370,7 +393,8 @@ describe("Журнал входящих", () => {
 
       const pushes = officeCallPushes();
       expect(pushes).toHaveLength(1);
-      expect(pushes[0][0]).toBe(agentId);
+      // С 27.11.2026 уходит через sendPushToAgents (в этом файле тот же шпион) — адресат списком.
+      expect([pushes[0][0]].flat()).toEqual([agentId]);
       /**
        * РОЛЬ ПЕРЕД ИМЕНЕМ (30.08.2026, просьба владельца: «перед именем должно быть
        * написано Покупатель или Продавец, а далее его имя»). Карточка в этой
@@ -381,6 +405,9 @@ describe("Журнал входящих", () => {
       const body = String((pushes[0][1] as { body?: string })?.body);
       expect(body).toContain(`Покупатель входящих ${runId}`);
       expect(body).not.toContain("Покупатель Клиент");
+      } finally {
+        await setOperatorTalkPush(false);
+      }
     });
 
     it("трубку снял сам ответственный — уведомлять его о собственном разговоре незачем", async () => {

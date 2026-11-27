@@ -57,6 +57,10 @@ export const AUTOMATION_SWITCH_KEYS = [
   "objectInterestPullsQueueLeadEnabled",
   "notifyOwnerOfOtherAgentClientEnabled",
   "notifyOwnerBeforeLeadEnabled",
+  "notifyRepeatContactPushEnabled",
+  "notifyMarketMatchPushEnabled",
+  "notifyDealClosedTeamPushEnabled",
+  "notifyOperatorTalkedPushEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -80,6 +84,11 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "notifyOwnerOfOtherAgentClientEnabled",
   // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали… отключи».
   "notifyOwnerBeforeLeadEnabled",
+  // Владелец 27.11.2026: «Все пять групп» — лишние уведомления агентам по умолчанию тихие. Колонки `DEFAULT false`.
+  "notifyRepeatContactPushEnabled",
+  "notifyMarketMatchPushEnabled",
+  "notifyDealClosedTeamPushEnabled",
+  "notifyOperatorTalkedPushEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -276,6 +285,26 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Человек пишет про ваш объект, но номера не оставил и карточки нет — вам приходит пуш «Интерес к вашему объекту» и «Новое сообщение по вашему объекту» на каждое его сообщение. Во всех каналах.",
     off: "Как решил владелец 27.11.2026: пока у клиента нет карточки или заявки, хозяину объекта ничего не приходит. Как только заявка появилась — обычный пуш о новой заявке и о сообщениях клиента.",
   },
+  notifyRepeatContactPushEnabled: {
+    title: "Пуш «клиент снова на связи» поверх «Ваш клиент написал»",
+    on: "Когда ваш клиент снова пишет боту с новым делом или возвращается из «Потерянных», вам приходит ещё один пуш: «снова на связи», «пишет о новом деле», «снова обратился».",
+    off: "Как решил владелец 27.11.2026: такого отдельного пуша нет, хватает «Ваш клиент написал». Запись в истории клиента остаётся.",
+  },
+  notifyMarketMatchPushEnabled: {
+    title: "Совпадения с сайтами объявлений — пушем",
+    on: "«Ваш объект есть на площадке», «Цена на площадке изменилась», «Объявление сняли» приходят пушем на телефон.",
+    off: "Как решил владелец 27.11.2026: только в колокольчике CRM, телефон не звенит.",
+  },
+  notifyDealClosedTeamPushEnabled: {
+    title: "«Сделка закрыта» — пушем всем агентам",
+    on: "Когда кто-то закрывает сделку, всем агентам приходит пуш-поздравление.",
+    off: "Как решил владелец 27.11.2026: поздравление только в колокольчике CRM, телефон не звенит.",
+  },
+  notifyOperatorTalkedPushEnabled: {
+    title: "«Клиент поговорил с оператором» — пушем",
+    on: "Ваш клиент позвонил в офис и поговорил с оператором — вам приходит пуш. Если вы уволены или заморожены — руководителю.",
+    off: "Как решил владелец 27.11.2026: только в колокольчике CRM, телефон не звенит.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -325,7 +354,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
+    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },

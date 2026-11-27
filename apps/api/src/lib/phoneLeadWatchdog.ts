@@ -13,7 +13,7 @@ import { customerRoleSignals } from "../ai/customerAgentRole.js";
 import { phoneTail } from "./clientPhones.js";
 import { maskClientPhone } from "./clientPhone.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
-import { createNotifications, shouldAlert } from "./notifications.js";
+import { shouldAlert } from "./notifications.js";
 import { sendPushToAgents } from "../push.js";
 import { resolveWhatsAppLeadIdentity, WHATSAPP_CHANNEL } from "./whatsappPhone.js";
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./customerLeadOnlyCore.js";
@@ -525,14 +525,11 @@ async function attachKnownClientConversations(rows: PhoneWithoutLead[]): Promise
       url: `/clients/${match.shortId}`,
       tag: `duplicate-review-known-client-${row.conversationId}`,
     };
-    try {
-      await createNotifications([match.assignedAgentId], payload);
-      void sendPushToAgents([match.assignedAgentId], payload).catch((err) =>
-        console.error("[push] phone-watchdog автопривязка:", err)
-      );
-    } catch (err) {
-      console.error("[alarm] phone-watchdog автопривязка уведомление:", err);
-    }
+    // Одна запись в колокольчике (владелец 27.11.2026): sendPushToAgents сам пишет ленту, отдельная запись перед
+    // ним давала ту же строку дважды — счётчик «повторов» 2 при одном событии.
+    void sendPushToAgents([match.assignedAgentId], payload).catch((err) =>
+      console.error("[push] phone-watchdog автопривязка:", err)
+    );
   }
   return { attached };
 }
