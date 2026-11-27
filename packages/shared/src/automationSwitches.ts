@@ -51,6 +51,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "callObjectToOwnerEnabled",
   "chatUnansweredCardEnabled",
   "chatBarePhoneToCardEnabled",
+  "botSilenceWatchEnabled",
   "chatObjectToOwnerEnabled",
   "callAdObjectToOwnerEnabled",
   "objectInterestPullsQueueLeadEnabled",
@@ -154,6 +155,13 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     title: "Бот сломался на ходе: сразу позвать агента",
     on: "Ход бота упал, клиенту ничего не ушло: ответственный (или руководство) получает сигнал сразу, а не через 30 минут. Клиенту текст не отправляется.",
     off: "Сигнал придёт только через 30 минут от сторожа «клиент молчит» (если он включён).",
+  },
+  // Владелец 27.11.2026 (бот молчал 26.11 с 16:00 до 20:22, узнали по телефону): «как что-то сломается и бот не отвечает,
+  // надо чтобы сторож узнал сразу и сказал мне, админу и директору. Только по-человечески, а не по-технически».
+  botSilenceWatchEnabled: {
+    title: "Бот замолчал: сразу сказать директору и администратору",
+    on: "Если на каком-то номере или аккаунте (WhatsApp, Instagram, Facebook, чат сайта) трое и больше клиентов ждут ответа дольше 10 минут, а бот за это время не ответил там никому, директор и администратор сразу получают уведомление (ночью оно в колокольчике сразу, а телефон зазвонит в 08:00). Пока это длится, напоминание не чаще раза в час; когда бот снова отвечает, приходит сообщение, сколько людей остались без ответа. Выключенный в Настройках бот или канал тревоги не вызывает.",
+    off: "Такого уведомления нет. Сигналы по каждому клиенту («клиент ждёт ответа») приходят как обычно, если они включены.",
   },
   // 24.11.2026 (разбор прода): повтор «зависших» крутил одни и те же переписки по 31–35 раз без ответа и тратил ИИ.
   botRetryCapEnabled: {
@@ -321,6 +329,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

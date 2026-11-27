@@ -5013,6 +5013,8 @@ model CustomerPropertyIngressTicket {
   @@index([endpointScopeId])
   // Applied SQL index name after PostgreSQL's 63-byte identifier truncation.
   @@index([processingState, nextAttemptAt, leaseUntil], map: "CustomerPropertyIngressTicket_processingState_nextAttemptAt_le_")
+  /// Сторож «бот замолчал» (lib/botSilenceWatch.ts): сообщения за последние 6 часов.
+  @@index([receivedAt])
 }
 
 /// One physical publication. Provider acceptance and local projection are distinct.
@@ -5068,6 +5070,9 @@ model CustomerOutboxPart {
   @@index([conversationId])
   @@index([publicMetaCommentId, publicSourceRevision], map: "customer_outbox_public_meta_source_idx")
   @@index([publicTelegramCommentId, publicSourceRevision], map: "customer_outbox_public_tg_source_idx")
+  /// «Есть ли у сообщения ответ» (lib/botSilenceWatch.ts, lib/customerTurnSilence.ts) и «когда бот последний раз ответил».
+  @@index([ticketEventKey])
+  @@index([acceptedAt])
 }
 
 /// Explicit owner-approved bot corrections, separate from genuine customer IN.
@@ -7539,6 +7544,10 @@ model Settings {
   chatUnansweredCardEnabled             Boolean @default(true)
   /// Номер одним сообщением в переписке с карточкой — в запасные номера (27.11.2026, ревью #497).
   chatBarePhoneToCardEnabled            Boolean @default(true)
+  /// «Бот замолчал: сразу сказать руководству» (владелец 27.11.2026, инцидент 26.11: бот молчал с 16:00 до 20:22).
+  /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
+  /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
+  botSilenceWatchEnabled                Boolean @default(true)
   /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
   /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
   /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
@@ -12326,4 +12335,26 @@ model CustomerPendingMedia {
 
   @@unique([channel, subscriberId, mid])
   @@index([createdAt])
+}
+
+/// ЭПИЗОД «БОТ ЗАМОЛЧАЛ» (27.11.2026, lib/botSilenceWatch.ts). Открытый эпизод (recoveredAt IS NULL) один на всю
+/// систему (частичный уникальный индекс в миграции 20261127130000_bot_silence_watch). Нужен, чтобы сказать
+/// руководству один раз, напоминать не чаще раза в час и сказать «бот снова отвечает, без ответа остались N человек».
+/// Только служебные поля, без текстов клиентов.
+model BotSilenceIncident {
+  id          String    @id @default(uuid())
+  /// Группы «канал:аккаунт», где бот замолчал («WHATSAPP:main», «INSTAGRAM:<id MessengerAccount>»), по мере обнаружения.
+  groups      String[]
+  /// Когда написал первый клиент, оставшийся без ответа: «бот молчит с».
+  startedAt   DateTime
+  detectedAt  DateTime  @default(now())
+  /// Последнее уведомление руководству (первое или напоминание).
+  lastAlertAt DateTime
+  /// Последний тик, когда в группах эпизода кто-то ждал ответа; никто не ждёт 6 часов — эпизод закрывается молча.
+  lastActiveAt DateTime
+  /// Ключи переписок, оставшихся без ответа за эпизод (id переписки или области ядра), для «без ответа остались N».
+  missedKeys  Json      @default("[]")
+  recoveredAt DateTime?
+
+  @@index([recoveredAt])
 }

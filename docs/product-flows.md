@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4379**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4383**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20235,6 +20235,65 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### bot-silence-watch — 2-59/5 * * * *
+
+- пробует
+  - const { action, alerted } = await runBotSilenceWatchTick();
+    · зовёт runBotSilenceWatchTick()
+    - если !(await automationSwitchOn("botSilenceWatchEnabled"))
+      - return { action: "off", alerted: false };
+        · дословно из кода
+    - const snapshot = await loadSilenceSnapshot(now);
+      · зовёт loadSilenceSnapshot()
+    - return prisma.$transaction(async (tx)
+      · ошибка Error — «очередь тревог руководству недоступна»
+      · всё внутри — одной транзакцией
+      · обращается к базе своим SQL
+      · читает в базе: botSilenceIncident
+      · создаёт в базе: botSilenceIncident
+      · меняет в базе: botSilenceIncident
+      - const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext…
+        · обращается к базе своим SQL
+      - если !locked
+        - return { action: "busy" as const, alerted: false };
+          · дословно из кода
+      - const row = await tx.botSilenceIncident.findFirst({ where: { recoveredAt: null }, orderBy: { detectedAt: "des…
+        · читает в базе: botSilenceIncident
+      - const decision = decideBotSilence(snapshot, open, now);
+        · зовёт decideBotSilence()
+      - const send = async (tag: string, text: { title: string; body: string }, urgent: boolean)
+        · ошибка Error — «очередь тревог руководству недоступна»
+        - const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], .…
+          · зовёт enqueueDirectorAlert()
+        - если !queued
+          - throw new Error("очередь тревог руководству недоступна");
+            · ошибка Error — «очередь тревог руководству недоступна»
+      - если decision.kind === "open"
+        - const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.sta…
+          · создаёт в базе: botSilenceIncident
+      - если decision.kind === "update" && open
+        - если decision.remind
+          - await send(`bot-silence-${open.id}`, silenceAlertText({ groups: decision.groups, labels, since: open.startedA…
+            · дословно из кода
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: dec…
+          · меняет в базе: botSilenceIncident
+      - если decision.kind === "recover" && open
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
+          · меняет в базе: botSilenceIncident
+      - если decision.kind === "close" && open
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
+          · меняет в базе: botSilenceIncident
+  - если alerted
+    - console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «бот замолчал»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### buyer-no-call-alarm — 0 * * * *
 
 - пробует
@@ -24200,10 +24259,6 @@
 - пробует
   - const { alerted, accepted, attached } = await runPhoneLeadWatchdogTick();
     · зовёт runPhoneLeadWatchdogTick()
-    - await sweepCardConversationPhones(now).then( (added)
-      - если added > 0
-        - console.log(`[cron] Номер из переписки дописан в карточку: ${added}`);
-          · пишет строку в журнал сервера
     - const found = await findPhonesWithoutLead(now);
       · зовёт findPhonesWithoutLead()
     - если found.length === 0
@@ -24213,27 +24268,13 @@
       - return { alerted: 0, accepted: 0, attached };
         · дословно из кода
     - для каждого: const row of candidates
-      - если !eligible
-        - continue;
-          · переходит к следующему
-      - если row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK
-        - continue;
-          · переходит к следующему
-      - const tail = phoneTail(row.phone!);
-        · зовёт phoneTail()
-      - если takenTails.has(tail)
-        - continue;
-          · переходит к следующему
-      - если outcome === "reviewer"
+      - если !canTakeItself
+        - если row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
+          - continue;
+            · переходит к следующему
         - continue;
           · переходит к следующему
       - если outcome === "accepted"
-        - если row.unanswered
-          - acceptedUnanswered++;
-            · дословно из кода
-        - иначе
-          - accepted++;
-            · дословно из кода
         - void logSystemError( "ai", (row.promised ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки…
           · запись в журнал ошибок
         - continue;
@@ -24241,11 +24282,8 @@
       - если outcome === "accepted_other"
         - continue;
           · переходит к следующему
-      - если row.unanswered && outcome === "declined"
-        - continue;
-          · переходит к следующему
     - если leftForHuman.length === 0
-      - return { alerted: 0, accepted: accepted + acceptedUnanswered, attached };
+      - return { alerted: 0, accepted, attached };
         · дословно из кода
     - для каждого: const row of leftForHuman
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
@@ -24254,6 +24292,8 @@
             · дословно из кода
         - continue;
           · переходит к следующему
+      - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
+        · зовёт maskClientPhone()
       - const payload = { kind: "oversight" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…
         · зовёт dushanbeDateTimeString()
       - пробует
