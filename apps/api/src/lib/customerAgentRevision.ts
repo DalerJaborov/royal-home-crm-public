@@ -7,6 +7,7 @@ import { isCustomerPrincipal, type CustomerPrincipal } from "./customerPrincipal
 import { assertCustomerInboxPlannableTx } from "./customerIngressInbox.js";
 import { loadAcceptedCustomerState, assertCustomerFence } from "./customerState.js";
 import { providerDayDeadline } from "../ai/providerContract.js";
+import { customerTicketTurnClock } from "./customerTurnClock.js";
 
 /** Immutable revision storage: manifestJson excludes id; id is its canonical content hash.
  * Registration/activation routes and monetary approval are NOT provided here. */
@@ -51,13 +52,16 @@ export function customerAgentTurnDeadline(receivedAtMs: number, deadlineMs: numb
 interface TicketRow {
   eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null;
   conversationId: string | null; originalConversationId: string | null; tombstonedAt: Date | null;
-  receivedAt: Date | null; inputRecordedAt: Date | null; processingState: string | null;
+  receivedAt: Date | null; resumedAt: Date | null; inputRecordedAt: Date | null; processingState: string | null;
   intakeAgentRevisionId: string | null; agentRevisionId: string | null; providerOperationId: string | null; providerDeadlineAt: Date | null;
 }
 declare const pinBrand: unique symbol;
 export type CustomerAgentTurnPin = Readonly<{
   eventKey: string; order: string; agentRevisionId: string; providerOperationId: string;
   receivedAt: number; providerDeadlineAt: number; revision: Readonly<CustomerAgentRevision>;
+  /** Turn clock (customerTurnClock.ts): receivedAt, or the single resume of a held input. Age/deadline count from it;
+   *  receivedAt stays the identity of the original input. */
+  clockAt: number;
 }> & { readonly [pinBrand]: true };
 const issued = new WeakMap<object, { principal: CustomerPrincipal; stored: Omit<CustomerAgentTurnPin, typeof pinBrand> }>();
 export type CustomerAgentPinResult =
@@ -86,7 +90,7 @@ async function lockOriginalTicket(tx: TxClient, principal: CustomerPrincipal): P
   if (!current || !sameController(principal.authority.fence, current.fence) ||
       (await assertCustomerFence(tx, current.fence, "public_read")).status !== "current") return null;
   const [row] = await tx.$queryRaw<TicketRow[]>`SELECT "eventKey","order","scopeKey","endpointScopeId","conversationId","originalConversationId",
-    "tombstonedAt","receivedAt","inputRecordedAt","processingState","intakeAgentRevisionId","agentRevisionId","providerOperationId","providerDeadlineAt"
+    "tombstonedAt","receivedAt","resumedAt","inputRecordedAt","processingState","intakeAgentRevisionId","agentRevisionId","providerOperationId","providerDeadlineAt"
     FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${principal.admission.eventKey} FOR UPDATE`;
   if (!row || row.tombstonedAt || !row.inputRecordedAt || !row.receivedAt ||
       row.eventKey !== principal.admission.eventKey || row.order.toString() !== principal.admission.order ||
@@ -104,7 +108,7 @@ async function readRevision(tx: TxClient, id: string): Promise<Readonly<Customer
 function issuePin(principal: CustomerPrincipal, row: TicketRow, revision: Readonly<CustomerAgentRevision>): CustomerAgentTurnPin {
   const stored = freeze({ eventKey: row.eventKey, order: row.order.toString(), agentRevisionId: revision.id,
     providerOperationId: row.providerOperationId!, receivedAt: row.receivedAt!.getTime(),
-    providerDeadlineAt: row.providerDeadlineAt!.getTime(), revision });
+    providerDeadlineAt: row.providerDeadlineAt!.getTime(), revision, clockAt: customerTicketTurnClock(row)! });
   const pin = stored as CustomerAgentTurnPin;
   issued.set(pin, { principal, stored });
   return pin;
@@ -116,9 +120,10 @@ async function existingPin(tx: TxClient, principal: CustomerPrincipal, row: Tick
   // Never read activeAgentRevisionId here. New activation cannot replace A pin.
   const revision = await readRevision(tx, row.agentRevisionId);
   if (!revision || !row.receivedAt) return { status: "held", reason: "revision_unavailable" };
-  const receivedAt = row.receivedAt.getTime(), deadlineAt = customerAgentTurnDeadline(receivedAt, revision.limits.deadlineMs);
+  const receivedAt = row.receivedAt.getTime(), clockAt = customerTicketTurnClock(row)!;
+  const deadlineAt = customerAgentTurnDeadline(clockAt, revision.limits.deadlineMs);
   if (row.providerDeadlineAt.getTime() !== deadlineAt) return { status: "held", reason: "pins_inconsistent" };
-  if (receivedAt > Date.now() || Date.now() >= deadlineAt) return { status: "held", reason: "expired" };
+  if (receivedAt > Date.now() || clockAt > Date.now() || Date.now() >= deadlineAt) return { status: "held", reason: "expired" };
   // The operation row legitimately does not exist until first reservation.
   // Plain SELECT introduces no operation-row lock after canonical locks.
   const [operation] = await tx.$queryRaw<Array<{ deadlineAt: Date; policyHash: string; status: string }>>`
@@ -142,8 +147,10 @@ export async function pinCustomerAgentTurnTx(tx: TxClient, principal: unknown): 
   // activation cannot retarget an older input or adopt a legacy NULL choice.
   const revision = row.intakeAgentRevisionId ? await readRevision(tx, row.intakeAgentRevisionId) : null;
   if (!revision) return { status: "held", reason: "revision_unavailable" };
-  const receivedAt = row.receivedAt!.getTime(), deadlineAt = customerAgentTurnDeadline(receivedAt, revision.limits.deadlineMs);
-  if (receivedAt > Date.now() || Date.now() >= deadlineAt) return { status: "held", reason: "expired" };
+  // Deadline from the turn clock: the receipt, or the single resume of this held input (customerTurnCatchUp.ts).
+  const receivedAt = row.receivedAt!.getTime(), clockAt = customerTicketTurnClock(row)!;
+  const deadlineAt = customerAgentTurnDeadline(clockAt, revision.limits.deadlineMs);
+  if (receivedAt > Date.now() || clockAt > Date.now() || Date.now() >= deadlineAt) return { status: "held", reason: "expired" };
   const operationId = randomUUID();
   const changed = await tx.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "agentRevisionId"=${revision.id},
     "providerOperationId"=${operationId},"providerDeadlineAt"=${new Date(deadlineAt)}

@@ -9,19 +9,22 @@ export const customerHandoverAckFenceSchema = z.object({
   eventKey: z.string().regex(/^[a-f0-9]{64}$/), order: customerRevisionSchema.refine(v => v !== "0"),
   originCipherHash: z.string().regex(/^[a-f0-9]{64}$/),
   originalReceivedAt: z.number().int().nonnegative(), deadlineAt: z.number().int().positive(),
+  /** Turn clock of a held input resumed once after a pause (27.11.2026, apps/api customerTurnClock.ts). Absent = originalReceivedAt. */
+  turnClockAt: z.number().int().nonnegative().optional(),
   agentRevisionId: z.string().regex(/^[a-f0-9]{64}$/), providerOperationId: z.string().uuid(),
   receipt: customerMutationReceiptSchema.refine(r => r.version === 2 && r.kind === "handover" &&
     r.outcome === "handover_requested" && r.resourceType === "CallbackRequest"),
   language: z.enum(["ru", "tg"]),
 }).strict().superRefine((v, ctx) => {
-  const a = v.before, b = v.after;
+  const a = v.before, b = v.after, clock = v.turnClockAt ?? v.originalReceivedAt;
   if (!a.nativeId || a.nativeId !== b.nativeId || a.inquiryId !== b.inquiryId ||
       JSON.stringify(a.endpoint) !== JSON.stringify(b.endpoint) ||
       a.bindingRevision !== b.bindingRevision || a.scopeRevision !== b.scopeRevision ||
       a.policyRevision !== b.policyRevision || !a.ownerToken || !b.ownerToken || a.ownerToken === b.ownerToken ||
       BigInt(b.ownershipEpoch) !== BigInt(a.ownershipEpoch) + 1n ||
       v.receipt.inquiryId !== b.inquiryId || v.receipt.version !== 2 || v.receipt.resourceRevision !== "1" ||
-      v.deadlineAt <= v.originalReceivedAt || v.deadlineAt > v.originalReceivedAt + 15 * 60_000 ||
+      clock < v.originalReceivedAt || clock - v.originalReceivedAt > 24 * 60 * 60_000 ||
+      v.deadlineAt <= v.originalReceivedAt || v.deadlineAt > clock + 15 * 60_000 ||
       !["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(b.endpoint.channel)) {
     ctx.addIssue({ code: "custom", message: "Not an exact local BOT to HOLD handover" });
   }

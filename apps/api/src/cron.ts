@@ -28,6 +28,7 @@ import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runChannelVolumeWatchTick } from "./lib/channelVolumeWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runBotSilenceWatchTick } from "./lib/botSilenceWatch.js";
+import { runCustomerTurnCatchUpTick } from "./lib/customerTurnCatchUp.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
@@ -2757,6 +2758,19 @@ export function startCronJobs() {
       if (alerted) console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «бот замолчал»", err);
+    }
+  });
+
+  /**
+   * «БОТ САМ ДОГОНЯЕТ» (владелец 27.11.2026, lib/customerTurnCatchUp.ts). Раз в две минуты, круглые сутки: сообщение
+   * клиента, удержанное ядром на паузе сотрудника или на сбое, после паузы получает ОДИН ответ обычным ходом ядра.
+   * Сам тик не бросает и пишет сбой в журнал; рубильник botCatchUpEnabled.
+   */
+  scheduleTracked("customer-turn-catch-up", "1-59/2 * * * *", async () => {
+    try {
+      await runCustomerTurnCatchUpTick();
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «бот догоняет»", err);
     }
   });
 

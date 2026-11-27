@@ -8,7 +8,6 @@ import { legacyMetaDmSourceAlreadyAttempted } from "./customerLegacyPhysical.js"
 import { loadCustomerTransportForConversation, type CustomerTransportReference } from "./customerConversationScope.js";
 import { sendManagedCustomerPropertyReply } from "./customerPropertyDelivery.js";
 import { withBotTurnTrace, traceOutcome, traceNoReply, traceBindAccount, traceDeferUntil } from "./botTurnTrace.js";
-import { dushanbeStartOfToday } from "./dushanbeTime.js";
 import { markLastReplyUndelivered, stampOutgoingMid } from "../messengers/conversationStore.js";
 import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
@@ -62,6 +61,9 @@ export interface StuckRow {
 /**
  * Предел выборки обязателен: без него один тяжёлый день мог бы вернуть тысячи строк.
  *
+ * СНЯТО 27.11.2026 (см. условие в stuckWhere): правило «бот молчит у агента» отменено 18.09, а пуш агенту на
+ * каждом повторе больше не уходит — повтор помечен replay в applyInboundSideEffects. История решения ниже.
+ *
  * ИСКЛЮЧЕНИЕ КЛИЕНТОВ С ЖИВЫМ АГЕНТОМ (14.09.2026, скриншоты владельца — тестовый
  * агент Далер). Диалог, у чьего клиента сейчас есть активный `assignedAgentId`
  * (не LOST/ARCHIVED/INACTIVE), бот молчит НАМЕРЕННО — conversationState.ts
@@ -88,7 +90,6 @@ export async function findStuckConversations(): Promise<StuckRow[]> {
         WITH ORDINALITY AS m(elem, ord)
       WHERE m.elem ->> 'role'='user' ORDER BY m.ord DESC LIMIT 1
     ) pending ON true
-    LEFT JOIN "Client" c ON c.id = bc."clientId"
     ${stuckWhere()}
     ORDER BY bc."lastMessageAt" ASC
     LIMIT ${STUCK_LIMIT}
@@ -112,7 +113,6 @@ export async function countStuckConversationsByChannel(): Promise<StuckChannelCo
   return prisma.$queryRaw<StuckChannelCount[]>`
     SELECT bc.channel, COUNT(*)::int AS count, MIN(bc."lastMessageAt") AS "oldestAt"
     FROM "BotConversation" bc
-    LEFT JOIN "Client" c ON c.id = bc."clientId"
     ${stuckWhere()}
     GROUP BY bc.channel
   `;
@@ -122,10 +122,10 @@ export async function countStuckConversationsByChannel(): Promise<StuckChannelCo
  *  число на «Источниках» и то, что чинит крон, не разъехались. */
 function stuckWhere(): Prisma.Sql {
   return Prisma.sql`
-    -- Минус 10 минут от начала суток: иначе в первые пять минут после полуночи по
-    -- Душанбе реплика не может быть одновременно «сегодняшней» и старше пяти минут
-    -- (см. условие про живой ход ниже), и зависший на стыке суток терялся бы.
-    WHERE bc."lastMessageAt" >= ${new Date(dushanbeStartOfToday().getTime() - 10 * 60 * 1000)}
+    -- ОКНО — СУТКИ META, А НЕ «СЕГОДНЯ ПО ДУШАНБЕ» (27.11.2026). Прежнее «с начала суток» теряло всё, что
+    -- зависло вечером: после полуночи переписка выпадала из повтора, хотя Meta ещё позволяла ответить.
+    -- 23 часа — час запаса на сам повтор и его очередь.
+    WHERE bc."lastMessageAt" >= now() - interval '23 hours'
       AND jsonb_typeof(bc.messages) = 'array'
       AND jsonb_array_length(bc.messages) > 0
       AND bc.messages->-1->'customerPropertyDelivery' IS NULL
@@ -180,10 +180,17 @@ function stuckWhere(): Prisma.Sql {
       )
       AND (bc."pausedUntil" IS NULL OR bc."pausedUntil" < now())
       AND bc."optedOutAt" IS NULL
-      AND NOT (
-        c."assignedAgentId" IS NOT NULL
-        AND c.status NOT IN ('LOST', 'ARCHIVED')
-        AND c."workStatus" != 'INACTIVE'
+      -- КЛИЕНТ С АГЕНТОМ — НЕ ПОВОД МОЛЧАТЬ (27.11.2026). Исключение 14.09.2026 держалось на правиле «бот молчит,
+      -- если клиент у агента», а его отменили 18.09.2026 (conversationState.ts): бот молчит только на паузе. Повтор
+      -- же продолжал пропускать таких клиентов — после ручного ответа и паузы их сообщения не догонял никто
+      -- (прод 27.11: ПК-001113/001114/001119). Пустые повторы ограничены потолком (jobs/aiReplyRetryCap.ts).
+      --
+      -- ПЕРЕПИСКИ ЯДРА — НЕ СЮДА (27.11.2026). Повтор проигрывает ход старым путём бота, а он для переписки ядра
+      -- сразу заканчивается «ведёт ядро» без ответа: задание раз в 30 минут, по кругу, клиент молчит (прод 27.11,
+      -- af7e2c0a — четыре пустых задания подряд). Их догоняет сторож lib/customerTurnCatchUp.ts ходом самого ядра.
+      AND NOT EXISTS (
+        SELECT 1 FROM "CustomerPropertyIngressTicket" ct
+        WHERE ct."conversationId" = bc.id AND ct."intakeAgentRevisionId" IS NOT NULL
       )
   `;
 }

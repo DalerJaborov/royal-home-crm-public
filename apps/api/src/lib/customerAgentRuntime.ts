@@ -18,6 +18,7 @@ import { perceiveCustomerAgentMedia, CUSTOMER_MEDIA_EXTRACTION_TOOL_NAME, type C
 export async function openPinnedCustomerAgentRuntime(input: {
   revision: Readonly<CustomerAgentRevision>;
   providerOperationId: string;
+  /** The turn clock (pin.clockAt, customerTurnClock.ts): the receipt, or the single resume of a held input. */
   originalReceivedAt: number;
   providerDeadlineAt: number;
   assertCurrent(wait: CustomerAgentAwaitContext): Promise<boolean>;

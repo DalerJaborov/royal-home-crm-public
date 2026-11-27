@@ -1750,6 +1750,11 @@
       "label": null
     },
     {
+      "id": "customer-turn-catch-up",
+      "expr": "1-59/2 * * * *",
+      "label": null
+    },
+    {
       "id": "customer-unrecorded-summary",
       "expr": "*/2 * * * *",
       "label": null
