@@ -1,8 +1,11 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 const sendStaffCard = vi.hoisted(() => vi.fn(async (
   _chatId: string, _propertyId: string, _lang: string, _replyTo?: number, _threadId?: number,

@@ -1,3 +1,4 @@
+import { isReadOnlyRole } from "@royal-home/shared";
 import {
   AssistantActionError,
   confirmAssistantAction,
@@ -97,6 +98,9 @@ export async function runAssistantToolPlugin(
 ): Promise<unknown> {
   try {
     if (actor.hiddenTools?.has(plugin.name)) return { error: "Этот инструмент недоступен в этом чате" };
+    if (plugin.level !== "A" && isReadOnlyRole(actor.role) && !plugin.executor.readOnlyRoleAllowed) {
+      return { error: "Режим просмотра: изменения недоступны", code: "READ_ONLY_ROLE" };
+    }
     if (plugin.level === "A") return await plugin.run(args, { actor, ...(hooks.question ? { question: hooks.question } : {}) });
 
     const actionActor = actionActorFrom(actor, hooks.channel);

@@ -1,5 +1,8 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "./helpers/waitFor.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * «ОДИН МОЗГ» ДЛЯ TELEGRAM (Dan, тред «Ревизия бота», 03.10.2026; аудит

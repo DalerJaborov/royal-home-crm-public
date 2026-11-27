@@ -1,3 +1,4 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { describe, it, expect, beforeEach, afterAll, afterEach, vi } from "vitest";
 
 /**
@@ -42,6 +43,8 @@ import { telegramReplyRetryJob } from "../src/jobs/telegramReplyRetry.js";
 import { telegramDirectReplyRetryJob } from "../src/jobs/telegramDirectReplyRetry.js";
 import { customerAgentHandoverLine } from "../src/ai/customerAgentRenderer.js";
 import { claimChannelCoreRun } from "../src/lib/customerChannelCore.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 beforeEach(() => {
   finishTelegramQualifyTurn.mockClear();

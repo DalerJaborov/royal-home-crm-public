@@ -57,7 +57,7 @@ import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { assertClientWritable, assistantInvestigationRole, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
 import { assistantChannelGuide, assistantSectionsGuide } from "./assistant/promptSections.js";
-import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
+import { assistantPluginAllowed, findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
 import { safeField } from "./assistant/tools/safeField.js";
 import { canonicalJson } from "../lib/canonicalJson.js";
@@ -1241,7 +1241,7 @@ export function pluginDeclarations(
   return listAssistantToolPlugins()
     .filter((p) => p.level === "A" || (confirmUi && (p.executor.channels ?? ["crm"]).includes(channel)))
     .filter((p) => !actor.hiddenTools?.has(p.name))
-    .filter((p) => (p.allowed ? p.allowed(actor) : true))
+    .filter((p) => assistantPluginAllowed(p, actor))
     .map((p) => ({
       name: p.name,
       description: p.description,
@@ -1542,7 +1542,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
   let result: unknown;
   if (hooks.readOnly && isWriteTool(call.name)) {
     result = { error: "Этот запрос можно только прочитать. Для записи попросите отдельным сообщением.", code: "READ_ONLY_TURN" };
-  } else if (plugin?.allowed && !plugin.allowed(actor)) {
+  } else if (plugin && !assistantPluginAllowed(plugin, actor)) {
     result = { error: "Нет доступа к этому действию" };
   } else if (plugin && plugin.level !== "A" && !hooks.confirmUi) {
     result = { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" };

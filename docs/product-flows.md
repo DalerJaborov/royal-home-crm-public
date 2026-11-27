@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4388**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2525**; вместе с задачами по расписанию и фоновыми заданиями — **4389**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -14594,25 +14594,16 @@
 - если !kind
   - return;
     · дальше не идёт, ничего не меняя
-- если !viewer.telegramChatId
-  - return res.status(409).json({ error: "Привяжите свой Telegram в профиле — туда придёт отчёт" });
-    · ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»
-- пробует
-  - пробует
-    - await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…
-      · зовёт sendDocumentFile()
-  - если сорвалось
-    - void logSystemError("telegram", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…
-      · запись в журнал ошибок
-    - return res.status(503).json({ error: "Telegram не принял файл. Повторите позже или скачайте PDF" });
-      · ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»
-  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "ownTelegram", period: pdf.periodKey, bytes…
-    · зовёт logAudit()
-  - res.json({ ok: true });
+- const outcome = await sendReportPdfToOwnTelegram(await viewerOf(req), kind, req.query, { source: "screen" });
+  · зовёт sendReportPdfToOwnTelegram()
+- если outcome.ok
+  - return res.json({ ok: true });
     · ответ 200
-- если сорвалось
-  - failed(res, kind, err);
-    · дословно из кода
+- если outcome.retryAfterSec !== undefined
+  - res.set("Retry-After", String(outcome.retryAfterSec));
+    · ставит заголовок ответа
+- res.status(outcome.status).json({ error: outcome.error });
+  · ответ (код зависит от условия)
 
 ### GET /api/v1/report-pdf/:kind
 
@@ -21781,7 +21772,7 @@
     - const release = ()
       · меняет в базе: settings
     - пробует
-      - const candidates = await prisma.agent.findMany({ where: { role: "DIRECTOR", isActive: true, telegramChatId: {…
+      - const candidates = await prisma.agent.findMany({ where: { role: { in: await reportRecipientRoles(["DIRECTOR"]…
         · читает в базе: agent
       - для каждого: const c of candidates
         - const access = await loadAgentAccess(c.id);
@@ -22142,13 +22133,13 @@
       - const meetingDate = dushanbeWallClock(digest.meetingAt).toISOString().slice(0, 10);
         · зовёт dushanbeWallClock()
       - если !immediate
-        - await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: ["DI…
+        - await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: awai…
           · зовёт enqueueDirectorAlert()
         - return;
           · дальше не идёт, ничего не меняя
-      - const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true …
-        · читает в базе: agent
-      - если directors.length === 0
+      - const directorIds = await findReportRecipientsByRoles(["DIRECTOR", "ADMIN"]);
+        · зовёт findReportRecipientsByRoles()
+      - если directorIds.length === 0
         - return;
           · дальше не идёт, ничего не меняя
       - await sendPushToAgents(directorIds, payload);
@@ -23799,10 +23790,12 @@
       · зовёт buildMonthlyMetrics()
     - await prisma.monthlyReport.create({ data: { periodStart, metrics: metrics as never } });
       · создаёт в базе: monthlyReport
-    - const recipients = await findAgentsWithPermission("dashboard.analytics");
-      · зовёт findAgentsWithPermission()
+    - const recipients = await findReportRecipients("dashboard.analytics");
+      · зовёт findReportRecipients()
     - const { granted: seesMoney } = await partitionByPermission(recipients, "finance.view");
       · зовёт partitionByPermission()
+    - const viewers = new Set( (await prisma.agent.findMany({ where: { id: { in: recipients }, role: { in: [...READ…
+      · читает в базе: agent
     - для каждого: const agentId of recipients
       - await sendPushToAgent(agentId, { title: `🗂️ Отчёт за ${monthLabel}`, body: `Сделок: ${metrics.dealsCompleted…
         · push-уведомление
@@ -23823,7 +23816,7 @@
   - const sent = await sendDirectorDigest();
     · зовёт sendDirectorDigest()
     - const [ { tasksToday, leadsYesterday, dealsYesterday, commissionMonth, errorsYesterday, incomingYesterday, mi…
-      · читает в базе: agent
+      · зовёт loadMorningNumbers()
     - await Promise.all( directors.map((d)
       · push-уведомление
   - console.log(`[cron] Утренний дайджест отправлен директорам: ${sent}`);
@@ -26945,8 +26938,8 @@
     - если !built
       - return;
         · дальше не идёт, ничего не меняя
-    - const recipients = await findAgentsWithPermission("reports.view");
-      · зовёт findAgentsWithPermission()
+    - const recipients = await findReportRecipients("reports.view");
+      · зовёт findReportRecipients()
     - если recipients.length === 0
       - return;
         · дальше не идёт, ничего не меняя

@@ -1,4 +1,7 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * НОЧНАЯ ПРОВЕРКА 24.09.2026 (находка №116 / Г6, решение владельца — ДА,

@@ -223,6 +223,18 @@ export function renderAssistantForTelegram(text: string, opts: {
     .replace(MD_LINK, "$1")
     .replace(/\*\*(.+?)\*\*/g, "$1");
 }
+/**
+ * СУММА С ВАЛЮТОЙ — ОДНО ПРАВИЛО НА ЖИРНЫЙ И НА ЗАЩИТУ ОТ МАСКИ (27.11.2026).
+ *
+ * Скриншот владельца 27.11: «3 561,**25 TJS**», «1 638,**75 TJS**» — жирной становилась
+ * только дробная часть. Правило жирного не знало дробной части: целая часть «3 561»
+ * упиралась в запятую, и совпадение начиналось заново с «25». Рядом, в
+ * sanitizeAssistantReply, та же сумма для защиты от маски телефонов читалась правильно:
+ * два правила одной вещи разошлись. Теперь правило одно: тысячи через пробел (обычный,
+ * неразрывный, узкий неразрывный), дробная часть через запятую или точку, валюта после.
+ * Не начинается посреди числа: после цифры, «+» или «цифра + запятая/точка».
+ */
+export const MONEY_AMOUNT = /(?<![\d+]|\d[.,])\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?[ \u00a0\u202f]*(?:сомон[иӣ]|TJS|USD|доллар(?:ов|а)?|\$)(?!\p{L})/giu;
 const HTML_ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 export const escapeHtml = (t: string): string => t.replace(/[&<>"]/g, (c) => HTML_ESC[c]);
 /**
@@ -234,7 +246,7 @@ export function decorateHtml(html: string): string {
   return html
     .replace(/(?<![\p{L}\d])(?:ОБ|ПК)-\d{3,}(?!\d)/gu, "<code>$&</code>")
     .replace(/\+992\d{9}(?!\d)/g, "<code>$&</code>")
-    .replace(/(?<![\d+])\d[\d \u00a0]*(?:\s?(?:TJS|USD|сомони|\$))/gu, "<b>$&</b>");
+    .replace(MONEY_AMOUNT, "<b>$&</b>");
 }
 /**
 * Тот же ответ, но HTML для Telegram: ссылка прячется В ИМЯ (<a href>), а не печатается длинным адресом
@@ -299,7 +311,7 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   const protectedText = safeLinks.replace(/\]\((\/(?:clients|properties)\/[^)]+)\)/g, (_m, path: string) => `](${hold(path)})`)
     .replace(DOLLAR_PREFIX, hold)
     .replace(/(?<![\d+])(?:\d{1,2}[-./]\d{1,2}[-./]\d{4}|\d{4}-\d{2}-\d{2})(?![\d-])/g, hold)
-    .replace(/(?<![\d+])\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?\s*(?:сомон[иӣ]|TJS|USD|доллар(?:ов|а)?|\$)(?!\p{L})/giu, hold);
+    .replace(MONEY_AMOUNT, hold);
   // eslint-disable-next-line no-control-regex
   return maskAssistantContacts(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
 }

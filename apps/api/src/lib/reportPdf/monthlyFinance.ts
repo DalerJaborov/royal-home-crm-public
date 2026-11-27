@@ -1,3 +1,4 @@
+import { reportRecipientRoles } from "../reportRecipients.js";
 import { prisma } from "../../db.js";
 import { loadAgentAccess } from "../../auth/middleware.js";
 import { logAgentAudit } from "../audit.js";
@@ -54,7 +55,8 @@ export async function sendMonthlyFinancePdf(now = new Date()): Promise<MonthlyFi
     prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyLastSent: month }, data: { financePdfMonthlyLastSent: null } });
   try {
     const candidates = await prisma.agent.findMany({
-      where: { role: "DIRECTOR", isActive: true, telegramChatId: { not: null } },
+      // Акционер получает тот же файл (отчёт для чтения, рубильник «Отчёты акционеру», lib/reportRecipients.ts).
+      where: { role: { in: await reportRecipientRoles(["DIRECTOR"]) }, isActive: true, telegramChatId: { not: null } },
       select: { id: true, telegramChatId: true },
       take: 20,
     });

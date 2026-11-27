@@ -53,6 +53,7 @@ import {
   discardPendingAssistantAction,
   confirmAssistantAction,
   undoAssistantAction,
+  getAssistantActionExecutor,
   type AssistantActionActor,
   type AssistantActionView,
 } from "../lib/assistantActions.js";
@@ -2357,7 +2358,11 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       return true;
     }
     const access = await loadAgentAccess(clicker.id);
-    if (!access || !access.isActive || isReadOnlyRole(access.role)) {
+    // Режим просмотра (акционер) подтверждает только действия над СВОИМ (флаг исполнителя
+    // readOnlyRoleAllowed: «не присылать такое»), 27.11.2026; брокер держит то же сам.
+    const readOnlyBlocked = !!access && isReadOnlyRole(access.role) &&
+      !actions.every((a) => getAssistantActionExecutor(a.tool)?.readOnlyRoleAllowed === true);
+    if (!access || !access.isActive || readOnlyBlocked) {
       await answerCallbackQuery(query.id, "Нет прав на это действие");
       return true;
     }

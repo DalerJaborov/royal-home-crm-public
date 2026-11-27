@@ -7558,6 +7558,10 @@ model Settings {
   notifyOwnerOfOtherAgentClientEnabled  Boolean @default(false)
   /// Пуши хозяину объекта по переписке без карточки клиента. ВЫКЛ (владелец 27.11: «просто интересуется… отключи»).
   notifyOwnerBeforeLeadEnabled          Boolean @default(false)
+  /// Отчёты акционеру (SHAREHOLDER) наравне с директором; тревоги с действием ему не идут. ВКЛ (владелец 27.11.2026).
+  shareholderReportsEnabled             Boolean @default(true)
+  /// Telegram-бот только для сотрудников: незнакомцу памятка вместо клиентского диалога. ВКЛ (владелец 27.11.2026).
+  telegramStaffOnlyEnabled              Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

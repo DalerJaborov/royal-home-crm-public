@@ -1,8 +1,11 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * БОТ МОНТАЖЁРА ЦЕЛИКОМ (25.09.2026): настоящие telegram/bot.ts, montajerReceive,

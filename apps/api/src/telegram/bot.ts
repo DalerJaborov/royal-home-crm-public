@@ -1,3 +1,4 @@
+import { sendStaffOnlyNotice, staffOnlyGateApplies } from "./staffOnlyNotice.js";
 import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
@@ -195,6 +196,12 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   if (await handleClipReviewCallback(query)) return;
   // Передача РОП — решение директора (telegram/transferReviewBot.ts, 16.11.2026) — tr:*.
   if (await handleTransferReviewCallback(query)) return;
+  if (query.data === "call_agent" && (await staffOnlyGateApplies(chatId))) {
+    // Старая кнопка под клиентским приветствием при «боте только для сотрудников»: заявку не заводим.
+    await answerCallbackQuery(query.id);
+    await sendStaffOnlyNotice(chatId, { force: true });
+    return;
+  }
   if (query.data === "call_agent") {
     // Диалог мог уже принять заявку (клиент нажал кнопку из старого сообщения
     // после того, как оформился заявкой текстом) — тогда просто подтверждаем,
@@ -429,6 +436,14 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
   if (await handleAgentTelegramMessage(msg, update.update_id)) {
     const reply = takeDeferredAssistantReply(msg);
     return reply ? { reply, assistantDeferred: true } : undefined;
+  }
+
+  // Бот только для сотрудников (рубильник, 27.11.2026, telegram/staffOnlyNotice.ts): незнакомому
+  // чату — памятка «рабочий бот, сотруднику сюда, клиенту на сайт», без клиентского диалога и заявки.
+  // Чат с карточкой клиента идёт прежним путём: его сообщение должно лечь агенту в CRM.
+  if (await staffOnlyGateApplies(String(msg.chat.id))) {
+    await sendStaffOnlyNotice(String(msg.chat.id), { force: /^\/start(?:\s|$)/.test(msg.text ?? "") });
+    return;
   }
 
   // Альбом: клиент отправил несколько фотографий одной пачкой — Telegram доставляет
