@@ -29,6 +29,7 @@ import { openScope } from "../../lib/transactionScope.js";
 import { canAutomationChangeKind } from "../../lib/kindChangePolicy.js";
 import { returnAcceptDueFromNow } from "../../lib/workingDue.js";
 import { customerIntakeProgressSchema } from "../../lib/customerIntakeContext.js";
+import { automationSwitchOn } from "../../lib/automationSwitches.js";
 
 export interface ChannelLeadInput {
   fullName: string;
@@ -1899,6 +1900,9 @@ export async function notifyRepeatInquiry(clientId: string, summary: string): Pr
     notes: `Клиент снова написал боту с новым запросом: ${summary}`,
   }).catch((err) => console.error("[leads] запись повторного обращения:", err));
 
+  // Повтор поверх «Ваш клиент написал» (владелец 27.11.2026: «Все пять групп») — по умолчанию не шлём вовсе,
+  // запись в истории выше остаётся. Не прочитали Настройки — тоже молчим.
+  if (!(await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false))) return;
   await sendPushToAgent(client.assignedAgentId, {
     title: `🔔 ${client.fullName} снова на связи`,
     body: summary,

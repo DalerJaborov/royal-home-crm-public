@@ -227,7 +227,17 @@ beforeAll(async () => {
   adminToken = (await request(app).post("/api/v1/auth/login").send({ phone: admin.phone, password })).body.accessToken;
   outsiderToken = (await request(app).post("/api/v1/auth/login").send({ phone: outsider.phone, password })).body.accessToken;
   agentToken = (await request(app).post("/api/v1/auth/login").send({ phone: agent.phone, password })).body.accessToken;
+  // С 27.11.2026 (владелец: «Все пять групп») совпадения по умолчанию только в колокольчик. Тесты ниже проверяют
+  // текст и счёт пушей — включаем; поведение «по умолчанию» — отдельный тест в конце.
+  await setMarketPush(true);
 });
+
+const setMarketPush = (on: boolean) =>
+  prisma.settings.upsert({
+    where: { id: "singleton" },
+    create: { id: "singleton", notifyMarketMatchPushEnabled: on },
+    update: { notifyMarketMatchPushEnabled: on },
+  });
 
 beforeEach(() => {
   sendPushToAgent.mockReset();
@@ -237,6 +247,8 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  await setMarketPush(false);
+  await prisma.notification.deleteMany({ where: { agentId: { in: [adminId, agentId, outsiderId] } } });
   await prisma.marketListing.deleteMany({ where: { id: { in: listingIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
@@ -481,6 +493,29 @@ describe("runOwnMatching (стенд)", () => {
     await runOwnMatching();
     const rows = await prisma.propertyMarketMatch.findMany({ where: { propertyId: prop.id } });
     expect(rows.map((r) => r.listingId)).toEqual([same.id]);
+  });
+});
+
+describe("совпадения с площадками по умолчанию — только колокольчик (владелец 27.11.2026)", () => {
+  it("рубильник ВЫКЛ: пуша нет, в колокольчике агента ровно одна запись", async () => {
+    await setMarketPush(false);
+    try {
+      const title = `Совпадение-${runId}-тихо`;
+      const prop = await makeProperty(31, title);
+      await makeListing(31);
+      await Promise.all([runOwnMatching(), runOwnMatching()]);
+      await runOwnMatching();
+
+      expect(pushesFor(title)).toHaveLength(0);
+      const m = await prisma.propertyMarketMatch.findFirstOrThrow({ where: { propertyId: prop.id } });
+      expect(m.notifiedAt).not.toBeNull();
+      const rows = await prisma.notification.findMany({ where: { agentId, tag: `own-market-match:${m.id}` } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].count).toBe(1);
+      expect(rows[0].body).toContain(title);
+    } finally {
+      await setMarketPush(true);
+    }
   });
 });
 
