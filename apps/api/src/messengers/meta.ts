@@ -5,7 +5,8 @@ import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { GEMINI_RETRY_DELAYS_MS, sleep } from "../ai/geminiTransport.js";
-import { outgoingContentKey, rememberOutgoingMid, rememberOutgoingText } from "./outgoingMids.js";
+import { metaServiceNoticeReason } from "./metaServiceNotice.js";
+import { outgoingContentKey,rememberOutgoingMid, rememberOutgoingText } from "./outgoingMids.js";
 import { pauseBotForOtherThreadOwner } from "../lib/threadOwnerPause.js";
 import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import type { AttachmentSource } from "./attachments.js";
@@ -1121,7 +1122,12 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
            * Такие события молча мимо бота: ни хода, ни ответа, одна строка в журнале.
            * Решение — whatsappServiceEventReason (рядом), одно место на оба пути приёма.
            */
-          const serviceReason = whatsappServiceEventReason(msg);
+          // Обычный ТЕКСТ от самой Meta («Continue setting up your account», 26.11.2026) — тоже сюда
+          // (metaServiceNotice.ts): без этого бот отвечал «агент вам позвонит» и заводил заявку на
+          // номер из текста уведомления, то есть на наш собственный.
+          const serviceReason =
+            whatsappServiceEventReason(msg) ??
+            metaServiceNoticeReason({ senderId: from, profileName: nameByWaId.get(from), text: msg.text?.body });
           if (serviceReason) {
             console.log(
               `[вебхук] WHATSAPP: служебное событие мимо бота (${serviceReason}) type=${msg.type ?? "?"}` +
