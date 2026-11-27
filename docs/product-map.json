@@ -1395,9 +1395,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 19,
+      "endpoints": 20,
       "label": "Переписка по всем каналам",
-      "usedBy": 6
+      "usedBy": 7
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1633,6 +1633,11 @@
       "id": "bot-pause-watch",
       "expr": "20 * * * *",
       "label": "Бот на паузе и забыли: напоминает, при долгой паузе снимает сам"
+    },
+    {
+      "id": "bot-silence-watch",
+      "expr": "2-59/5 * * * *",
+      "label": null
     },
     {
       "id": "buyer-no-call-alarm",
@@ -2378,7 +2383,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 16
+      "files": 18
     },
     {
       "name": "Бюджет Google Cloud",

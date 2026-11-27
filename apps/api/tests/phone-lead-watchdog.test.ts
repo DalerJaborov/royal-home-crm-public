@@ -21,15 +21,20 @@ import bcrypt from "bcrypt";
 
 const sendPushToAgent = vi.fn(async () => 1);
 const sendPushToAgents = vi.fn(async () => 1);
-vi.mock("../src/push.js", async (importOriginal) => ({
+vi.mock("../src/push.js", async (importOriginal) => {
   // Подмена ДОПОЛНЯЕТ модуль, а не заменяет его целиком (19.09.2026):
   // фабрика без importOriginal убирает остальные экспорты у всего
   // процесса, и СОСЕДНИЙ тест падает на «No "…" export is defined».
-  ...(await importOriginal<typeof import("../src/push.js")>()),
-  sendPushToAgent, sendPushToAgents,
-}));
+  const real = await importOriginal<typeof import("../src/push.js")>();
+  // С 27.11.2026 запись в колокольчике одна — её пишет сам пуш (отдельная запись перед ним убрана как двойная).
+  // Поэтому шпион зовёт настоящую функцию: строка в ленте появляется, на телефон без ключей VAPID не уходит ничего.
+  sendPushToAgent.mockImplementation(real.sendPushToAgent as never);
+  sendPushToAgents.mockImplementation(real.sendPushToAgents as never);
+  return { ...real, sendPushToAgent, sendPushToAgents };
+});
 
 const { prisma } = await import("../src/db.js");
+const { waitFor } = await import("./helpers/waitFor.js");
 const { runPhoneLeadWatchdogTick } = await import("../src/lib/phoneLeadWatchdog.js");
 const { dushanbeDateTimeString, dushanbeInputToDate } = await import("../src/lib/dushanbeTime.js");
 
@@ -105,10 +110,14 @@ describe("runPhoneLeadWatchdogTick — уровень 2: номер уже из�
     expect(after?.clientId).toBe(client.id);
 
     // Владельцу карточки — уведомление о втором канале, а не директору «карточки нет».
-    const ownerNotified = await prisma.notification.findFirst({
+    const ownerNotified = await waitFor(() => prisma.notification.findFirst({
       where: { agentId: ownerAgentId, tag: `duplicate-review-known-client-${conversation.id}` },
-    });
+    }));
     expect(ownerNotified).not.toBeNull();
+    // Владелец 27.11.2026: одна запись в колокольчике на одно событие, а не строка с «повтором» 2.
+    await new Promise((r) => setTimeout(r, 200));
+    const again = await prisma.notification.findFirstOrThrow({ where: { id: ownerNotified!.id } });
+    expect(again.count).toBe(1);
 
     const falseAlarmToDirector = await prisma.notification.findFirst({
       where: { agentId: directorId, tag: `alarm-phone-without-lead-${conversation.id}` },

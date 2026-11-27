@@ -11,7 +11,7 @@ import { promisesAgentContact } from "../src/ai/callbackPromiseGuard.js";
  * переменных или без таджикской версии этот тест не пропустит.
  */
 const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
-  greet: {}, greet_assalom: {}, ask_role: {}, buyer_free: {}, identity: { brand: "Arvan estate" }, bot_identity: {},
+  greet: {}, greet_assalom: {}, ask_role: {}, ask_role_brand: { brand: "Arvan estate" }, buyer_free: {}, identity: { brand: "Arvan estate" }, bot_identity: {},
   seller_intro: { percent: 2 }, seller_commission: { percent: 2 },
   lead_and_details_seller: { when: "завтра с 09:30" }, lead_and_details_buyer: { when: "завтра с 09:30" },
   lead_and_details_missing: { when: "завтра с 09:30", missing: ["district", "budget"] }, office_phone: { phone: "+992 00 000 00 02" },
@@ -35,7 +35,7 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */
-const QUESTION_KEYS: ReadonlySet<PhraseKey> = new Set(["ask_role"]);
+const QUESTION_KEYS: ReadonlySet<PhraseKey> = new Set(["ask_role", "ask_role_brand"]);
 const MAX_LENGTH = 160;
 /** Ключи, где два одинаковых варианта — решение ведущего (19.11: «Здравствуйте!» оба раза), а не забытая правка. */
 const SAME_VARIANTS_OK: ReadonlySet<string> = new Set(["greet/ru"]);

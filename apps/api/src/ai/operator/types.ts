@@ -36,7 +36,7 @@ export type OperatorDetails = Record<OperatorDetailField, string | null>;
 
 /** Ключи фраз (тексты — phrases.ts; тип Record<PhraseKey, …> там не даёт забыть ключ). */
 export const OPERATOR_PHRASE_KEYS = [
-  "greet", "greet_assalom", "ask_role", "buyer_free", "identity", "bot_identity",
+  "greet", "greet_assalom", "ask_role", "ask_role_brand", "buyer_free", "identity", "bot_identity",
   "seller_intro", "seller_commission",
   "lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "office_phone",
   "property_price", "property_no_price", "property_sold", "bargain",
@@ -120,6 +120,11 @@ export interface OperatorState {
     clientTurns?: number;
     /** На каком содержательном ходе клиента бот последний раз просил номер. */
     phoneAskTurn?: number;
+    /**
+     * У заявки есть суть В ЭТОЙ переписке (клиент здесь говорил по делу или бот здесь заявку принял), а не только карточка,
+     * привязанная звонком, соседней перепиской или руками (27.11.2026). Нет поля (память до правки) — по роли и фразам заявки.
+     */
+    leadHere?: boolean;
     /** Спросил про ипотеку / документы до роли: «расскажет агент» скажем, когда предложим звонок (ревью #358). */
     agentTopicPending?: boolean;
     /** Сигналы человеку «не понял», «вложения без слов», уже отправленные в этом разговоре (по одному). */
@@ -255,6 +260,8 @@ export interface Understanding {
   photoRequest?: boolean;
   /** «Что нужно делать?» (код, 24.11.2026): после заявки — ничего, агент сам свяжется. */
   nextStepQuestion?: boolean;
+  /** Клиент отрицает, что о чём-то просил («какой дархост, я ничего не сказал», код, 27.11.2026): не вопрос о заявке. */
+  deniesRequest?: boolean;
   /**
    * Вопрос о фактах объекта, которые есть в карточке (код, 25.11.2026): `all` — «конкретней», «подробнее», «батафсил»,
    * «маълумоти бештар»; `asked` — названная характеристика («сколько комнат?», «чанд ошёна?», «ремонт есть?»); `search` — поиск по
@@ -307,7 +314,10 @@ export interface OperatorContext {
   channel: OperatorChannel;
   /** Номер для звонка известен по каналу (WhatsApp с рубильником «номер WhatsApp»). */
   phoneKnown: boolean;
-  /** Карточка клиента уже есть (заявка принята раньше): вопросов нет. */
+  /**
+   * К переписке привязана карточка клиента. Это ещё НЕ заявка этого разговора (27.11.2026): карточку привязывает и звонок, и
+   * соседняя переписка того же номера, и агент руками. Заявкой разговора она становится на первом ходе по делу (decide.ts).
+   */
   leadExists: boolean;
   /** Заявка этого разговора ещё оформляется (задание приёма в очереди): карточки нет, но и сбрасывать «заявка принята» рано. */
   leadPending: boolean;
@@ -328,6 +338,8 @@ export interface OperatorContext {
   vacancies: { open: readonly RecruitmentPosition[]; contactPhone: string | null };
   /** Имя компании аккаунта (MessengerAccount.brandName или основное), никогда не строка в тексте фразы. */
   brandName: string;
+  /** Переписка на номере или странице отдельного бренда (MessengerAccount.brandName задан, «Арван»): первое слово — от его имени. */
+  ownBrand?: boolean;
   /** Телефон офиса для клиентов (lib/publicAgencyContact.ts): один раз, когда номер так и не дали. */
   officePhone: string;
   sellerCommissionPercent: number;

@@ -53,6 +53,7 @@ export function assistantGroupFixture() {
   const voice = vi.fn(async (..._args: unknown[]) => true);
   const reaction = vi.fn(async (..._args: unknown[]) => "sent" as "sent" | "unavailable" | "uncertain");
   const indicator = vi.fn(async (..._args: unknown[]) => {});
+  const liveChime = vi.fn(async (..._args: unknown[]) => {});
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
   const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену.", authorLabel: "Умед Примеров" }]);
@@ -140,7 +141,7 @@ export function assistantGroupFixture() {
       assistantTelegramContext: { deleteMany: contextPurge } } },
     "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer, claimNewMemberWelcome: welcomeClaim, releaseNewMemberWelcome: welcomeRelease, sendColleagueWelcome: welcome },
     "./assistantName.js": assistantName,
-    "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
+    "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key === "shabnamGroupLiveEnabled" ? false : key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run, assistantErrorMessage: (code: string) => code },
@@ -166,6 +167,8 @@ export function assistantGroupFixture() {
     "./assistantMedia.js": { handleAssistantMedia: media },
     "../lib/systemError.js": { logSystemError: async () => {} },
     "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
+    // «Живая» беседа (25.11.2026) выключена: старые проверки группы её не касаются, свои тесты у assistant-group-live.
+    "./assistantGroupLive.js": { resolveGroupMode: () => "HELP", parseGroupModeWord: () => null, GROUP_MODE_CONFIRMATION: {}, runLiveChime: liveChime },
     "../lib/shutdownState.js": { trackBackgroundTask: <T>(promise: Promise<T>) => promise },
   };
   // This module is absent from the older comparison revision.
@@ -188,7 +191,7 @@ export function assistantGroupFixture() {
   });
   return { adapter, presses, offer, welcome, welcomeClaim, contextPurge,
     setUnaddressed: (value: boolean) => { unaddressedOn = value; },
-    memory: () => ({ contextEnabledAt, contextOptOutAt }), plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+    memory: () => ({ contextEnabledAt, contextOptOutAt }), plain, html, voice, reaction, indicator, buttons, confirm, run, liveChime, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

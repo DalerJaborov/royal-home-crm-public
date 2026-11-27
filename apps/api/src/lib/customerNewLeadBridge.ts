@@ -18,6 +18,7 @@ import { customerIntakeLocationEnabled } from "./customerAgentFeaturePolicy.js";
 import { deriveOwnBuyerPreferences } from "./customerBuyerPreferences.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { isWithinWorkingHours } from "./workingHours.js";
+import { customerFocusPropertyForLead } from "./customerFocusOwner.js";
 
 /** Internal, default-OFF bridge after an actual contact action. It cannot resume
  * a found Client or grant private phone ownership; no model descriptor exposes it. */
@@ -112,7 +113,12 @@ export async function createCustomerLeadAfterContactAction(actionId: string): Pr
       kind: location.locationOutsideDushanbe ? "OTHER" : intake.role === "buyer" ? "BUYER" : intake.role === "seller" ? "SELLER" : "OTHER",
       ...(location.locationOutsideDushanbe ? { locationOutsideDushanbe: true as const } : {}),
       deferAssignment: !(await isWithinWorkingHours()) };
-    const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), ...baseContext };
+    // The object the bot recognized in this chat (number, link, shared post, screenshot, ad) goes with a BUYER's lead to
+    // its owner agent (27.11.2026, switch chatObjectToOwnerEnabled; lib/customerFocusOwner.ts). A seller describes his own home.
+    const focusPropertyId = intake.role === "buyer" && !location.locationOutsideDushanbe
+      ? await customerFocusPropertyForLead(snapshot.fence.nativeId, recovered.ticket.scopeKey) : null;
+    const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), ...baseContext,
+      ...(focusPropertyId ? { propertyId: focusPropertyId } : {}) };
     return executeBridge({ fence: snapshot.fence, generation: intent.generation, eventKey: recovered.ticket.eventKey,
       order: recovered.ticket.order, currentInputText: current.inputText, provenance: current.provenance,
       protectedMetaEndpointScopeId: current.protectedMetaEndpointScopeId, protectedMetaAccountId: current.protectedMetaAccountId,

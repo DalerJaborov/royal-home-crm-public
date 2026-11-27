@@ -17,6 +17,8 @@ import { publishClientUpdated } from "./livePublish.js";
 import { sendPushToAgent } from "../push.js";
 import { returnAcceptDueFromNow } from "./workingDue.js";
 import { resumeWorkData } from "./clientContact.js";
+import { automationSwitchOn } from "./automationSwitches.js";
+import { notifyFeedOnly } from "./notifications.js";
 export { resumeWorkData } from "./clientContact.js";
 
 export interface ReactivateClientInput {
@@ -211,13 +213,19 @@ export async function reactivateClientFromLost(
 
     // Агент узнаёт о возврате сразу, а не через три четверти таймера (B1, 02.10.2026):
     // без пуша карточка тихо оживала у него, и первым сигналом было «скоро срок».
+    // Владелец 27.11.2026 («Все пять групп»): телефон по умолчанию не звенит. Но строка в колокольчике остаётся
+    // всегда: у карточки из «Потерянных» в момент сообщения ответственного ещё нет, «Ваш клиент написал» агенту
+    // не уходит, и без этой строки он снова узнал бы о возврате только из «скоро срок» (ревью 27.11, B1).
     if (input.returnTimer && updated.assignedAgentId) {
-      void sendPushToAgent(updated.assignedAgentId, {
+      const payload = {
         title: "🔔 Ваш клиент снова обратился",
         body: `${updated.fullName} — был в «Потерянных», написал сам и снова у вас в работе`,
         url: `/clients/${updated.shortId}`,
         tag: `repeat-contact-${updated.id}`,
-      }).catch((err) => console.error("[push] возврат из Потерянных:", err));
+      };
+      const pushOn = await automationSwitchOn("notifyRepeatContactPushEnabled").catch(() => false);
+      void (pushOn ? sendPushToAgent(updated.assignedAgentId, payload) : notifyFeedOnly([updated.assignedAgentId], { kind: "other", ...payload }))
+        .catch((err) => console.error("[push] возврат из Потерянных:", err));
     }
 
     return {

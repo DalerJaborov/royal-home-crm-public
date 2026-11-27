@@ -166,6 +166,8 @@ const KIND_WORDS: { kind: PushKind; re: RegExp }[] = [
   { kind: "trash", re: /корзин|удалени\p{L}*/iu },
   // «сообщения от коллег» (send_staff_message) — раньше «сообщений клиентов»: слова не пересекаются.
   { kind: "staff_message", re: /коллег|ҳамкор/iu },
+  // «интерес к моему объекту» — раньше «сообщений клиентов» (там «переписк»).
+  { kind: "property_interest", re: /интерес\p{L}*\s+к\s+(?:\p{L}+\s+)?объект/iu },
   { kind: "message", re: /переписк|паём\p{L}*\s+мизоҷ/iu },
   { kind: "showing", re: /показ|встреч|намоиш/iu },
   { kind: "task", re: /задач|просрочк|сводк|вазифа/iu },
