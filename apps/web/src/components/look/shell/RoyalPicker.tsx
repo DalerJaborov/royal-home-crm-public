@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Rh2Portal } from "../../rh2/Rh2Scope";
 import { hapticTap } from "../../../lib/haptics";
@@ -12,7 +12,8 @@ import { hapticTap } from "../../../lib/haptics";
  * шторка снизу со списком вариантов (та же `.sheet.bottom`, что у быстрых действий). Выбор и запрос
  * те же: `onChange` получает то же значение, что получал бы `<select>`.
  *
- * Доступность: кнопка говорит, что выбирается и что выбрано; в шторке варианты — радиокнопки,
+ * Доступность: кнопка говорит, что выбирается и что выбрано; в шторке варианты — радиокнопки
+ * (фокус сразу на выбранном, стрелки, Home/End — как у группы радиокнопок, в Tab стоит один вариант),
  * Escape и нажатие мимо закрывают, фокус возвращается на кнопку.
  */
 export interface RoyalPickerOption {
@@ -49,11 +50,27 @@ export function RoyalPicker({ value, options, onChange, label, title, className,
       button.current?.focus();
     };
     document.addEventListener("keydown", onKey);
-    sheet.current?.querySelector<HTMLButtonElement>('[aria-checked="true"], [role="radio"]')?.focus();
+    // Сначала выбранный вариант, и только если его нет — первый. Один селектор «a, b» вернул бы первый
+    // в документе из обоих, то есть всегда первый вариант, а не выбранный.
+    const radios = sheet.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    (sheet.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]') ?? radios?.[0])?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
   const close = () => { setOpen(false); button.current?.focus(); };
+  // Стрелки внутри группы — по кругу; выбор по-прежнему Enter/пробелом (кнопка), а не самим переходом.
+  const onListKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const radios = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+    if (!radios.length) return;
+    const at = radios.indexOf(document.activeElement as HTMLButtonElement);
+    const to = event.key === "ArrowDown" || event.key === "ArrowRight" ? (at + 1) % radios.length
+      : event.key === "ArrowUp" || event.key === "ArrowLeft" ? (at <= 0 ? radios.length - 1 : at - 1)
+      : event.key === "Home" ? 0 : event.key === "End" ? radios.length - 1 : -1;
+    if (to < 0) return;
+    event.preventDefault();
+    radios[to].focus();
+  };
+  const tabStop = current ? current.value : options[0]?.value;
   const pick = (next: string) => {
     hapticTap();
     setOpen(false);
@@ -75,11 +92,11 @@ export function RoyalPicker({ value, options, onChange, label, title, className,
             <div className="grab" aria-hidden />
             <div className="sheet-b">
               <h2 id={headingId} className="ry-picker-title">{title ?? label}</h2>
-              <div className="ry-picker-list" role="radiogroup" aria-labelledby={headingId}>
+              <div className="ry-picker-list" role="radiogroup" aria-labelledby={headingId} onKeyDown={onListKey}>
                 {options.map((option) => {
                   const selected = option.value === value;
                   return (
-                    <button key={option.value} type="button" role="radio" aria-checked={selected} className="ry-picker-option" onClick={() => pick(option.value)}>
+                    <button key={option.value} type="button" role="radio" aria-checked={selected} tabIndex={option.value === tabStop ? 0 : -1} className="ry-picker-option" onClick={() => pick(option.value)}>
                       <span className="ry-picker-option-text">
                         <span className="ry-picker-option-label">{option.label}</span>
                         {option.hint && <span className="ry-picker-option-hint">{option.hint}</span>}

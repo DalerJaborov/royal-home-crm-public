@@ -1,4 +1,4 @@
-import { Suspense, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { hapticSuccess, hapticTap } from "../lib/haptics";
 import { preloadAssistantPanel } from "./AssistantPanelLazy";
@@ -48,6 +48,9 @@ export function useQuickCreate({ ensureObjectNew = false }: { ensureObjectNew?: 
   const { data: settings, isError: settingsFailed } = useSettings();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fired = useRef(false);
+  // Кнопка ушла с экрана посреди удержания (переход, «Чаты» сменились разговором) — таймер гасим:
+  // иначе через 450 мс помощник открылся бы сам, без кнопки под пальцем.
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   function start() {
     if (settingsFailed || !settings?.aiAssistantEnabled) return;
