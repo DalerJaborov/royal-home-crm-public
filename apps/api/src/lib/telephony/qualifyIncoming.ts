@@ -29,6 +29,9 @@ import { automationSwitchOn } from "../automationSwitches.js";
 import { notifyFeedOnly } from "../notifications.js";
 import { recentCallerAdPropertyId } from "./callAdProperty.js";
 
+/** «Я по объявлению / по рекламе» в словах звонка (рус./тадж.). */
+const CALL_AD_WORDS = /объявлени|реклам|эълон|таблиғ|таблиг/iu;
+
 /** Похожий объект попадает в подсказку руководству только с такими баллами: один балл за район — не повод. */
 const UNSURE_HINT_MIN_SCORE = 3;
 
@@ -251,7 +254,7 @@ export async function qualifyIncomingCall(input: {
    * Путь «объект по объявлению, с которого пришёл клиент» по Client.sourceAdId
    * намеренно НЕ сделан (ревью 26.11, В1): sourceAdId — первое касание и не
    * меняется, а засчитывался бы прямым указанием мимо защиты продавца. С 27.11
-   * реклама учитывается иначе: объект рекламы из СВЕЖЕЙ (14 дней) переписки,
+   * реклама учитывается иначе: объект рекламы из СВЕЖЕЙ (сообщения за 14 дней) переписки,
    * только покупателю и только когда расшифровка объект не назвала
    * (lib/telephony/callAdProperty.ts, рубильник callAdObjectToOwnerEnabled).
    */
@@ -288,8 +291,8 @@ export async function qualifyIncomingCall(input: {
     /**
      * РАСШИФРОВКА ОБЪЕКТ НЕ НАЗВАЛА, А КЛИЕНТ ПРИШЁЛ С РЕКЛАМЫ ОБЪЕКТА (27.11.2026, рубильник
      * callAdObjectToOwnerEnabled, lib/telephony/callAdProperty.ts). Объект рекламы из его свежей переписки
-     * направляет заявку хозяину, когда трубку никто не снял (робот, очередь). Только покупатель; названный в
-     * звонке объект сильнее рекламы; снявшего трубку реклама не перебивает.
+     * направляет заявку хозяину. Снявшего трубку перебивает, только если клиент сказал «по объявлению / рекламе».
+     * Только покупатель; названный в звонке объект сильнее рекламы.
      */
     const adPropertyId = !spoken.propertyId ? await recentCallerAdPropertyId(client.id, kind) : null;
     const adProperty = adPropertyId
@@ -348,9 +351,11 @@ export async function qualifyIncomingCall(input: {
 
   if (needsAgent && object) {
     const { identified, byRobot, byAd, strongByListing } = object;
-    // Реклама из переписки — не прямое указание в звонке: снявшего трубку не перебивает (ревью 27.11), решает
-    // только звонок без ответившего (ниже, через assignAgentForLead с propertyId).
-    const explicit = !byAd && (byRobot || identified.via === "hint");
+    const callMentionsAd = [input.data.requirementsNotes, input.data.propertyHint, input.requestedAgentText]
+      .some((text) => !!text && CALL_AD_WORDS.test(text));
+    // Реклама из переписки перебивает снявшего трубку, только если клиент в звонке сам сказал «по объявлению /
+    // по рекламе» (ревью 27.11); иначе она решает лишь звонок без ответившего (ниже, assignAgentForLead с propertyId).
+    const explicit = byRobot || (byAd ? callMentionsAd : identified.via === "hint");
     if (input.answeredByAgentId) {
       /**
        * «КТО СНЯЛ» УСТУПАЕТ «ЧЕЙ ОБЪЕКТ», ЕСЛИ ОБЪЕКТ НАЗВАН ПРЯМО (10.10.2026,

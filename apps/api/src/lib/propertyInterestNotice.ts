@@ -304,12 +304,13 @@ export async function noticeOwnerOfConversationInterest(input: {
     if (!client?.assignedAgentId && conv.propertyChatAgentId === ownerId) return; // агент уже отвечает, новые сообщения уведомляются отдельно
     // Режим «только заявки»: пока клиент не оставил номер (карточки нет), «по вашему объекту пишут» не шлём (13.11.2026).
     if (!client && await leadOnlyQuietBeforeLead(conv.channel)) return;
-    // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали…
-    // отключи». Нет карточки (заявки) — хозяину объекта ничего, во всех каналах; появилась заявка — обычный путь.
-    if (!client && !await ownerPushBeforeLeadOn()) return;
 
     const owner = await prisma.agent.findUnique({ where: { id: ownerId }, select: { isActive: true, role: true } });
     const ownerActive = !!owner?.isActive;
+    // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали…
+    // отключи». Нет карточки (заявки) — хозяину объекта ничего, во всех каналах; появилась заявка — обычный путь.
+    // Сигнал руководству «по объекту пишут, а хозяин отключён» рубильник не глушит (ревью 27.11).
+    if (!client && ownerActive && !await ownerPushBeforeLeadOn()) return;
 
     if (client?.assignedAgentId && ownerActive) {
       if (owner?.role === "AGENT" && (await objectInterestPullsQueueLeadNow()) && (await pullQueueLeadToOwner(client, ownerId, property, witness))) return;

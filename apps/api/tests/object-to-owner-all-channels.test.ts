@@ -61,7 +61,7 @@ async function adConversation(clientId: string, createdAt = new Date()) {
   return conv;
 }
 
-async function qualify(clientId: string, phone: string, answeredByAgentId: string | null = null) {
+async function qualify(clientId: string, phone: string, answeredByAgentId: string | null = null, requirementsNotes?: string) {
   const call = await prisma.incomingCall.create({ data: { channelId: `oto-${runId}-${callIds.length}`, phone, clientId, answered: true } });
   callIds.push(call.id);
   const delegate = prisma.settings;
@@ -73,7 +73,7 @@ async function qualify(clientId: string, phone: string, answeredByAgentId: strin
   try {
     const result = await qualifyIncomingCall({
       callId: call.id, operatorId: null, answeredByAgentId, knownPropertyId: null,
-      data: { kind: "BUYER", fullName: "Фарход" },
+      data: { kind: "BUYER", fullName: "Фарход", ...(requirementsNotes ? { requirementsNotes } : {}) },
     });
     expect("error" in result).toBe(false);
   } finally {
@@ -131,6 +131,21 @@ describe("звонок клиента, пришедшего в переписк�
     await adConversation(client.id);
     const after = await qualify(client.id, client.phone, answererId);
     expect(after.assignedAgentId).toBe(answererId);
+  });
+
+  it("трубку снял агент, но клиент сказал «по объявлению» — заявка хозяину объекта рекламы", async () => {
+    const client = await makeClient("реклама, по объявлению");
+    await adConversation(client.id);
+    const after = await qualify(client.id, client.phone, answererId, "Звонит по объявлению, хочет посмотреть квартиру");
+    expect(after.assignedAgentId).toBe(ownerId);
+    expect(after.acceptedAt).toBeNull();
+  });
+
+  it("переписка давняя, но клиент писал в ней недавно — реклама учитывается", async () => {
+    const client = await makeClient("старая переписка, свежие сообщения");
+    const conv = await adConversation(client.id, new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
+    await prisma.botConversation.update({ where: { id: conv.id }, data: { lastMessageAt: new Date() } });
+    expect(await recentCallerAdPropertyId(client.id, "BUYER")).toBe(propertyId);
   });
 
   it("переписка с рекламы старше 14 дней — объект рекламы не подсказывается", async () => {
