@@ -582,7 +582,7 @@ function RefusedHighScore() {
 
 /**
  * Красный флаг «Серия у одного агента» (владелец 01.09.2026): 3 и больше
- * переводов в «Неактивные» или прямых потерь у одного агента за 7 дней.
+ * потерь клиента у одного агента за 7 дней.
  * Список короткий (штат агентов), пагинации нет.
  */
 function AgentLossSeries() {
@@ -596,7 +596,7 @@ function AgentLossSeries() {
       note={data ? `${data.items.length} ${pluralizeRu(data.items.length, ["человек", "человека", "человек"])}` : undefined}
       hint={
         data
-          ? `${data.threshold} перевода в «Неактивные» или прямых потери и больше у одного агента за последние ${data.windowDays} дней.`
+          ? `${data.threshold} потери клиента и больше у одного агента за последние ${data.windowDays} дней.`
           : undefined
       }
     >

@@ -61,6 +61,7 @@ import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.
 import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyAcceptedRefusal, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
   noteInstagramBackupKeyDead, noteInstagramKeyRefused, noteInstagramProbeSucceeded } from "../lib/instagramAccountAccess.js";
 import { isProviderDefinitiveRejection } from "../lib/metaProviderRejection.js";
+import { whatsappCommandsEnabled, whatsappCommandText } from "./whatsappCommands.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -1220,7 +1221,10 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             : undefined;
           const interactiveText = whatsappInteractiveReplyText(msg);
           const orderText = whatsappOrderText(msg);
-          const text = msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
+          // Команда «/харидан» из меню WhatsApp — слова человека для ядра (messengers/whatsappCommands.ts, 27.11.2026).
+          // Только у обычного текста: подпись к фото или ответ кнопкой командой не бывают.
+          const commandText = (msg.type ?? "text") === "text" && whatsappCommandsEnabled() ? whatsappCommandText(msg.text?.body) : null;
+          const text = commandText ?? msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
           // ATTACHMENT_HINTS (sharedMedia.ts) знает "location"/"contact" в единственном
           // числе; WhatsApp шлёt тип "contacts" во множественном — приводим к общему ключу.
           const attachmentType = isText ? undefined : msg.type === "contacts" ? "contact" : msg.type;

@@ -207,6 +207,8 @@ describe("вебхук целиком: ответ на разрешение зв
 
   afterAll(async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: saved });
+    // С 27.11.2026 разрешение звонить заводит просьбу о звонке (messengers/whatsappServiceEvents.ts) — убрать за собой.
+    await prisma.callbackRequest.deleteMany({ where: { phone: { contains: String(runId).slice(-7) } } });
     await whatsapp?.dispose();
   });
 
