@@ -54,6 +54,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "chatBarePhoneToCardEnabled",
   "botSilenceWatchEnabled",
   "botCatchUpEnabled",
+  "botSilenceTelegramEnabled",
   "chatObjectToOwnerEnabled",
   "callAdObjectToOwnerEnabled",
   "objectInterestPullsQueueLeadEnabled",
@@ -189,6 +190,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     title: "Бот сам догоняет после паузы",
     on: "Клиент написал, пока бот стоял на паузе после ответа сотрудника или пока бот сломался: когда пауза кончилась, бот один раз отвечает на последнее сообщение клиента (в пределах суток, пока Meta разрешает ответить). Если сотрудник уже ответил, клиент просил не писать или пауза ещё идёт, бот молчит.",
     off: "Как до 27.11.2026: сообщение, пришедшее во время паузы или сбоя, остаётся без ответа бота, пока клиент не напишет снова.",
+  },
+  // Владелец 27.11.2026: «в Telegram дублировать, РОП не добавлять, ночью не звонить».
+  botSilenceTelegramEnabled: {
+    title: "Бот замолчал: дублировать в Telegram",
+    on: "То же сообщение «бот замолчал» (и напоминание, и «бот снова отвечает») директор и администратор получают ещё и в Telegram, если он у них привязан. Ночью, с 21:00 до 08:00, сообщение приходит без звука, телефон не зазвонит.",
+    off: "В Telegram такого сообщения нет, уведомление приходит только в CRM.",
   },
   // 24.11.2026 (разбор прода): повтор «зависших» крутил одни и те же переписки по 31–35 раз без ответа и тратил ИИ.
   botRetryCapEnabled: {
@@ -404,7 +411,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

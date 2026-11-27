@@ -10,9 +10,27 @@ vi.mock("../src/messengers/botChannels.js", async (importOriginal) => ({
   loadBotAnswerSwitches: async () => ({ ...switches.value }),
 }));
 
+// Telegram: сам бот не трогаем — подменяем отправку и признак «бот настроен»; рубильник дубля — через обёртку над настоящей дверью.
+const tg = vi.hoisted(() => ({ sent: [] as Array<{ chatId: string; text: string; outbound: Record<string, unknown> | undefined }>, fail: new Set<string>(),
+  switchOverride: {} as Record<string, boolean> }));
+vi.mock("../src/telegram/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
+  isTelegramEnabled: () => true,
+  sendMessage: async (chatId: string, text: string, _r?: number, _d?: number, outbound?: Record<string, unknown>) => {
+    if (tg.fail.has(chatId)) throw new Error("Telegram 500");
+    tg.sent.push({ chatId, text, outbound });
+    return {};
+  },
+}));
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...real, automationSwitchOn: async (key: string, ...rest: unknown[]) =>
+    key in tg.switchOverride ? tg.switchOverride[key] : (real.automationSwitchOn as (k: string, ...a: unknown[]) => Promise<boolean>)(key, ...rest) };
+});
+
 const {
   decideBotSilence, groupKey, groupsInWords, lastBotAnswerIn, offGroupsOf, runBotSilenceWatchTick, silenceAlertText,
-  silenceRecoveredText, silentGroups, SILENCE_MIN_CUSTOMERS, SILENCE_REMIND_MS, SILENCE_STALE_CLOSE_MS,
+  sendSilenceTelegram, silenceRecoveredText, silentGroups, SILENCE_MIN_CUSTOMERS, SILENCE_REMIND_MS, SILENCE_STALE_CLOSE_MS,
 } = await import("../src/lib/botSilenceWatch.js");
 type Snapshot = import("../src/lib/botSilenceWatch.js").SilenceSnapshot;
 type Open = import("../src/lib/botSilenceWatch.js").OpenIncident;
@@ -360,5 +378,107 @@ describe("runBotSilenceWatchTick: на базе", () => {
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { botSilenceWatchEnabled: before.botSilenceWatchEnabled } });
     }
+  });
+
+  describe("дубль в Telegram: директору и администратору, после коммита, без звука ночью", () => {
+    const agentIds: string[] = [];
+    const chat = (role: string) => `bst-${role}-${runId}`;
+    const sentTo = (role: string) => tg.sent.filter((m) => m.chatId === chat(role));
+    const mine = () => tg.sent.filter((m) => m.chatId.startsWith("bst-") && m.chatId.endsWith(runId));
+    let phoneSeq = 0;
+
+    beforeAll(async () => {
+      for (const role of ["DIRECTOR", "ADMIN", "MANAGER", "AGENT"]) {
+        const a = await prisma.agent.create({ data: { fullName: `bst ${role}`, phone: `+9929${runId.slice(-4)}${role.length}${phoneSeq++}`.slice(0, 14),
+          role: role as never, isActive: true, telegramChatId: chat(role) } });
+        agentIds.push(a.id);
+      }
+      // Директор без привязанного Telegram и выключенный администратор — не получатели.
+      agentIds.push((await prisma.agent.create({ data: { fullName: "bst no tg", phone: `+9928${runId.slice(-4)}${phoneSeq++}1`.slice(0, 14), role: "DIRECTOR", isActive: true } })).id);
+      agentIds.push((await prisma.agent.create({ data: { fullName: "bst off", phone: `+9927${runId.slice(-4)}${phoneSeq++}2`.slice(0, 14), role: "ADMIN", isActive: false,
+        telegramChatId: `bst-off-${runId}` } })).id);
+    });
+    beforeEach(() => { tg.sent.length = 0; tg.fail.clear(); tg.switchOverride = {}; });
+    afterAll(async () => { await prisma.agent.deleteMany({ where: { id: { in: agentIds } } }); });
+
+    async function silentChannel() {
+      await botAnswered("INSTAGRAM", -70 * MIN);
+      for (const ms of [-30, -25, -20]) await waitingChat({ waitMs: ms * MIN, heldCode: "round_limit" });
+    }
+
+    it("открытие эпизода: тот же текст директору и администратору, не руководителю и не агенту, не без Telegram и не выключенному", async () => {
+      await silentChannel();
+      expect(await runBotSilenceWatchTick(T)).toEqual({ action: "open", alerted: true });
+      const incident = await openIncident();
+      const [alert] = await alertsOf(`bot-silence-${incident.id}`);
+      expect(mine().map((m) => m.chatId).sort()).toEqual([chat("ADMIN"), chat("DIRECTOR")].sort());
+      expect(sentTo("DIRECTOR")[0].text).toBe(`${alert.title}
+
+${alert.body}`);
+      expect(sentTo("DIRECTOR")[0].text).not.toMatch(TECHNICAL);
+      expect(sentTo("MANAGER")).toHaveLength(0);
+      expect(sentTo("AGENT")).toHaveLength(0);
+      expect(tg.sent.some((m) => m.chatId === `bst-off-${runId}`)).toBe(false);
+    });
+
+    it("повторный тик без перемен — второго сообщения нет; восстановление — ещё одно", async () => {
+      await silentChannel();
+      await runBotSilenceWatchTick(T);
+      tg.sent.length = 0;
+      await runBotSilenceWatchTick(at(5 * MIN));
+      expect(mine()).toHaveLength(0);
+      await botAnswered("INSTAGRAM", 10 * MIN);
+      expect((await runBotSilenceWatchTick(at(12 * MIN))).action).toBe("recover");
+      expect(sentTo("DIRECTOR")).toHaveLength(1);
+      expect(sentTo("DIRECTOR")[0].text).toMatch(/^Бот снова отвечает клиентам/);
+    });
+
+    it("рубильник дубля выключен — в Telegram ничего, уведомление в CRM есть", async () => {
+      tg.switchOverride = { botSilenceTelegramEnabled: false };
+      await silentChannel();
+      expect(await runBotSilenceWatchTick(T)).toEqual({ action: "open", alerted: true });
+      expect(mine()).toHaveLength(0);
+      expect(await alertsOf(`bot-silence-${(await openIncident()).id}`)).toHaveLength(1);
+    });
+
+    it("Telegram одному не отвечает — эпизод записан, второй получатель получил, сбой в журнале ошибок", async () => {
+      tg.fail.add(chat("DIRECTOR"));
+      await silentChannel();
+      expect(await runBotSilenceWatchTick(T)).toEqual({ action: "open", alerted: true });
+      expect((await openIncident()).groups).toEqual([IG]);
+      expect(sentTo("ADMIN")).toHaveLength(1);
+      expect(sentTo("DIRECTOR")).toHaveLength(0);
+      expect(await prisma.errorLog.count({ where: { source: "telegram", message: { contains: "бот замолчал" } } })).toBeGreaterThan(0);
+    });
+
+    it("откат записи эпизода — в Telegram ничего не уходит", async () => {
+      await silentChannel();
+      // Вся транзакция тика отработала (тексты собраны), но не закоммитилась: откат.
+      const realTx = prisma.$transaction.bind(prisma) as (fn: (tx: unknown) => Promise<unknown>, opts?: unknown) => Promise<unknown>;
+      const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce((async (fn: (tx: unknown) => Promise<unknown>, opts?: unknown) =>
+        realTx(async (tx) => { await fn(tx); throw new Error("база отказала"); }, opts)) as never);
+      await expect(runBotSilenceWatchTick(T)).rejects.toThrow("база отказала");
+      expect(await prisma.botSilenceIncident.count()).toBe(0);
+      spy.mockRestore();
+      expect(mine()).toHaveLength(0);
+    });
+
+    it("ночью (21:00–08:00 по Душанбе, вне рабочего дня) — без звука; днём — со звуком", async () => {
+      process.env.PUSH_QUIET_HOURS = "on";
+      const text = { title: "Клиенты ждут: бот не отвечает", body: "Бот перестал отвечать клиентам в Instagram с 15:30." };
+      try {
+        await sendSilenceTelegram(text, T); // 16:00 по Душанбе
+        expect(sentTo("DIRECTOR")[0].outbound).toMatchObject({ origin: "staff", silent: false });
+        tg.sent.length = 0;
+        await sendSilenceTelegram(text, new Date(Date.UTC(2021, 2, 10, 18, 0, 0))); // 23:00 по Душанбе
+        expect(sentTo("DIRECTOR")[0].outbound).toMatchObject({ origin: "staff", silent: true });
+        expect(sentTo("ADMIN")[0].outbound).toMatchObject({ silent: true });
+        tg.sent.length = 0;
+        await sendSilenceTelegram(text, new Date(Date.UTC(2021, 2, 10, 2, 0, 0))); // 07:00 по Душанбе
+        expect(sentTo("DIRECTOR")[0].outbound).toMatchObject({ silent: true });
+      } finally {
+        process.env.PUSH_QUIET_HOURS = "off";
+      }
+    });
   });
 });

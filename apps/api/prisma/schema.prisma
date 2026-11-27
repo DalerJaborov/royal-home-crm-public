@@ -7572,6 +7572,8 @@ model Settings {
   /// «Бот сам догоняет после паузы» (владелец 27.11.2026): сторож lib/customerTurnCatchUp.ts один раз
   /// перезапускает последний неотвеченный ход ядра, когда пауза кончилась или ядро сорвалось. Реестр — automationSwitches.ts.
   botCatchUpEnabled                     Boolean @default(true)
+  /// Дублировать уведомление сторожа «бот замолчал» директору и администратору в Telegram (27.11.2026), ВКЛ по умолчанию.
+  botSilenceTelegramEnabled             Boolean @default(true)
   /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
   /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
   /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
