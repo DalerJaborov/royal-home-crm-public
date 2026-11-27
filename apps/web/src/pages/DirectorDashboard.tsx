@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { Download, Printer } from "lucide-react";
 import { reportDateRangeError, type DirectorDrillKey, type DirectorPeriodPreset } from "@royal-home/shared";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { loadView } from "../components/rh2/Rh2ErrorState";
@@ -8,6 +9,7 @@ import { RhBlockState, RhButton, RhSegmented } from "../components/look/ui";
 import { RuDateField } from "../components/look/fields/RuFields";
 import { DirectorBlocks } from "../components/director/DirectorBlocks";
 import { DirectorDrillSheet } from "../components/director/DirectorDrillSheet";
+import { AnalyticsFilters, type FilterGroup } from "../components/look/home2/AnalyticsFilters";
 import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
 import { dushanbeDate, dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
 import { blockOrder, defaultPeriod } from "../lib/directorFormat";
@@ -41,8 +43,10 @@ export function DirectorDashboard() {
 }
 
 /**
- * Дашборд внутри главной (блок «dashboard» ядра): без обёртки экрана и без своего h1 —
- * заголовок страницы на главной один, приветствие. Метка раздела director нужна его стилям.
+ * Дашборд внутри главной — «Аналитика» под блоками макета (components/look/home2/LeaderHome.tsx,
+ * пачка home2 27.11.2026): без обёртки экрана и без своего h1 — заголовок страницы на главной
+ * один, приветствие. Метка раздела director нужна его стилям; оформление «как в макете» (кнопки
+ * со значками, период таблетками, «Фильтры» со шторкой) — слой theme-look-royal-home2.css.
  */
 export function DirectorDashboardBlock() {
   const role = useAuthStore((s) => s.agent?.role);
@@ -101,23 +105,52 @@ function DirectorScreen({ role, embedded = false }: { role: string | undefined; 
 
   // Список под цифрой — имена клиентов: нужно право видеть всех клиентов, для сделок ещё и все сделки (как на сервере).
   const canDrill = (key: DirectorDrillKey) => can("clients.viewAll") && (key !== "deals" && key !== "negotiations" || can("deals.viewAll"));
+  // Те же три поля, что у прежних списков: шторка «Фильтры» (главная) меняет ровно их.
+  const filterGroups: FilterGroup[] = [
+    { key: "agentId", label: "Менеджер", allLabel: "Все менеджеры", value: agentId, onChange: setAgentId,
+      options: (agents.data ?? []).map((a) => ({ id: a.id, label: a.fullName })),
+      note: agents.isError && !agents.data ? "Список менеджеров не загрузился, фильтр по менеджеру недоступен." : null },
+    { key: "source", label: "Источник", allLabel: "Все источники", value: source, onChange: setSource,
+      options: Object.entries(CLIENT_SOURCE_LABELS).map(([id, label]) => ({ id, label })) },
+    { key: "kind", label: "Клиенты", allLabel: "Все", value: kind, onChange: setKind,
+      options: [{ id: "BUYER", label: "Покупатели" }, { id: "SELLER", label: "Продавцы" }] },
+  ];
   const view = loadView(query);
   const updated = data ? dushanbeTime(data.updatedAt) : null;
   const order = blockOrder(role, data?.seesMoney ?? false);
 
   const body = (
     <>
-      <div className="dd" data-testid="director-dashboard">
-        <header className="dd-head">
-          <div className="dd-title">
-            {embedded ? <h2>Показатели компании</h2> : <h1>Дашборд директора</h1>}
-            <p className="sub">{updated ? <span role="status">Обновлено в {updated}</span> : "Показатели компании за период"}</p>
-          </div>
-          <div className="dd-acts">
-            <RhButton variant="secondary" onClick={exportExcel} disabled={exporting || !!rangeError || !data}>{exporting ? "Готовим Excel…" : "Excel"}</RhButton>
-            <RhButton variant="secondary" onClick={() => window.print()} disabled={!!rangeError || !data}>Печать</RhButton>
-          </div>
-        </header>
+      <div className="dd" data-testid="director-dashboard" data-embedded={embedded ? "true" : undefined}>
+        {embedded ? (
+          // На главной (пачка home2, 27.11.2026): «Аналитика» под блоками макета; Excel и Печать —
+          // маленькие мягкие кнопки со значками в строке заголовка, те же действия.
+          <header className="dd-head">
+            <div className="dd-title">
+              <h2>Аналитика</h2>
+              <p className="sub">{updated ? <span role="status">Показатели компании · обновлено в {updated}</span> : "Показатели компании за период"}</p>
+            </div>
+            <div className="dd-acts">
+              <RhButton variant="soft" className="h2-mini-btn" onClick={exportExcel} disabled={exporting || !!rangeError || !data}>
+                <Download size={20} aria-hidden="true" />{exporting ? "Готовим Excel…" : "Excel"}
+              </RhButton>
+              <RhButton variant="soft" className="h2-mini-btn" onClick={() => window.print()} disabled={!!rangeError || !data}>
+                <Printer size={20} aria-hidden="true" />Печать
+              </RhButton>
+            </div>
+          </header>
+        ) : (
+          <header className="dd-head">
+            <div className="dd-title">
+              <h1>Дашборд директора</h1>
+              <p className="sub">{updated ? <span role="status">Обновлено в {updated}</span> : "Показатели компании за период"}</p>
+            </div>
+            <div className="dd-acts">
+              <RhButton variant="secondary" onClick={exportExcel} disabled={exporting || !!rangeError || !data}>{exporting ? "Готовим Excel…" : "Excel"}</RhButton>
+              <RhButton variant="secondary" onClick={() => window.print()} disabled={!!rangeError || !data}>Печать</RhButton>
+            </div>
+          </header>
+        )}
         {data && (
           <p className="dd-print-meta">
             Период: {dushanbeDate(data.period.from)} – {dushanbeDate(data.period.to)}
@@ -129,7 +162,7 @@ function DirectorScreen({ role, embedded = false }: { role: string | undefined; 
         {exportError && <p role="alert" className="dd-quiet">{exportError}</p>}
 
         <div className="dd-filters">
-          <RhSegmented<DirectorPeriodPreset> label="Период" className="hscroll" value={preset} options={PERIODS} onChange={setPreset} />
+          <RhSegmented<DirectorPeriodPreset> label="Период" className={embedded ? "hscroll h2-perseg" : "hscroll"} value={preset} options={PERIODS} onChange={setPreset} />
           {preset === "custom" && (
             <div className="dd-dates">
               <label className="dd-filter"><span>С</span><RuDateField value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
@@ -137,7 +170,7 @@ function DirectorScreen({ role, embedded = false }: { role: string | undefined; 
             </div>
           )}
           {rangeError && <p role="alert" className="dd-quiet">{rangeError}</p>}
-          <div className="dd-selects">
+          {embedded ? <AnalyticsFilters groups={filterGroups} /> : <div className="dd-selects">
             <label className="dd-filter"><span>Менеджер</span>
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
                 <option value="">Все менеджеры</option>
@@ -158,13 +191,13 @@ function DirectorScreen({ role, embedded = false }: { role: string | undefined; 
                 <option value="SELLER">Продавцы</option>
               </select>
             </label>
-          </div>
+          </div>}
         </div>
 
         {rangeError ? null : view !== "ready" ? (
           <RhBlockState kind={view} onRetry={() => void query.refetch()} />
         ) : data ? (
-          <DirectorBlocks data={data} order={order} mobile={mobile} onDrill={(key, label) => setDrill({ key, label })} canDrill={canDrill}
+          <DirectorBlocks data={data} order={order} mobile={mobile} compact={embedded} onDrill={(key, label) => setDrill({ key, label })} canDrill={canDrill}
             settingsTo={can("settings.manage") ? "/settings?tab=money" : undefined} />
         ) : null}
         {!rangeError && query.isError && data && <p className="dd-quiet" role="status">Не удалось обновить, показаны прежние цифры.</p>}
