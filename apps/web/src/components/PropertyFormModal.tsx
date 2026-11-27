@@ -33,6 +33,7 @@ import { useDistricts } from "../hooks/useDistricts";
 import { useCreateProperty, useUpdateProperty } from "../hooks/useProperties";
 import { usePropertyDraftFromClient } from "../hooks/useAi";
 import { compressImage } from "../lib/compressImage";
+import { intakeAgentCandidates } from "../lib/intakeAgents";
 import { propertyPhotosNote } from "../lib/propertyPhotosNote";
 import { hasLandArea, landAreaFormValue, landAreaPayload } from "../lib/propertyLandArea";
 import { enqueuePhotos } from "../lib/uploadQueue";
@@ -883,9 +884,7 @@ export function PropertyFormModal({
                 value={form.intakeAgentId}
                 onChange={(v) => set("intakeAgentId", v)}
                 placeholder="Выберите агента..."
-                options={
-                  agents?.filter((a) => a.isActive && a.role === "AGENT").map((a) => ({ value: a.id, label: a.fullName })) ?? []
-                }
+                options={intakeAgentCandidates(agents).map((a) => ({ value: a.id, label: a.fullName }))}
               />
             </div>
           )}

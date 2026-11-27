@@ -8,6 +8,7 @@ import { getOrCreateDeviceId } from "./deviceId";
 import { reportUploadIssue } from "./errorReporter";
 import { createLightPreview } from "./imagePreview";
 import type { ExifGpsPoint } from "./exifGps";
+import { EMPTY_PHOTO_GEO_STATUS, type PhotoGeoStatus } from "./photoGeoHint";
 import { readGpsFromFile } from "./mediaGps";
 import { isBlobReadable, unreadableFileMessage, type UploadIssueInfo } from "./uploadFormat";
 import { httpStatusMessage } from "./httpStatusMessage";
@@ -200,8 +201,25 @@ function resetDraftPhotoLocation(): void {
   locationGeneration += 1;
   locationSamples = [];
   locationProbes = 0;
-  if (detectedLocation === null) return;
+  const hadStatus = geoStatus !== EMPTY_PHOTO_GEO_STATUS;
+  geoStatus = EMPTY_PHOTO_GEO_STATUS;
+  if (detectedLocation === null && !hadStatus) return;
   detectedLocation = null;
+  locationListeners.forEach((l) => l());
+}
+
+/**
+ * Итог разбора снимков — для подсказки «почему точки нет» (lib/photoGeoHint.ts).
+ * Новый объект на каждое изменение: useSyncExternalStore сравнивает по ссылке.
+ */
+let geoStatus: PhotoGeoStatus = EMPTY_PHOTO_GEO_STATUS;
+
+export function getDraftPhotoGeoStatusSnapshot(): PhotoGeoStatus {
+  return geoStatus;
+}
+
+function bumpGeoStatus(patch: (s: PhotoGeoStatus) => PhotoGeoStatus): void {
+  geoStatus = patch(geoStatus);
   locationListeners.forEach((l) => l());
 }
 
@@ -246,10 +264,19 @@ function tryDetectLocation(file: File): void {
   if (locationProbes >= LOCATION_MAX_PHOTOS) return;
   locationProbes += 1;
   const generation = locationGeneration;
+  bumpGeoStatus((s) => ({ ...s, pending: s.pending + 1 }));
   void readGpsFromFile(file).then((point) => {
+    if (generation !== locationGeneration) return; // мастер сброшен — счётчики уже нулевые
+    const inside = point !== null && isInsideDushanbe(point.lat, point.lng);
+    bumpGeoStatus((s) => ({
+      pending: Math.max(0, s.pending - 1),
+      checked: s.checked + 1,
+      found: s.found + (inside ? 1 : 0),
+      outside: s.outside + (point !== null && !inside ? 1 : 0),
+    }));
     // Снимок из другого города (пересланный, из галереи) метку туда не ставит —
     // та же рамка, что на сервере (packages/shared/src/geo.ts).
-    if (!point || generation !== locationGeneration || !isInsideDushanbe(point.lat, point.lng)) return;
+    if (!point || !inside) return;
     locationSamples = [...locationSamples, point];
     detectedLocation = medianPhotoPoint(locationSamples);
     locationListeners.forEach((l) => l());
