@@ -209,9 +209,9 @@ describe("доставка исходников монтажёру", () => {
     const videosAfterFirstPass = await prisma.propertyVideo.findMany({ where: { propertyId: p.id }, orderBy: { uploadedAt: "asc" } });
     expect(videosAfterFirstPass.map((v) => v.telegramFileId !== null)).toEqual([true, false, true]);
     // Ссылка НЕ уходит вдогонку неудаче (задание D) — текстом уходит только
-    // контрольное «дошло 2 из 3, остальное дошлю» (25.09.2026), без ссылок.
+    // контрольное «дошло 2 из 3 видео, остальное дошлём сами» (25.09.2026), без ссылок.
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(String(sendMessage.mock.calls[0]![1])).toContain(`дошло 2 из 3 файлов, остальное дошлю автоматически`);
+    expect(String(sendMessage.mock.calls[0]![1])).toContain(`дошло 2 из 3 видео, остальное дошлём сами`);
     expect(String(sendMessage.mock.calls[0]![1])).not.toContain("download-file");
 
     const s = await state(p.id);

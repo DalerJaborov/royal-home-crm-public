@@ -10,6 +10,7 @@ import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS, TelegramApiError } from "../telegram/api.js";
 import { VOICELESS_COPY_HINT, voicelessCopyHint } from "./narrationMontajerNote.js";
+import { currentMontajerTexts } from "./montajerTexts.js";
 import { logSystemError } from "./systemError.js";
 import { montageCopyNote, sendMontageCopies } from "./montageObservers.js";
 
@@ -202,17 +203,14 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED"
     && (await prisma.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: "SENT" } })) > 0;
   // Второй файл «без голоса» не просим (одно решение — narrationMontajerNote.ts::askMontajerForVoicelessCopy).
-  const hint = voicelessCopyHint();
-  const audioCaption = mixByCrm
-    ? `Объект №${p.shortId}. Озвучка, версия ${version.revision}: под неё длина и темп. Пришлите ролик БЕЗ голоса (музыка и звуки можно), голос CRM наложит сама. Ролик не короче озвучки.`
-    : soundOnly
-      ? `Озвучка к ролику №${p.shortId}, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${hint}`
-      : `Озвучка к ролику №${p.shortId}, версия ${version.revision}, одобрена. Вклейте этот голос сами: музыка, громкость и монтаж ваши.${hint}`;
+  // Слова подписи — lib/montajerTexts.ts (короткий вид 28.11.2026: «Объект №N · 🎙 голос, версия R. Вклейте его сами…»).
+  const texts = await currentMontajerTexts();
+  const audioCaption = texts.voiceCaption(p.shortId, version.revision, mixByCrm ? "mix" : soundOnly ? "soundOnly" : "plain", voicelessCopyHint());
   // Текст озвучки — обычным текстом в подписи к mp3, без файла .txt (владелец 19.11.2026: «текст зачем отдельным файлом?»).
   const files: Plan["files"] = voiceFilesWithText({ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption }, version.script, `${version.id}-text`);
   if (mode === "WITH_SOURCES") {
     if (!sources.videos.length) throw new NarrationDeliveryRefused("NO_SOURCES", "У объекта нет исходников");
-    for (const video of sources.videos) files.push({ id: video.id, storageKey: video.storageKey, filename: video.filename, caption: `Объект №${p.shortId}. Исходник. Озвучка v${version.revision}.\n${sources.factsText}` });
+    for (const video of sources.videos) files.push({ id: video.id, storageKey: video.storageKey, filename: video.filename, caption: texts.sourceWithVoiceCaption(p.shortId, version.revision, sources.factsText) });
   }
   return { editorId, plan: { factsHash: version.factsHash, recipientHash: mediaRecipientHash(editorId, editor.telegramChatId), files,
     sourcesHash: narrationHash(mode === "WITH_SOURCES" ? sources.videos.map(v => [v.id, v.storageKey]) : []), ...(mixByCrm ? { mixByCrm: true } : {}) } satisfies Plan };

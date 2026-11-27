@@ -649,8 +649,8 @@ describe("Файл монтажёра с номером объекта", () => {
     // С 25.09.2026 отказ идёт с кнопкой «Это №<держатель>» — вдруг опечатка в имени.
     expect(sendMessageWithButtons).toHaveBeenCalledWith(
       String(AGENT_CHAT_ID),
-      expect.stringContaining(`Сейчас у вас в работе №${holder.shortId}`),
-      [[expect.objectContaining({ text: `Это №${holder.shortId}` })]]
+      expect.stringContaining(`Сейчас у вас №${holder.shortId}.`),
+      [[expect.objectContaining({ text: `№${holder.shortId} в работе` })]]
     );
   });
 

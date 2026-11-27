@@ -35,6 +35,7 @@ import { narrationListenKey } from "./narrationListen.js";
 import { narrationAccessForAgent, type NarrationClicker } from "./staffNarration.js";
 import { voicelessCopyHint } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
+import { currentMontajerTexts } from "./montajerTexts.js";
 import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 import { backfillNarrationWhere, firstNarrationBaseWhere, freshNarrationWhere, narrationAutoEnabled, narrationPlannerOpen } from "./narrationPlan.js";
 
@@ -1200,7 +1201,7 @@ async function notifyEditorNarrationDelayed(now: Date): Promise<number> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
   const editor = settings?.videoMontajerAgentId ? await prisma.agent.findUnique({ where: { id: settings.videoMontajerAgentId }, select: { telegramChatId: true, isActive: true } }) : null;
   if (!editor?.isActive || !editor.telegramChatId) return 0;
-  await sendToMontajer(editor.telegramChatId, `Объект №${holder.shortId}: озвучка задерживается, сервис озвучки на паузе. Монтируйте как обычно, mp3 придёт сюда отдельным файлом.`, { copy: false })
+  await sendToMontajer(editor.telegramChatId, (await currentMontajerTexts()).narrationDelayed(holder.shortId), { copy: false })
     .catch((err) => logSystemError("video-handoff", `Монтажёру «озвучка задерживается» не ушло: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-editor-delay" }));
   return 1;
 }

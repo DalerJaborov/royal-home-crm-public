@@ -1387,6 +1387,7 @@ function VideoHandoffFields() {
   const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
   const staffClipOn = settings?.staffClipIntakeEnabled !== false;
   const queueControlOn = settings?.montajerQueueControlEnabled !== false;
+  const shortMessagesOn = settings?.montajerShortMessages !== false;
 
   return (
     <>
@@ -1439,6 +1440,18 @@ function VideoHandoffFields() {
           queueControlOn
             ? "В Telegram у монтажёра кнопки: пропустить объект (сделает позже или уже сделан), взять другой из очереди, передвинуть. Паузу очереди и отложенные объекты он не обходит. Снятие «уже сделан» приходит вам уведомлением."
             : "Выключено — монтажёр только смотрит очередь, порядок меняет руководитель."
+        }
+      />
+
+      {/* 28.11.2026, владелец: упростить автосообщения монтажёру. Сервер: lib/montajerTexts.ts. */}
+      <SwitchRow
+        title="Короткие сообщения монтажёру"
+        on={shortMessagesOn}
+        onToggle={() => updateSettings.mutate({ montajerShortMessages: !shortMessagesOn })}
+        hint={
+          shortMessagesOn
+            ? "Данные объекта только под первым видео, один короткий итог с кнопками, про голос сказано один раз."
+            : "Выключено: монтажёр получает сообщения в прежнем, подробном виде."
         }
       />
 

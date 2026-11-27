@@ -28,6 +28,7 @@ vi.mock("../src/lib/notifications.js", async (importOriginal) => ({ ...(await im
 
 const { narrationDraftText } = await import("@royal-home/shared");
 const { prisma } = await import("../src/db.js");
+const { LEGACY_MONTAJER_TEXTS } = await import("../src/lib/montajerTexts.js");
 const { listenNarration } = await import("../src/lib/narrationListen.js");
 const { waitForCount } = await import("./helpers/waitFor.js");
 const { dushanbeDayKey, NARRATION_LISTEN_PER_PERSON_DEFAULT } = await import("@royal-home/shared");
@@ -220,7 +221,9 @@ describe("перемонтаж и строка монтажёру", () => {
     await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA", listenId: heard.status === "READY" ? heard.id : undefined });
     tts.audio.mockClear();
     // «Одобрена: придёт сразу после файлов» обещается, только когда голос правда уйдёт (отправка включена, ревью 21.11).
-    const line = await withLive(() => narrationLineForMontajer(p.id));
+    // Короткий вид (28.11.2026): про одобренный голос, что уйдёт следом, говорит итог («Голос придёт следом»), в задании строки нет.
+    expect(await withLive(() => narrationLineForMontajer(p.id))).toBeNull();
+    const line = await withLive(() => narrationLineForMontajer(p.id, LEGACY_MONTAJER_TEXTS));
     expect(line).toContain("одобрена");
     expect(line).not.toContain("ждёт одобрения");
     expect(tts.audio).not.toHaveBeenCalled();
@@ -233,7 +236,8 @@ describe("перемонтаж и строка монтажёру", () => {
     expect(line).not.toContain("ждёт одобрения");
     const id = await generate(p.id);
     expect(await approveNarrationAsSaved(id)).toBe("AUDIO_APPROVED");
-    expect(await withLive(() => narrationLineForMontajer(p.id))).toContain("одобрена");
+    expect(await withLive(() => narrationLineForMontajer(p.id, LEGACY_MONTAJER_TEXTS))).toContain("одобрена");
+    expect(await withLive(() => narrationLineForMontajer(p.id))).toBeNull();
   });
 });
 

@@ -48,6 +48,7 @@ import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import { currentMontajerTexts } from "../lib/montajerTexts.js";
 import { formatDurationShort } from "../lib/rawVideoFacts.js";
 import { dushanbeDateTimeString } from "../lib/dushanbeTime.js";
 import {
@@ -164,7 +165,13 @@ function montajerAlbumEntry(groupId: string): MontajerAlbumEntry | undefined {
   return entry;
 }
 
-async function askWhichObject(input: MontajerVideoInput, candidates: number[], text: string, withNeither: boolean): Promise<void> {
+async function askWhichObject(
+  input: MontajerVideoInput,
+  candidates: number[],
+  text: string,
+  withNeither: boolean,
+  labels: { button: (n: number) => string; neither?: string } = { button: (n) => `Это №${n}` }
+): Promise<void> {
   const payload: ReceiveQuestionPayload = {
     updateId: input.updateId,
     fileId: input.fileId,
@@ -179,8 +186,9 @@ async function askWhichObject(input: MontajerVideoInput, candidates: number[], t
     expiresAt: new Date(Date.now() + MONTAJER_RECEIVE_QUESTION_TTL_MS),
   };
   await prisma.telegramDialogState.upsert({ where: { chatId: input.chatId }, create: { chatId: input.chatId, ...data }, update: data });
-  const buttons: TelegramInlineButton[][] = candidates.map((n) => [{ text: `Это №${n}`, callback_data: `mj:rcv:${input.updateId}:${n}` }]);
-  if (withNeither) buttons.push([{ text: "Ни то, ни другое", callback_data: `mj:rcv:${input.updateId}:0` }]);
+  // Коды кнопок mj:rcv:* не меняются; подписи — lib/montajerTexts.ts (короткий вид: «№235 в работе», «Другой»).
+  const buttons: TelegramInlineButton[][] = candidates.map((n) => [{ text: labels.button(n), callback_data: `mj:rcv:${input.updateId}:${n}` }]);
+  if (withNeither) buttons.push([{ text: labels.neither ?? "Ни то, ни другое", callback_data: `mj:rcv:${input.updateId}:0` }]);
   await sendToMontajer(input.chatId, text, { copy: true, replyMarkup: buttons }).catch((err) =>
     logSystemError("video-handoff", `Вопрос монтажёру «чей ролик» не отправился: ${describeError(err)}`)
   );
@@ -264,13 +272,8 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
     const skipped = await montajerSkippedAwaitingFinal(holder?.id);
     if (skipped.length > 0) {
       const candidates = [...(holder ? [holder.shortId] : []), ...skipped.map((s) => s.shortId)];
-      const inWork = holder ? `Сейчас у вас в работе №${holder.shortId}. ` : "";
-      await askWhichObject(
-        input,
-        candidates,
-        `Чей это ролик? В имени файла нет номера объекта. ${inWork}Недавно вы пропускали ${skipped.map((s) => `№${s.shortId}`).join(", ")}. Нажмите номер объекта.`,
-        true
-      );
+      const question = (await currentMontajerTexts()).whoseClip({ holder: holder?.shortId ?? null, skipped: skipped.map((s) => s.shortId) });
+      await askWhichObject(input, candidates, question.text, true, { button: question.buttonLabel, neither: question.neitherLabel });
       return;
     }
   }
@@ -330,12 +333,14 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       // Номер есть, но этот объект ролика от вас не ждёт — на чужой объект
       // файл не кладём ни в каком случае. Держатель есть и номер набран не
       // кнопкой — предлагаем кнопку «Это всё-таки №<держатель>» (ошибка в имени).
-      const what = target ? `Объект №${declared} сейчас не ждёт от вас ролик.` : `Объекта №${declared} в CRM нет.`;
-      const text = `${what}${inWork} Файл не принят. Если это ролик для объекта в работе — пришлите его с номером этого объекта в имени файла или в подписи.`;
+      const texts = await currentMontajerTexts();
+      const holderNow = property?.shortId ?? null;
       if (holder && forcedShortId === undefined) {
-        await askWhichObject(input, [holder.shortId], `${text}\nИли нажмите кнопку, если это всё-таки ролик для №${holder.shortId}.`, false);
+        const refusal = texts.notWaiting({ declared, exists: !!target, holder: holderNow ?? holder.shortId, withButton: true });
+        await askWhichObject(input, [holder.shortId], refusal.text, false, { button: refusal.buttonLabel });
       } else {
-        await sendToMontajer(chatId, text, { copy: false }).catch(() => {});
+        const refusal = texts.notWaiting({ declared, exists: !!target, holder: holderNow, withButton: false });
+        await sendToMontajer(chatId, refusal.text, { copy: false }).catch(() => {});
       }
       void logSystemError(
         "video-handoff",

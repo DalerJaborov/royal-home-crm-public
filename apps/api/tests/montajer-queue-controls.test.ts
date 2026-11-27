@@ -25,8 +25,8 @@ const { sendMessage, sendMessageWithButtons, answerCallbackQuery, sendDocumentFi
   sendMessage: vi.fn(async (_chatId: string, _text: string) => ({})),
   sendMessageWithButtons: vi.fn(async (_chatId: string, _text: string, _buttons: unknown) => ({ message_id: 1 })),
   answerCallbackQuery: vi.fn(async () => ({})),
-  sendDocumentFile: vi.fn(async (_c: string, _f: unknown, name: string, _caption?: string) => ({ message_id: 1, document: { file_id: `fid-${name}` } })),
-  sendDocument: vi.fn(async (_c: string, _fileId: string, _caption?: string) => ({})),
+  sendDocumentFile: vi.fn(async (_c: string, _f: unknown, name: string, _caption?: string, ..._rest: unknown[]) => ({ message_id: 1, document: { file_id: `fid-${name}` } })),
+  sendDocument: vi.fn(async (_c: string, _fileId: string, _caption?: string, ..._rest: unknown[]) => ({})),
   sendPushToAgents: vi.fn(async (_ids: string[], _payload: unknown) => 0),
 }));
 
@@ -158,6 +158,14 @@ function filesSentFor(p: Seeded): number {
   );
 }
 
+/** Кнопки под файлом объекта (короткий вид, 28.11.2026: один файл без голоса — итога нет, кнопки под файлом). */
+function fileButtonsFor(p: Seeded): unknown {
+  const head = `Объект №${p.shortId} ·`;
+  const file = sendDocumentFile.mock.calls.find((c) => String(c[3] ?? "").startsWith(head));
+  if (file) return file[6];
+  return sendDocument.mock.calls.find((c) => String(c[2] ?? "").startsWith(head))?.[3];
+}
+
 async function state(p: Seeded) {
   return prisma.property.findUniqueOrThrow({
     where: { id: p.id },
@@ -224,24 +232,46 @@ afterAll(async () => {
 });
 
 describe("кнопки под заданием", () => {
-  it("под файлами — «🗂 Очередь» и «⏭ Пропустить №N»; рубильник выключен — без кнопок", async () => {
+  it("под заданием — «🗂 Очередь» и «⏭ Пропустить №N» (один файл без голоса — под самим файлом); рубильник выключен — без кнопок", async () => {
     const a = await seedProperty("задание");
-    await queueVideoHandoff(a.id);
-    await settleBackgroundHandoffDispatches();
-    expect(filesSentFor(a)).toBe(1);
-    const control = sendMessageWithButtons.mock.calls.find((c) => String(c[1]).startsWith("Отправлено 1 из 1 файла"));
-    expect(control, "контрольное сообщение с кнопками").toBeTruthy();
-    expect(JSON.stringify(control![2])).toContain(`mj:sk:${a.shortId}`);
-    expect(JSON.stringify(control![2])).toContain("mj:queue");
+    const again = async () => {
+      await prisma.property.update({ where: { id: a.id }, data: { videoHandoffStatus: "NONE" } });
+      for (const m of [sendMessage, sendMessageWithButtons, sendDocumentFile, sendDocument]) m.mockClear();
+      await queueVideoHandoff(a.id);
+      await settleBackgroundHandoffDispatches();
+    };
+    try {
+      await queueVideoHandoff(a.id);
+      await settleBackgroundHandoffDispatches();
+      expect(filesSentFor(a)).toBe(1);
+      // Короткий вид: итога «Отправлено 1 из 1» нет, кнопки под самим файлом.
+      expect(JSON.stringify(fileButtonsFor(a))).toContain(`mj:sk:${a.shortId}`);
+      expect(JSON.stringify(fileButtonsFor(a))).toContain("mj:queue");
+      expect(sendMessageWithButtons.mock.calls.some((c) => String(c[1]).includes(`Объект №${a.shortId}:`))).toBe(false);
 
-    await prisma.property.update({ where: { id: a.id }, data: { videoHandoffStatus: "NONE" } });
-    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerQueueControlEnabled: false } });
-    sendMessage.mockClear();
-    sendMessageWithButtons.mockClear();
-    await queueVideoHandoff(a.id);
-    await settleBackgroundHandoffDispatches();
-    expect(sendMessage.mock.calls.some((c) => String(c[1]).startsWith("Отправлено 1 из 1 файла"))).toBe(true);
-    expect(sendMessageWithButtons.mock.calls.some((c) => JSON.stringify(c[2]).includes("mj:sk:"))).toBe(false);
+      // Прежний вид (рубильник коротких ВЫКЛ): контрольное с кнопками, под файлом кнопок нет.
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: false } });
+      await again();
+      const control = sendMessageWithButtons.mock.calls.find((c) => String(c[1]).startsWith("Отправлено 1 из 1 файла"));
+      expect(control, "контрольное сообщение с кнопками").toBeTruthy();
+      expect(JSON.stringify(control![2])).toContain(`mj:sk:${a.shortId}`);
+      expect(JSON.stringify(control![2])).toContain("mj:queue");
+      expect(fileButtonsFor(a)).toBeUndefined();
+
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerQueueControlEnabled: false } });
+      await again();
+      expect(sendMessage.mock.calls.some((c) => String(c[1]).startsWith("Отправлено 1 из 1 файла"))).toBe(true);
+      expect(sendMessageWithButtons.mock.calls.some((c) => JSON.stringify(c[2]).includes("mj:sk:"))).toBe(false);
+
+      // Короткий вид при выключенном управлении очередью: ни итога, ни кнопок.
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+      await again();
+      expect(filesSentFor(a)).toBe(1);
+      expect(fileButtonsFor(a)).toBeUndefined();
+      expect(sendMessageWithButtons.mock.calls.some((c) => JSON.stringify(c[2]).includes("mj:sk:"))).toBe(false);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+    }
   });
 });
 
@@ -327,7 +357,7 @@ describe("⏭ Пропустить — «Уже сделан / не нужен»
     expect(filesSentFor(a)).toBe(1);
     expect(said(`Готово: №${h.shortId} снят из очереди, руководителю сообщил. Ролик №${h.shortId} пришлите сюда`)).toBe(true);
     expect(said(`Следующий у вас: №${a.shortId}`)).toBe(true);
-    expect(allReplies().some((r) => r.includes("доделывать не нужно"))).toBe(false);
+    expect(allReplies().some((r) => r.includes("доделывать не нужно") || r.includes("Монтировать не нужно"))).toBe(false);
 
     await waitFor(() => (sendPushToAgents.mock.calls.length > 0 ? true : null));
     const [, payload] = sendPushToAgents.mock.calls[0]!;

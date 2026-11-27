@@ -83,8 +83,7 @@ import { describeError } from "../lib/describeError.js";
 import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
 import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
-import { sendToMontajer } from "../lib/montageObservers.js";
-import { alertNoMontajerIfWorkWaits } from "../lib/montajerHandover.js";
+import { alertNoMontajerIfWorkWaits, tellPreviousMontajerHandedOver } from "../lib/montajerHandover.js";
 
 /** Ключи весов — из реестра метрик, а не строками: новая метрика в kpi.ts сразу
  *  принимается и здесь, без второй правки. */
@@ -980,6 +979,8 @@ const settingsUpdateSchema = z.object({
   staffClipIntakeEnabled: z.boolean().optional(),
   /** Монтажёр управляет очередью из бота: пропустить, взять другой, передвинуть (19.11.2026, lib/montajerQueueControl.ts). */
   montajerQueueControlEnabled: z.boolean().optional(),
+  /** Короткие сообщения монтажёру в Telegram (28.11.2026, lib/montajerTexts.ts): по умолчанию включено. */
+  montajerShortMessages: z.boolean().optional(),
   /** Проверка фото и видео агента перед монтажом (25.09.2026). false — CRM
    *  одобряет сама (lib/propertyReview.ts::autoApproveIfRawReviewOff). */
   rawReviewRequired: z.boolean().optional(),
@@ -1880,23 +1881,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         // Старому — короткое сообщение, дожидаемся (это быстро). Только когда
         // РЕАЛЬНО передаём новому: снятие (null) старого не уведомляет — тем же
         // поведением, что было до 25.09.2026 (нет адресата, которому «передан»).
-        if (previousMontajerAgentId) {
-          try {
-            // Уволенному в личный Telegram про объекты агентства не пишем (11.11.2026).
-            const oldMontajer = await prisma.agent.findFirst({
-              where: { id: previousMontajerAgentId, isActive: true },
-              select: { telegramChatId: true },
-            });
-            if (oldMontajer?.telegramChatId) {
-              await sendToMontajer(oldMontajer.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, {
-                copy: true,
-                propertyShortId: holder.shortId,
-              });
-            }
-          } catch {
-            // best effort — молчание старого монтажёра не должно ломать сохранение настройки.
-          }
-        }
+        // Уволенному в личный Telegram про объекты агентства не пишем (11.11.2026); не бросает.
+        if (previousMontajerAgentId) await tellPreviousMontajerHandedOver(previousMontajerAgentId, holder.shortId);
         dispatchInBackground(holder.id, newMontajerId);
       } else {
         // Монтажёра сняли (null) — слать некому, только след в журнале: объект

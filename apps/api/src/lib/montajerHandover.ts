@@ -4,6 +4,7 @@ import { describeError } from "./describeError.js";
 import { EDITOR_HOLDER_WHERE, dispatchToEditor, nextInQueue } from "./videoHandoff.js";
 import { alertMontageStuck } from "./videoHandoffStaleAlarm.js";
 import { sendToMontajer } from "./montageObservers.js";
+import { currentMontajerTexts } from "./montajerTexts.js";
 
 /**
  * ОЧЕРЕДЬ МОНТАЖА ПЕРЕХОДИТ К ТЕКУЩЕМУ МОНТАЖЁРУ (решение владельца 10–11.11.2026:
@@ -73,21 +74,27 @@ export async function handOverHolderToCurrentMontajer(
     );
     return false;
   }
-  if (delivered) {
-    // Прежнему — короткое «передан другому», только если он ещё работает:
-    // уволенному в личный Telegram про объекты агентства не пишем.
+  if (delivered) await tellPreviousMontajerHandedOver(previousMontajerAgentId, holder.shortId);
+  return delivered;
+}
+
+/**
+ * «ОБЪЕКТ №N ПЕРЕДАН ДРУГОМУ МОНТАЖЁРУ» — ОДНА ФУНКЦИЯ (28.11.2026; было два места: здесь и сохранение
+ * Настроек в routes/settings.ts). Прежнему — только если он ещё работает: уволенному в личный Telegram
+ * про объекты агентства не пишем. Не бросает: молчание прежнего монтажёра не ломает передачу и Настройки.
+ */
+export async function tellPreviousMontajerHandedOver(previousMontajerAgentId: string, shortId: number): Promise<void> {
+  try {
     const old = await prisma.agent.findFirst({
       where: { id: previousMontajerAgentId, isActive: true },
       select: { telegramChatId: true },
     });
-    if (old?.telegramChatId) {
-      await sendToMontajer(old.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, {
-        copy: true,
-        propertyShortId: holder.shortId,
-      }).catch(() => {});
-    }
+    if (!old?.telegramChatId) return;
+    const texts = await currentMontajerTexts();
+    await sendToMontajer(old.telegramChatId, texts.handedOver(shortId), { copy: true, propertyShortId: shortId });
+  } catch {
+    // best effort
   }
-  return delivered;
 }
 
 /** То же окно, что HANDOFF_DISPATCH_BUSY_WINDOW_MS в videoHandoff.ts. */

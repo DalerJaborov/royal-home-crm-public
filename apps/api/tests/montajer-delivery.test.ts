@@ -217,7 +217,7 @@ describe("15 файлов одного объекта", () => {
     sent.forEach((call, i) => {
       expect(call.kind).toBe("file");
       expect(call.name).toBe(`${p.shortId}_${i + 1}из15.mp4`);
-      expect(call.caption.startsWith(`Объект №${p.shortId} · файл ${i + 1} из 15`)).toBe(true);
+      expect(call.caption.startsWith(`Объект №${p.shortId} · 🎬 видео ${i + 1} из 15`)).toBe(true);
     });
     // Файл i — это исходник i по времени загрузки (file_id выдан по имени).
     const videos = await videosWithFileIds(p.id);
@@ -230,7 +230,7 @@ describe("15 файлов одного объекта", () => {
     expect(after.videoHandoffDeliveredAt).not.toBeNull();
 
     const texts = sendMessage.mock.calls.map((c) => String(c[1]));
-    expect(texts).toContain(`Отправлено 15 из 15 файлов объекта №${p.shortId}.`);
+    expect(texts).toContain(`Объект №${p.shortId}: 15 видео отправлено.`);
 
     const journal = await journalEntry(p.id, 1);
     expect(journal.text).toContain("Файлов: 15");
@@ -253,7 +253,7 @@ describe("15 файлов одного объекта", () => {
     expect(s.videoHandoffDeliveredAt).toBeNull();
     expect(sent).toHaveLength(15); // сбой одного не останавливает остальные
     expect(sendMessage.mock.calls.map((c) => String(c[1]))).toContain(
-      `Объект №${p.shortId}: дошло 14 из 15 файлов, остальное дошлю автоматически.`
+      `Объект №${p.shortId}: дошло 14 из 15 видео, остальное дошлём сами.`
     );
     const journal = await journalEntry(p.id, 1);
     expect(journal.text).toContain("7. raw-7.mp4 — 0 МБ — ✗ не дошёл");
@@ -265,10 +265,10 @@ describe("15 файлов одного объекта", () => {
       new Date(s.videoHandoffSentAt!.getTime() + redeliveryDelayMs(s.videoHandoffDispatchAttempts) + 1000)
     );
     expect(tick.redelivered).toBe(1);
-    expect(sent).toEqual([{ kind: "file", name: `${p.shortId}_7из15.mp4`, caption: expect.stringMatching(new RegExp(`^Объект №${p.shortId} · файл 7 из 15`)) }]);
+    expect(sent).toEqual([{ kind: "file", name: `${p.shortId}_7из15.mp4`, caption: expect.stringMatching(new RegExp(`^Объект №${p.shortId} · 🎬 видео 7 из 15`)) }]);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, select: { videoHandoffDeliveredAt: true } });
     expect(after.videoHandoffDeliveredAt).not.toBeNull();
-    expect(sendMessage.mock.calls.map((c) => String(c[1]))).toContain(`Отправлено 15 из 15 файлов объекта №${p.shortId}.`);
+    expect(sendMessage.mock.calls.map((c) => String(c[1]))).toContain(`Объект №${p.shortId}: 15 видео отправлено.`);
     // Журнал досылки честно помнит, что 14 уже были у монтажёра.
     const second = await journalEntry(p.id, 2);
     expect(second.text.match(/✓ уже был у монтажёра/g)?.length).toBe(14);

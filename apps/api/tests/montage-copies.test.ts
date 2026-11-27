@@ -324,9 +324,11 @@ describe("sendToMontajer — единая точка отправки", () => {
 });
 
 describe("Контрольное «Отправлено N из N»", () => {
+  // Два файла: при одном файле без голоса короткий вид итог не шлёт (кнопки под файлом, 28.11.2026).
   it("монтажёр получает контрольный текст, наблюдатель — его копию", async () => {
     const property = await seedProperty("контроль");
     await addRawVideo(property.id);
+    await addRawVideo(property.id, "raw-2.mp4");
     await prisma.property.update({
       where: { id: property.id },
       data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffDeliveredAt: null, videoHandoffDispatchAttempts: 0 },
@@ -334,7 +336,7 @@ describe("Контрольное «Отправлено N из N»", () => {
 
     await dispatchToEditor(property.id, montajerId);
 
-    const controlText = `Отправлено 1 из 1 файла объекта №${property.shortId}.`;
+    const controlText = `Объект №${property.shortId}: 2 видео отправлено.`;
     expect(textsTo(MONTAJER_CHAT)).toContain(controlText);
     const observerCopies = textsTo(OBSERVER_CHAT);
     expect(observerCopies.some((t) => t.includes("Копия. Монтажёр:") && t.includes(controlText))).toBe(true);
@@ -356,7 +358,7 @@ describe("Снятие с монтажа / продан / удалён", () => {
     const result = await cancelVideoHandoffQueueEntry(property.id);
 
     expect(result.ok).toBe(true);
-    const expectedText = `Объект №${property.shortId} сняли с монтажа — доделывать не нужно, ролик можно не присылать.`;
+    const expectedText = `Объект №${property.shortId} сняли с монтажа. Монтировать не нужно, ролик присылать не надо.`;
     expect(textsTo(MONTAJER_CHAT)).toContain(expectedText);
     const observerCopies = textsTo(OBSERVER_CHAT);
     expect(observerCopies.some((t) => t.includes("Копия. Монтажёр:") && t.includes(expectedText))).toBe(true);
@@ -368,7 +370,7 @@ describe("Снятие с монтажа / продан / удалён", () => {
 
     await releaseVideoHandoffForTrashed([property.id]);
 
-    const expectedText = `Объект №${property.shortId} удалён — доделывать не нужно, ролик можно не присылать.`;
+    const expectedText = `Объект №${property.shortId} удалён. Монтировать не нужно, ролик присылать не надо.`;
     expect(textsTo(MONTAJER_CHAT)).toContain(expectedText);
     const observerCopies = textsTo(OBSERVER_CHAT);
     expect(observerCopies.some((t) => t.includes("Копия. Монтажёр:") && t.includes(expectedText))).toBe(true);
@@ -407,10 +409,10 @@ describe("Вопрос с кнопками (номер в имени не сов
 
     expect(hadButtons(MONTAJER_CHAT)).toBe(true);
     const montajerQuestion = sendMessageWithButtons.mock.calls.find((c) => c[0] === MONTAJER_CHAT)?.[1] as string;
-    expect(montajerQuestion).toContain("сейчас не ждёт от вас ролик");
+    expect(montajerQuestion).toContain(`объект №${idle.shortId} не ждёт ролик`);
 
     const observerCopies = textsTo(OBSERVER_CHAT);
-    expect(observerCopies.some((t) => t.includes("Копия. Монтажёр:") && t.includes("сейчас не ждёт от вас ролик"))).toBe(true);
+    expect(observerCopies.some((t) => t.includes("Копия. Монтажёр:") && t.includes(`объект №${idle.shortId} не ждёт ролик`))).toBe(true);
     expect(hadButtons(OBSERVER_CHAT)).toBe(false);
 
     await prisma.property.update({ where: { id: holder.id }, data: { videoHandoffStatus: "NONE" } });

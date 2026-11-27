@@ -255,7 +255,7 @@ describe("файл без номера и номер мимо (А2, вопрос
     const { updateId, done } = sendFile(`${idle.shortId}.mp4`);
     await done;
     const [, refusal, buttons] = sendMessageWithButtons.mock.calls.at(-1)!;
-    expect(refusal).toContain(`Объект №${idle.shortId} сейчас не ждёт от вас ролик`);
+    expect(refusal).toContain(`Файл не принят: объект №${idle.shortId} не ждёт ролик`);
     expect(JSON.stringify(buttons)).toContain(`mj:rcv:${updateId}:${holder.shortId}`);
     expect(await finalPath(holder.id)).toBeNull();
 
