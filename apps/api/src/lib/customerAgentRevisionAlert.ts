@@ -11,6 +11,8 @@ import { logSystemError } from "./systemError.js";
  * changed, upgrade needs a decision) or the core stays busy past the grace. */
 const reported = new Set<string>();
 const DAY = 24 * 60 * 60_000;
+/** Заголовок пуша руководству: тот же, что у сторожа «бот замолчал» (lib/botSilenceWatch.ts). */
+export const BOT_STOPPED_TITLE = "Бот перестал отвечать клиентам";
 
 export type CustomerAgentRevisionHeldReason = "current_artifact_revision_mismatch" | "current_artifact_verification_unavailable" |
   /** The automatic refresh is allowed but the core is not idle past the grace: the button would fail the same way. */
@@ -86,11 +88,15 @@ async function alertDirectorsOnce(revisionId: string, idleBlocked = false): Prom
     });
     if (already) return;
     await enqueueDirectorAlert({
-      title: "Новый бот остановлен — клиенты без ответа",
+      // Те же слова и те же люди, что у сторожа «бот замолчал» (lib/botSilenceWatch.ts, владелец 27.11.2026: «по-человечески,
+      // а не по-технически»): что случилось для клиентов и что делать сейчас, без версий и кодов.
+      title: BOT_STOPPED_TITLE,
       // Idle-blocked: the button hits the same wait, so do not send the owner to it (prod 26.11.2026).
       body: idleBlocked
-        ? "После обновления CRM бот ждёт окончания текущей работы дольше 15 минут. Кнопка «Обновить версию бота» сейчас не поможет; причина — в журнале ошибок."
-        : "После обновления CRM бот ждёт подтверждения версии. Настройки → Новый бот → «Обновить версию бота».",
+        ? "После обновления CRM бот остановился и не отвечает клиентам: ждёт окончания текущей работы дольше 15 минут. " +
+          "Кнопка «Обновить версию бота» сейчас не поможет, сообщите разработчику. Пока бот молчит, отвечайте клиентам вручную в CRM → Чаты."
+        : "После обновления CRM бот остановился и не отвечает клиентам. Чтобы запустить: Настройки → Новый бот → «Обновить версию бота». " +
+          "Пока бот молчит, отвечайте клиентам вручную в CRM → Чаты.",
       url: "/settings?tab=bot&task=rollout",
       level: "CRITICAL",
       severity: "critical",

@@ -58,6 +58,9 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   received_orphaned_after_deadline: "сообщение не дошло до бота вовремя (сбой очереди), ответа не было",
   // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
+  // lib/customerAgentRevisionAlert.ts: the core is stopped after a CRM update (incident 26.11.2026); the owner reads words, not codes.
+  current_artifact_revision_mismatch: "бот остановился после обновления CRM и клиенту не ответил",
+  current_artifact_verification_unavailable: "бот остановился после обновления CRM и клиенту не ответил",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 /** customerAgentEnrollment.ts, kill switch off: a WhatsApp customer wrote to our other number while their one chat lives on the first one. */
