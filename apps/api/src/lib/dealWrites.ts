@@ -33,6 +33,7 @@ import { annulDeal, DealAnnulError, reverseDealClosedScore } from "./dealAnnul.j
 import { dushanbeWallClock } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { logSystemError } from "./systemError.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /**
  * СОЗДАНИЕ И ПРАВКА СДЕЛКИ — ОДНА ДВЕРЬ (10.11.2026, Шабнам и «Сделки»).
@@ -1372,20 +1373,21 @@ export async function updateDealFor(
        * задержать ответ 200 «сделка закрыта».
        */
       const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
-      void prisma.agent
-        .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true } })
-        .then((agents) =>
-          sendPushToAgents(
-            agents.map((a) => a.id),
-            {
-              kind: "celebration",
-              title: `🎉 Сделка закрыта — ${closer?.fullName ?? "агент"}`,
-              body: `${existing.client?.fullName ?? "Клиент"} — поздравляем!`,
-              url: "/deals",
-              tag: `deal-celebration-${existing.id}`,
-            }
-          )
-        )
+      // Владелец 27.11.2026: «не надо» — по умолчанию не шлём вовсе (ни пуша, ни колокольчика). Рубильник ВКЛ — пуш всем.
+      const celebration = {
+        kind: "celebration",
+        title: `🎉 Сделка закрыта — ${closer?.fullName ?? "агент"}`,
+        body: `${existing.client?.fullName ?? "Клиент"} — поздравляем!`,
+        url: "/deals",
+        tag: `deal-celebration-${existing.id}`,
+      } as const;
+      void Promise.all([
+        prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true } }),
+        automationSwitchOn("notifyDealClosedTeamPushEnabled").catch(() => false),
+      ])
+        .then(async ([agents, pushOn]) => {
+          if (pushOn) await sendPushToAgents(agents.map((a) => a.id), celebration);
+        })
         .catch((err) => console.error("[push] салют команде за сделку:", err));
     }
 
