@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+// Рубильник «ответ сотрудника останавливает бота» по умолчанию выключен (27.11.2026); тут проверяется сама пауза, поэтому он включён подменой.
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) =>
+  (await import("./helpers/staffReplyPauseOn.js")).withStaffReplyPauseOn(await importOriginal()));
 import { prisma } from "../src/db.js";
 import { admitLegacyPhysicalPost, settleLegacyPhysicalPost, quiesceLegacyPhysicalScopeTx,
   legacyPhysicalDigest, type LegacyPhysicalTarget } from "../src/lib/customerLegacyPhysical.js";

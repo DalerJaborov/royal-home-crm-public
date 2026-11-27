@@ -3,7 +3,10 @@ import { prisma } from "../db.js";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { isDuplicateDelivery, markProcessedMessageComplete } from "../lib/webhookDedupe.js";
-import { CustomerScopeDenied, resolveCustomerEndpoint, type ScopedCustomerEndpoint } from "../lib/customerConversationScope.js";
+import { CustomerScopeDenied, ensureScopedBotConversation, resolveCustomerEndpoint, type ScopedCustomerEndpoint } from "../lib/customerConversationScope.js";
+import { publishMessageNew } from "../lib/livePublish.js";
+import type { ChatMessage } from "../ai/client.js";
+import { markLastReplyUndelivered, stampOutgoingMid } from "./conversationStore.js";
 import { isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 import { routeMessengerCallbackRequest, recordCallbackRequest } from "../lib/callbackRequests.js";
 import { findClientByPhoneDigits } from "../lib/whatsappPhone.js";
@@ -19,8 +22,10 @@ import { whatsappCallbackRequestsEnabled, whatsappWelcomeEnabled, whatsappWelcom
  * человека. Здесь из них делается ровно то, что нужно, и ничего больше:
  *
  * 1. `request_welcome` — человек впервые открыл чат и ещё ничего не написал. Ответ — одно тёплое приветствие от бренда
- *    своего номера с вопросом «купить или продать». Ни переписки, ни заявки, ни пуша агентам: всё это начнётся, когда
- *    человек напишет сам. Если переписка с ним на этом номере уже есть — молчим: он не новый, ему уже отвечают.
+ *    своего номера с вопросом «купить или продать». Приветствие ложится в переписку этого номера исходящим сообщением бота
+ *    (видно в «Чатах», ядро знает, что уже спросило), но заявки, карточки, агента, пуша и напоминаний не заводит: всё это
+ *    начнётся, когда человек напишет сам. Если переписка с ним на этом номере уже есть — молчим: он не новый, ему уже отвечают
+ *    (то же держит замок записи: повтор с другим wamid второго приветствия не даёт).
  *    ФАКТ: тип сообщения `request_welcome` и `enable_welcome_message` в Conversational Automation API (справочник
  *    developers.facebook.com/documentation/business-messaging/whatsapp/reference/whatsapp-business-account/
  *    conversational-automation-api, прочитан 27.11.2026). НЕТ ДАННЫХ в нынешней странице «Conversational Components»:
@@ -227,13 +232,50 @@ async function handleWelcome(event: Extract<WhatsappServiceEvent, { kind: "welco
   if (await isCustomerAgentTurnOff({ channel: "WHATSAPP", accountId: endpoint.accountId })) return "skipped";
   if (await conversationOnLine(event.from, endpoint)) return "skipped";
   const text = whatsappWelcomeText(await brandOf(endpoint));
-  await sendMessage("WHATSAPP", event.from, text, undefined, {
-    origin: "bot",
-    recipientName: event.name,
-    transport: endpoint,
-    answersInbound: true,
-  });
+  // Приветствие ложится в переписку ДО отправки, как любой ответ бота (так к нему потом привязывается mid): сотрудник видит его
+  // в «Чатах», а ядро знает, что бот уже поздоровался и спросил (ai/operator/state.ts::seedStateFromBotWelcome).
+  const conversationId = await recordWelcome(endpoint, event.name, text);
+  if (!conversationId) return "skipped";
+  try {
+    const mid = await sendMessage("WHATSAPP", event.from, text, undefined, {
+      origin: "bot",
+      recipientName: event.name,
+      transport: endpoint,
+      answersInbound: true,
+    });
+    await stampOutgoingMid("WHATSAPP", event.from, mid, endpoint);
+  } catch (err) {
+    // Не ушло: в «Чатах» честная пометка, а ядро такое приветствие за вопрос не считает (botWelcomeDelivered).
+    await markLastReplyUndelivered("WHATSAPP", event.from, endpoint);
+    throw err;
+  }
   return "sent";
+}
+
+/**
+ * Записать приветствие как исходящее сообщение бота в переписку ЭТОГО номера (создаётся пустой, без карточки, агента, пуша и
+ * напоминаний: `lastMessageAt` не ставится, напоминания молчащим и счётчик непрочитанного его не видят). Замок — условное
+ * обновление «лента пуста»: две одновременные доставки с разными wamid дают одно приветствие, вторая видит чужую запись.
+ * null — приветствовать не надо: уже есть запись, или номер не подходит под область (`CustomerScopeDenied`).
+ */
+async function recordWelcome(endpoint: Endpoint, name: string | null, text: string): Promise<string | null> {
+  const message: ChatMessage = { role: "assistant", content: text, by: { kind: "bot" }, botWelcome: true, at: new Date().toISOString() };
+  let conversationId: string | null;
+  try {
+    conversationId = await prisma.$transaction(async (tx) => {
+      const scoped = await ensureScopedBotConversation(tx, { channel: "WHATSAPP", subscriberId: endpoint.subscriberId, transport: endpoint });
+      const claimed = await tx.$executeRaw`
+        UPDATE "BotConversation"
+        SET "messages" = ${JSON.stringify([message])}::jsonb, "name" = COALESCE("name", ${name}::text), "updatedAt" = now()
+        WHERE "id" = ${scoped.id} AND "messages" = '[]'::jsonb`;
+      return claimed > 0 ? scoped.id : null;
+    });
+  } catch (err) {
+    if (err instanceof CustomerScopeDenied) return null;
+    throw err;
+  }
+  if (conversationId) void publishMessageNew("bot", conversationId, "OUT");
+  return conversationId;
 }
 
 async function handleCallPermission(event: Extract<WhatsappServiceEvent, { kind: "call_permission" }>): Promise<"recorded" | "skipped"> {
