@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 147,
   "jobs": 37,
-  "conditions": 4331,
+  "conditions": 4333,
   "untranslatedUnique": 498,
   "untranslatedTotal": 640,
-  "partialUnique": 1145,
+  "partialUnique": 1147,
   "translatedShare": 85
  },
  "untranslated": [
@@ -74673,6 +74673,20 @@
        "a": [],
        "c": [
         {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если added больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
          "t": "если found количество — «0»",
          "k": "if",
          "a": [],
@@ -74705,6 +74719,13 @@
           },
           {
            "t": "если ответ — «accepted_other»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть unanswered и ответ — «declined»",
            "k": "if",
            "a": [],
            "c": [],

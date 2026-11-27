@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4370**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4372**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24163,6 +24163,10 @@
 - пробует
   - const { alerted, accepted, attached } = await runPhoneLeadWatchdogTick();
     · зовёт runPhoneLeadWatchdogTick()
+    - await sweepCardConversationPhones(now).then( (added)
+      - если added > 0
+        - console.log(`[cron] Номер из переписки дописан в карточку: ${added}`);
+          · пишет строку в журнал сервера
     - const found = await findPhonesWithoutLead(now);
       · зовёт findPhonesWithoutLead()
     - если found.length === 0
@@ -24173,7 +24177,7 @@
         · дословно из кода
     - для каждого: const row of candidates
       - если !canTakeItself
-        - если row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
+        - если (row.promised || row.unanswered) && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard
           - continue;
             · переходит к следующему
         - continue;
@@ -24186,6 +24190,9 @@
       - если outcome === "accepted_other"
         - continue;
           · переходит к следующему
+      - если row.unanswered && outcome === "declined"
+        - continue;
+          · переходит к следующему
     - если leftForHuman.length === 0
       - return { alerted: 0, accepted, attached };
         · дословно из кода
@@ -24196,8 +24203,6 @@
             · дословно из кода
         - continue;
           · переходит к следующему
-      - const what = row.landedInOther ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточ…
-        · зовёт maskClientPhone()
       - const payload = { kind: "oversight" as const, title: `📵 Заявка без карточки: ${who}`, body: `${dushanbeDateT…
         · зовёт dushanbeDateTimeString()
       - пробует

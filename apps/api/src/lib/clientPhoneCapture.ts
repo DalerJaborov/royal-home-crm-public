@@ -1,16 +1,31 @@
 import { prisma, type TxClient } from "../db.js";
-import { explicitOwnPhoneFact, fullPhoneIdentity, contextualOwnPhoneFact } from "./clientPhoneFacts.js";
+import { bareOwnPhoneFact, explicitOwnPhoneFact, fullPhoneIdentity, contextualOwnPhoneFact } from "./clientPhoneFacts.js";
 import { clientPhoneHash } from "./clientPhoneOrigins.js";
+import { automationSwitchOn } from "./automationSwitches.js";
+
+/**
+ * Номер одним сообщением в переписке с карточкой (27.11.2026): включён тем же рубильником, что и карточка по
+ * несостоявшемуся ходу WhatsApp (Settings.chatUnansweredCardEnabled). Сбой чтения рубильника — не повод терять номер.
+ */
+async function bareConversationFact(text: string): Promise<ReturnType<typeof bareOwnPhoneFact>> {
+  const fact = bareOwnPhoneFact(text);
+  if (!fact) return null;
+  return (await automationSwitchOn("chatUnansweredCardEnabled").catch(() => true)) ? fact : null;
+}
 
 type Source = { kind: "CALL" | "CONVERSATION"; id: string; at: Date; text: string; clientId: string; telegram?: boolean };
 /** Called only with authenticated incoming client text or attributed raw call transcript. Never model output. */
 export async function captureExplicitClientPhone(source: Source, tx?: TxClient): Promise<boolean> {
   let fact=explicitOwnPhoneFact(source.text,source.kind);
-  const contextual = !fact && source.kind === "CONVERSATION" && !source.telegram;
-  if (contextual) {
+  const conversationText = !fact && source.kind === "CONVERSATION" && !source.telegram;
+  /** Факт взят из ответа на вопрос бота «есть ещё номер?» — его перепроверяем под замком ниже. */
+  let contextual = false;
+  if (conversationText) {
     const conversation = await (tx ?? prisma).botConversation.findUnique({ where: { id: source.id }, select: { clientId: true, messages: true } });
     if (conversation?.clientId === source.clientId) fact = contextualOwnPhoneFact(source.text, conversation.messages, undefined, source.at);
+    contextual = !!fact;
   }
+  if (!fact && conversationText) fact = await bareConversationFact(source.text);
   if(!fact || !Number.isFinite(source.at.getTime())) return false;
   const acceptedFact = fact;
   const apply=async(db:TxClient)=>{
@@ -51,7 +66,7 @@ export async function captureExplicitClientPhone(source: Source, tx?: TxClient):
 
 /** Post-commit enrichment of literal public user messages; transactional append itself stays side-effect free. */
 export async function captureConversationPhoneMessages(conversationId: string, messages: Array<{ role: string; content: string; at?: string; by?: unknown; attachments?: unknown[] }>, telegram=false): Promise<void> {
-  const eligible=messages.filter(m=>m.role==='user' && !m.by && !m.attachments?.length && m.at && explicitOwnPhoneFact(m.content,'CONVERSATION'));
+  const eligible=messages.filter(m=>m.role==='user' && !m.by && !m.attachments?.length && m.at && (explicitOwnPhoneFact(m.content,'CONVERSATION') || (!telegram && bareOwnPhoneFact(m.content))));
   if(!eligible.length) return;
   const conversation=telegram ? await prisma.telegramConversation.findUnique({where:{id:conversationId},select:{clientId:true}}) : await prisma.botConversation.findUnique({where:{id:conversationId},select:{clientId:true}});
   if(!conversation?.clientId) return;

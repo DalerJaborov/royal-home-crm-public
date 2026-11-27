@@ -1,3 +1,5 @@
+import { extractAllPhones } from "./shared/phoneText.js";
+
 /** Conservative own-contact statements only; ambiguity is left for a person. */
 export function explicitOwnPhoneFact(text: string, kind: "CALL" | "CONVERSATION", ownPhoneReply = false): { phone: string; correction: boolean } | null {
   const lines = kind === "CALL" ? text.split(/\r?\n/).flatMap(line => { const m = /^\s*Клиент\s*:\s*(.+)$/iu.exec(line); return m ? [m[1]] : []; }) : [text];
@@ -18,6 +20,35 @@ export function explicitOwnPhoneFact(text: string, kind: "CALL" | "CONVERSATION"
   }
   return facts.length===1 ? facts[0] : null;
 }
+/** Слова, с которыми номер, присланный ОДНИМ сообщением, остаётся «просто номером». Всё прочее — уже фраза, решает человек. */
+const BARE_PHONE_FILLER = new Set(["номер", "мой", "моя", "телефон", "тел", "вот", "это", "ман", "рақам", "рақамам", "рақами", "раками",
+  "ракам", "ракамам", "ин", "мана", "ана", "whatsapp", "watsapp", "вотсап", "ватсап", "вацап", "ватсапп", "вотсапп", "viber", "вайбер",
+  "telegram", "телеграм", "imo", "имо", "nomer", "raqam", "raqamam", "tel"]);
+
+/**
+ * НОМЕР ОДНИМ СООБЩЕНИЕМ (27.11.2026, владелец: «кто оставил номер, должен попасть в CRM сам»).
+ * Клиент в СВОЕЙ переписке с нами прислал сообщение, в котором нет ничего, кроме одного номера
+ * («+992 900 12 34 56», «900-12-34-56 вотсап»), — это его номер так же ясно, как «мой номер …».
+ * Любые другие слова (муж, брат, собственник, «позвоните ему») — уже не «просто номер»: решает
+ * человек, как и раньше. Только для переписки; в расшифровке звонка такого правила нет.
+ */
+export function bareOwnPhoneFact(text: string): { phone: string; correction: false } | null {
+  const candidates = [...text.matchAll(/(?<![\p{L}\p{N}])\+?\d[\d ()-]{7,22}\d(?![\p{L}\p{N}])/gu)];
+  if (candidates.length !== 1) return null;
+  const raw = candidates[0][0];
+  const digits = raw.replace(/\D/g, "");
+  const phone = digits.length === 9 ? "+992" + digits : raw.trim().startsWith("+") && digits.length >= 10 && digits.length <= 15 ? "+" + digits
+    : digits.length === 12 && digits.startsWith("992") ? "+" + digits : null;
+  if (!phone) return null;
+  // Строгий разбор переписки (цена, площадь, дата номером не становятся): тот же, что у приёма заявки.
+  if (extractAllPhones(text).length !== 1) return null;
+  const rest = (text.slice(0, candidates[0].index) + " " + text.slice((candidates[0].index ?? 0) + raw.length)).toLowerCase();
+  if (/\d/.test(rest)) return null;
+  const words = rest.match(/\p{L}+/gu) ?? [];
+  if (words.some((w) => !BARE_PHONE_FILLER.has(w))) return null;
+  return { phone, correction: false };
+}
+
 export function fullPhoneIdentity(phone: string): string {
   const digits=phone.replace(/\D/g,'');return digits.length===9 ? '992'+digits : digits;
 }

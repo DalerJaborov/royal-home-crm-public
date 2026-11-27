@@ -18,6 +18,9 @@ import { sendPushToAgents } from "../push.js";
 import { resolveWhatsAppLeadIdentity, WHATSAPP_CHANNEL } from "./whatsappPhone.js";
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./customerLeadOnlyCore.js";
 import { lastAgentContactPromise, PROMISE_GRACE_MS } from "./agentContactPromise.js";
+import { unansweredClientTurn } from "./unansweredChatTurn.js";
+import { isPublicAgencyPhone, isRetiredPublicAgencyPhone } from "./publicAgencyContact.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 export { lastAgentContactPromise, PROMISE_GRACE_MS } from "./agentContactPromise.js";
 
 /**
@@ -85,6 +88,19 @@ function lastSignalIsRent(texts: readonly string[]): boolean {
 /** Предел выборки: любой запрос, возвращающий массив, обязан иметь потолок. */
 const MAX_CONVERSATIONS = 500;
 
+/** Номер самого агентства (действующий и прежний), процитированный клиентом, — не его номер (27.11.2026). */
+function isOwnAgencyPhone(phone: string): boolean {
+  const digits = phone.replace(/\D/g, "");
+  return [digits, digits.slice(-9)].some((d) => isPublicAgencyPhone(d) || isRetiredPublicAgencyPhone(d));
+}
+
+/** Первый номер клиента в реплике, кроме номера самого агентства. Правило отбора — строгое, как у живого хода. */
+function volunteeredClientPhone(text: string): string | null {
+  const first = extractVolunteeredPhone(text);
+  if (!first || !isOwnAgencyPhone(first)) return first;
+  return extractAllPhones(text).find((p) => !isOwnAgencyPhone(p)) ?? null;
+}
+
 export interface PhoneWithoutLead {
   conversationId: string;
   channel: string;
@@ -116,6 +132,11 @@ export interface PhoneWithoutLead {
   refusalUnclear?: boolean;
   /** Номер у карточки из Корзины: тихий приём её воскресил бы (и мог бы написать клиенту) — решает человек. */
   basketCard?: boolean;
+  /**
+   * WhatsApp: клиент написал по делу, бот не ответил (ядро держало ход, пауза, сбой), номер — сам отправитель
+   * (27.11.2026, lib/unansweredChatTurn.ts). Отказ приёма здесь (аренда, другой город) — нормальный исход, не тревога.
+   */
+  unanswered?: boolean;
 }
 
 /** Слова КЛИЕНТА этого диалога — без врезок разобранных файлов: текст внутри
@@ -124,7 +145,9 @@ export interface PhoneWithoutLead {
  *  реплика без отметки времени к «новым» не относится: старый номер не воскрешаем. */
 function clientTexts(messages: ConversationMessage[], after?: Date | null): string[] {
   return messages
-    .filter((m) => m.role === "user" && typeof m.content === "string" && m.content)
+    // `by` у реплики роли user — эхо сотрудника, писавшего с телефона компании (conversation.ts, fromStaff):
+    // это наши слова, и номер в них (офис, свой мобильный) — не номер клиента (27.11.2026).
+    .filter((m) => m.role === "user" && !m.by && typeof m.content === "string" && m.content)
     .filter((m) => !after || (typeof m.at === "string" && Date.parse(m.at) > after.getTime()))
     .slice(-LOOK_BACK_MESSAGES)
     .map((m) => stripUntrusted(m.content, ["document", "video", "voice"]));
@@ -139,8 +162,10 @@ function clientTexts(messages: ConversationMessage[], after?: Date | null): stri
 export async function findPhonesWithoutLead(
   now: Date = new Date(),
   /** Только для разового добора (backfillPhonesWithoutLead): шире окно и без учёта прошлых попыток. */
-  options: { windowHours?: number; ignoreAttempts?: boolean; promises?: boolean } = {}
+  options: { windowHours?: number; ignoreAttempts?: boolean; promises?: boolean; unanswered?: boolean } = {}
 ): Promise<PhoneWithoutLead[]> {
+  // Рубильник «Клиент написал в WhatsApp, бот не ответил — карточка сама» (27.11.2026): читается один раз на проход.
+  const unansweredOn = options.unanswered ?? (await automationSwitchOn("chatUnansweredCardEnabled"));
   const since = new Date(now.getTime() - (options.windowHours ?? PHONE_WATCH_WINDOW_HOURS) * 60 * 60 * 1000);
   const rows = await prisma.botConversation.findMany({
     // ОДНА попытка на одни и те же реплики (авария 17.09.2026). Раньше отбор был
@@ -191,7 +216,7 @@ export async function findPhonesWithoutLead(
     let raw: string | null = null;
     let phoneText = "";
     for (const text of texts) {
-      phone = phone ?? extractVolunteeredPhone(text);
+      phone = phone ?? volunteeredClientPhone(text);
       if (phone) {
         phoneText = text;
         break;
@@ -199,12 +224,17 @@ export async function findPhonesWithoutLead(
       raw = raw ?? unparsedPhoneAttempt(text);
     }
     let promise: ReturnType<typeof lastAgentContactPromise> = null;
+    let unanswered: ReturnType<typeof unansweredClientTurn> = null;
     if (!phone && !raw) {
       // Обещания — только у тика: разовый добор (ignoreAttempts) по старым обещаниям карточек не заводит.
-      if (!(options.promises ?? !options.ignoreAttempts)) continue;
-      promise = lastAgentContactPromise(history, cutoff, now);
-      if (!promise) continue;
-      phoneText = promise.clientText;
+      if (options.promises ?? !options.ignoreAttempts) promise = lastAgentContactPromise(history, cutoff, now);
+      if (promise) phoneText = promise.clientText;
+      // WhatsApp: номер — сам отправитель. Клиент написал по делу, а бот не ответил (27.11.2026).
+      else if (unansweredOn && row.channel === WHATSAPP_CHANNEL && !row.spamFlaggedAt) {
+        unanswered = unansweredClientTurn(history, cutoff, now);
+        if (unanswered) phoneText = unanswered.texts.join("\n");
+      }
+      if (!promise && !unanswered) continue;
     }
     /**
      * РАЗГОВОР О РАБОТЕ — НЕ ПОТЕРЯННЫЙ ЛИД (авария 17.09.2026).
@@ -229,10 +259,10 @@ export async function findPhonesWithoutLead(
     if (coreTopic === "job") continue;
     let whatsappPhone: string | undefined;
     let basketCard = false;
-    if (promise) {
+    if (promise || unanswered) {
       // Приём ядра ещё в очереди (повторы при сбое Meta идут дольше PROMISE_GRACE_MS): он знает больше сторожа
       // (время звонка, «не звоните», объект) — не перебиваем его.
-      if (await coreIntakeOwnsPromise(row.id, promise.at)) continue;
+      if (await coreIntakeOwnsPromise(row.id, (promise ?? unanswered)!.at)) continue;
       // WhatsApp: номер известен и так — карточку заводит приём. Другие каналы: номера нет,
       // обещание пустое — это человеку (тревога ниже, phone остаётся null).
       const wa = row.channel === WHATSAPP_CHANNEL ? await resolveWhatsAppLeadIdentity(row.channel, row.subscriberId) : null;
@@ -244,6 +274,8 @@ export async function findPhonesWithoutLead(
           basketCard = !!card?.deletedAt;
         }
       }
+      // Несостоявшийся ход без номера отправителя — не заявка; карточку из Корзины удалил человек — не воскрешаем.
+      if (unanswered && (!phone || basketCard)) continue;
     }
     found.push({
       conversationId: row.id,
@@ -258,6 +290,7 @@ export async function findPhonesWithoutLead(
       coreTopic,
       inquiryId: row.customerInquiry?.id ?? null,
       ...(promise ? { promised: true, promisedAt: promise.at } : {}),
+      ...(unanswered && phone ? { unanswered: true } : {}),
       ...(promise?.refusalUnclear ? { refusalUnclear: true } : {}),
       ...(basketCard ? { basketCard: true } : {}),
       ...(whatsappPhone ? { whatsappPhone } : {}),
@@ -584,6 +617,12 @@ async function markWatchdogAttempted(conversationId: string, at: Date): Promise<
 export async function runPhoneLeadWatchdogTick(
   now: Date = new Date()
 ): Promise<{ alerted: number; accepted: number; attached: number }> {
+  // Карточка уже есть, а номер из переписки на неё не лёг (ход не состоялся, сотрудник отвечал руками): тот же
+  // проход дописывает его в карточку. Своя ошибка не останавливает сторожа карточек ниже.
+  await sweepCardConversationPhones(now).then(
+    (added) => { if (added > 0) console.log(`[cron] Номер из переписки дописан в карточку: ${added}`); },
+    (err) => console.error("[alarm] phone-watchdog номера в карточку:", err instanceof Error ? err.message : err)
+  );
   const found = await findPhonesWithoutLead(now);
   if (found.length === 0) return { alerted: 0, accepted: 0, attached: 0 };
 
@@ -610,7 +649,7 @@ export async function runPhoneLeadWatchdogTick(
       !!row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard && accepted < MAX_AUTO_ACCEPTS_PER_TICK;
     if (!canTakeItself) {
       // Обещание, не влезшее в предел тика, — работа следующего тика, а не человека (ревью 19.11).
-      if (row.promised && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard) continue;
+      if ((row.promised || row.unanswered) && row.phone && !row.spamFlagged && !row.refusalUnclear && !row.basketCard) continue;
       leftForHuman.push(row);
       continue;
     }
@@ -629,6 +668,8 @@ export async function runPhoneLeadWatchdogTick(
         "ai",
         (row.promised
           ? `Заявка оформлена сторожем: бот пообещал звонок агента, а карточки не было (диалог ${row.conversationId}, номер ${maskClientPhone(row.phone!)}, `
+          : row.unanswered
+          ? `Заявка оформлена сторожем: клиент написал, а бот ему не ответил (диалог ${row.conversationId}, номер отправителя ${maskClientPhone(row.phone!)}, `
           : `Заявка оформлена сторожем: номер ${maskClientPhone(row.phone!)} был в переписке (диалог ${row.conversationId}, `) +
           // Русское название канала вместо сырого кода из базы (ночная проверка 24.09.2026, находка №11).
           `${channelLabel(row.channel)}), а карточки не было. Клиенту при этом ничего не отправлено.`
@@ -639,6 +680,9 @@ export async function runPhoneLeadWatchdogTick(
       leftForHuman.push({ ...row, landedInOther: true });
       continue;
     }
+    // Несостоявшийся ход WhatsApp: отказ приёма (аренда, другой город, услуги) — нормальный исход, номер в переписке
+    // никто не «оставлял для звонка», и директора по нему звать незачем. Сбой — человеку, как всегда.
+    if (row.unanswered && outcome === "declined") continue;
     // Отказ приёма (аренда, другая страна) и сбой одинаково остаются человеку:
     // в первом случае он закроет вопрос глазами, во втором — заведёт руками.
     leftForHuman.push(row);
@@ -661,7 +705,9 @@ export async function runPhoneLeadWatchdogTick(
 
     // Русское название канала вместо сырого кода из базы (ночная проверка 24.09.2026, находка №11).
     const who = row.name?.trim() || `диалог ${channelLabel(row.channel)}`;
-    const what = row.landedInOther
+    const what = row.unanswered
+      ? `Клиент написал в WhatsApp (номер ${maskClientPhone(row.phone!)}), бот ему не ответил, а карточку завести не удалось. Откройте переписку и заведите карточку`
+      : row.landedInOther
       ? `Бот пообещал звонок агента (номер ${maskClientPhone(row.phone!)}), а карточка осталась без агента («Прочие», отказ или закрытое назначение). Позвоните клиенту или назначьте агента`
       : row.refusalUnclear
         ? `Бот пообещал звонок агента, а клиент потом, похоже, отказался от звонка${row.phone ? ` (номер ${maskClientPhone(row.phone)})` : ""}. Прочтите переписку и решите сами`
@@ -705,6 +751,53 @@ export async function runPhoneLeadWatchdogTick(
     }
   }
   return { alerted, accepted, attached };
+}
+
+/** Сколько переписок с карточкой разбирает один проход: потолок выборки, остаток — следующему тику через 15 минут. */
+const MAX_CARD_CONVERSATIONS = 300;
+
+/**
+ * НОМЕР ИЗ ПЕРЕПИСКИ — В УЖЕ ЗАВЕДЁННУЮ КАРТОЧКУ (27.11.2026).
+ *
+ * Живой ход дописывает номер в карточку сам (captureExplicitClientPhone в saveIncoming и в записи входящего ядра),
+ * но только когда ход состоялся. Сообщение, которое ядро удержало (HELD), записывается мимо этой двери, а сотрудник,
+ * ответивший руками, номер в карточку не переносит. Проход по фактам последних PHONE_WATCH_WINDOW_HOURS часов закрывает
+ * и это, и вчерашнее (26.11) — один раз после выката.
+ *
+ * Дверь одна: captureExplicitClientPhone (lib/clientPhoneCapture.ts) — её правила целиком (только слова самого
+ * клиента после назначения карточки, «мой номер …» или номер одним сообщением; номер сотрудника, номер чужой
+ * карточки и уже записанный номер не пишутся). Идемпотентна: записанный номер второй раз не пишется, поэтому
+ * повторный тик и повторная доставка вебхука ничего не меняют. Клиенту ничего не отправляется.
+ */
+export async function sweepCardConversationPhones(now: Date = new Date()): Promise<number> {
+  if (!(await automationSwitchOn("chatUnansweredCardEnabled"))) return 0;
+  const since = new Date(now.getTime() - PHONE_WATCH_WINDOW_HOURS * 60 * 60 * 1000);
+  // Грубый отбор в базе: в переписке есть хотя бы семь цифр подряд через пробелы/дефисы. Точный разбор — в памяти.
+  const rows = await prisma.$queryRaw<Array<{ id: string; clientId: string; messages: unknown }>>`
+    SELECT "id", "clientId", "messages" FROM "BotConversation"
+    WHERE "clientId" IS NOT NULL AND "lastMessageAt" >= ${since}
+      AND "messages"::text ~ '[0-9][0-9 ()-]{6,}[0-9]'
+    ORDER BY "lastMessageAt" DESC
+    LIMIT ${MAX_CARD_CONVERSATIONS}`;
+  if (rows.length === 0) return 0;
+  const { captureExplicitClientPhone } = await import("./clientPhoneCapture.js");
+  const { bareOwnPhoneFact, explicitOwnPhoneFact } = await import("./clientPhoneFacts.js");
+  let added = 0;
+  for (const row of rows) {
+    const messages = Array.isArray(row.messages) ? (row.messages as ConversationMessage[]) : [];
+    for (const m of messages.slice(-LOOK_BACK_MESSAGES * 2)) {
+      if (m.role !== "user" || m.by || m.silentCapture || m.attachments?.length || typeof m.content !== "string" || typeof m.at !== "string") continue;
+      const at = new Date(m.at);
+      if (Number.isNaN(at.getTime()) || at < since) continue;
+      if (!explicitOwnPhoneFact(m.content, "CONVERSATION") && !bareOwnPhoneFact(m.content)) continue;
+      try {
+        if (await captureExplicitClientPhone({ kind: "CONVERSATION", id: row.id, clientId: row.clientId, at, text: m.content })) added++;
+      } catch (err) {
+        console.error("[alarm] phone-watchdog номер в карточку:", err instanceof Error ? err.name : "UnknownError");
+      }
+    }
+  }
+  return added;
 }
 
 /**
