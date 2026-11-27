@@ -13,6 +13,7 @@ import { isQuietHour, quietDecision, quietHoursDisabledByEnv } from "./pushQuiet
 import { logSystemError } from "./systemError.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { isTelegramEnabled, sendMessage as sendTelegramMessage } from "../telegram/api.js";
+import { sendStaffNotice } from "../telegram/staffNotice.js";
 
 /**
  * СТОРОЖ «БОТ ЗАМОЛЧАЛ» (владелец 27.11.2026).
@@ -467,11 +468,14 @@ ${text.body}`;
     for (const agent of recipients) {
       let timer: NodeJS.Timeout | undefined;
       try {
-        await Promise.race([
-          sendTelegramMessage(agent.telegramChatId!, message, undefined, undefined, { origin: "staff", singleAttempt: true, silent }),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Telegram не ответил за 20 секунд")), TELEGRAM_TIMEOUT_MS); }),
-        ]);
-        sent++;
+        // Через общую дверь сообщений сотрудникам (telegram/staffNotice.ts): уважает «Не присылать такое» (вид
+        // «Контроль руководителя») и пишет журнал StaffNotice; доставка своя — без звука ночью и с таймаутом.
+        const status = await sendStaffNotice({ agentId: agent.id, kind: "oversight", subject: text.title,
+          deliver: (chatId) => Promise.race([
+            sendTelegramMessage(chatId, message, undefined, undefined, { origin: "staff", singleAttempt: true, silent }),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Telegram не ответил за 20 секунд")), TELEGRAM_TIMEOUT_MS); }),
+          ]) });
+        if (status === "sent") sent++;
       } catch (err) {
         await logSystemError("telegram", `Сторож «бот замолчал»: не удалось отправить в Telegram (сотрудник ${agent.id}): ${err instanceof Error ? err.message : String(err)}`,
           { dedupKey: `bot-silence-telegram:${agent.id}` }).catch(() => undefined);
