@@ -54,6 +54,7 @@ import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../lib/botMessages";
 import { TranslatableMessageText } from "../components/MessageTranslateToggle";
 import { PAUSE_OPTIONS, initialReplyPauseIndex, pausedUntilIso, rememberReplyPauseIndex } from "../lib/botPauseOptions";
+import { RoyalPicker } from "../components/look/shell/RoyalPicker";
 import { conversationBotState } from "../lib/conversationBotState";
 import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
@@ -2113,22 +2114,21 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           Прежний вид — селект ниже, у него своя строка. */}
       {royal && !(isGroupedEntry && !replyableSources.length) && (
         <div className="suggest ry-chat-pausepick" data-testid="chat-reply-pause">
-          <label className="txt" htmlFor="chat-reply-pause-select">Бот молчит:</label>
-          <select
+          <span className="txt" id="chat-reply-pause-label">Бот молчит:</span>
+          {/* Шторка выбора вместо серого списка браузера (пачка shell2, 27.11.2026): те же сроки, тот же выбор. */}
+          <RoyalPicker
             id="chat-reply-pause-select"
-            className="inp"
-            value={pauseOptionIndex}
-            onChange={(e) => {
-              const next = Number(e.target.value);
+            testId="chat-reply-pause-picker"
+            label="На сколько бот замолкает после вашего ответа"
+            title="Бот молчит после ответа"
+            value={String(pauseOptionIndex)}
+            options={PAUSE_OPTIONS.map((opt, idx) => ({ value: String(idx), label: opt.label }))}
+            onChange={(value) => {
+              const next = Number(value);
               setPauseOptionIndex(next);
               rememberReplyPauseIndex(next);
             }}
-            aria-label="На сколько бот замолкает после вашего ответа"
-          >
-            {PAUSE_OPTIONS.map((opt, idx) => (
-              <option key={opt.label} value={idx}>{opt.label}</option>
-            ))}
-          </select>
+          />
         </div>
       )}
       {royal ? (

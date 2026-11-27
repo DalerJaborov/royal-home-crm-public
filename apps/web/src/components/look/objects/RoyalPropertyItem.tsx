@@ -78,7 +78,9 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
         <p className="ry-obj-meta">
           <PropertyHealthDot health={health} />
           <span title={`Номер для поиска: ${formatPropertyCode(p.shortId)}`}>№{p.shortId}</span>
-          <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
+          {/* Просрочка этапа — одной строкой ниже вместе с этим же состоянием (пачка shell2, 27.11.2026:
+              было две красные строки подряд — «просрочено на 7 дн.» и «задерживает: 10 дн. при сроке 3»). */}
+          {!overdue && <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>}
           <RegistryBadge brief={p.registry} />
           {p.publishedOnSite && <span className="ry-obj-tag" data-tone={pillTone("info")}><ObjIcon name="globe" size={16} />На сайте</span>}
         </p>
@@ -96,7 +98,10 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
             </span>
           ))}
         </div>}
-        {overdue && <p className="ry-obj-overdue" data-tone={pillTone(tone === "crit" ? "overdue" : "today")}>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</p>}
+        {overdue && <p className="ry-obj-overdue" data-tone={pillTone(tone === "crit" ? "overdue" : "today")}>
+          <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
+          <span>{STAGE_OWNER_LABELS[p.pipeline!.owner ?? ""] ?? p.pipeline!.owner ?? "Этап"} задерживает объект: {p.pipeline!.daysInStage} дн. при сроке {p.pipeline!.limitDays ?? "не задан"}.</span>
+        </p>}
         <div className="ry-obj-foot">
           <span className="ry-obj-agent" title={agentTitle}>
             {agentName ? <RhAvatar name={agentName} size={44} /> : null}

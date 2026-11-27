@@ -612,3 +612,27 @@
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow > .ry-crow-acts[aria-hidden="true"] { position: absolute; width: 0; height: 0; padding: 0; margin: 0; }
 }
+
+/* ---- Плотность строки на телефоне как в макете (пачка shell2, 27.11.2026) ----
+   Было пять строк на клиента (имя, запрос в две строки, контакт, кружок с ответственным): на экран
+   влезало три клиента. Теперь: имя; запрос вторичным текстом (15); одна строка фактов «последний
+   контакт ДД.ММ · ответственный» (RoyalClientRow, .ry-crow-agent-inline). Шрифт имени — прежний 18
+   (решение владельца 20.11). На ПК (таблица) ответственный — своей колонкой, строчная копия скрыта. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow { row-gap: 2px; min-height: 0; padding-block: 12px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-req { font-size: var(--rh-fs-sm); line-height: 1.3; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { display: none; }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] {
+    grid-template-areas: "av top acts" "av req acts" "av when acts" "av foot acts";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(.ry-crow-acts > :nth-child(2), .ry-crow-acts > .pill:not(.btn-call)) {
+    grid-template-areas: "av top" "av req" "av when" "av foot" ". acts";
+  }
+}
+@container ry-clist (min-width: 880px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent { display: block; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-inline { display: none; }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-req { font-size: var(--rh-fs-md); }
+}
+/* Дата контакта в строке — текст, а не столбец чисел: обычные цифры, без разрыва «20.1 1» (табличные цифры Onest). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow .ry-crow-when { font-variant-numeric: normal; }

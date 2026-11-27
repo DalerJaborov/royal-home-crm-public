@@ -168,12 +168,15 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
   });
 
   describe("срок паузы бота при ответе (владелец 26.11.2026)", () => {
-    const pauseSelect = () => byLabel("На сколько бот замолкает после вашего ответа") as HTMLSelectElement | null;
-    function choose(select: HTMLSelectElement, label: string) {
-      const index = [...select.options].findIndex((o) => o.textContent === label);
-      expect(index, `вариант «${label}»`).toBeGreaterThanOrEqual(0);
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
-      act(() => { setter.call(select, String(index)); select.dispatchEvent(new Event("change", { bubbles: true })); });
+    // Шторка выбора вместо родного списка (пачка shell2, 27.11.2026): кнопка с текущим сроком и варианты-радиокнопки.
+    const pauseButton = () => document.querySelector('[data-testid="chat-reply-pause-picker"]') as HTMLButtonElement | null;
+    const pauseValue = () => pauseButton()?.querySelector(".ry-picker-value")?.textContent;
+    const pauseOptions = () => [...document.querySelectorAll('.ry-picker-sheet [role="radio"]')] as HTMLButtonElement[];
+    function choose(label: string) {
+      act(() => { pauseButton()!.click(); });
+      const option = pauseOptions().find((o) => o.querySelector(".ry-picker-option-label")?.textContent === label);
+      expect(option, `вариант «${label}»`).toBeTruthy();
+      act(() => { option!.click(); });
     }
     const sendText = (value: string) => {
       type(byLabel("Текст ответа") as HTMLTextAreaElement, value);
@@ -188,11 +191,15 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       for (const narrow of [false, true]) {
         h.narrow = narrow;
         mount();
-        const select = pauseSelect();
-        expect(select, narrow ? "телефон" : "ПК").toBeTruthy();
-        expect(select!.options[select!.selectedIndex].textContent).toBe("1 час");
-        expect([...select!.options].at(-1)!.textContent).toBe("Бессрочно");
-        expect(document.querySelector('label[for="chat-reply-pause-select"]')?.textContent).toBe("Бот молчит:");
+        expect(pauseButton(), narrow ? "телефон" : "ПК").toBeTruthy();
+        expect(pauseValue()).toBe("1 час");
+        expect(pauseButton()!.getAttribute("aria-label")).toBe("На сколько бот замолкает после вашего ответа: 1 час");
+        act(() => { pauseButton()!.click(); });
+        expect(pauseOptions().at(-1)!.textContent).toBe("Бессрочно");
+        expect(pauseOptions().find((o) => o.getAttribute("aria-checked") === "true")?.textContent).toBe("1 час");
+        expect(document.querySelector("#chat-reply-pause-label")?.textContent).toBe("Бот молчит:");
+        // Серого списка браузера в новом виде нет.
+        expect(document.querySelector('[data-testid="chat-reply-pause"] select')).toBeNull();
         unmount();
       }
     });
@@ -201,12 +208,12 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       h.perms = AGENT;
       mount();
       h.mutation.mockResolvedValue({ ok: true });
-      choose(pauseSelect()!, "2 часа");
+      choose("2 часа");
       expect(minutesOf(sendText("Привет").pausedUntil)).toBe(120);
       unmount();
       mount();
-      expect(pauseSelect()!.options[pauseSelect()!.selectedIndex].textContent).toBe("2 часа");
-      choose(pauseSelect()!, "Бессрочно");
+      expect(pauseValue()).toBe("2 часа");
+      choose("Бессрочно");
       expect(minutesOf(sendText("Ещё").pausedUntil)).toBeGreaterThan(5 * 365 * 24 * 60);
     });
 
@@ -216,8 +223,8 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       const setSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
       try {
         mount();
-        expect(pauseSelect()!.options[pauseSelect()!.selectedIndex].textContent).toBe("1 час");
-        expect(() => choose(pauseSelect()!, "30 минут")).not.toThrow();
+        expect(pauseValue()).toBe("1 час");
+        expect(() => choose("30 минут")).not.toThrow();
       } finally { spy.mockRestore(); setSpy.mockRestore(); }
     });
 
@@ -225,7 +232,7 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       h.perms = AGENT;
       const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
       mount();
-      choose(pauseSelect()!, "30 минут");
+      choose("30 минут");
       const input = document.querySelector('input[type="file"]') as HTMLInputElement;
       Object.defineProperty(input, "files", { value: [file], configurable: true });
       act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -402,7 +409,9 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     const html = markup("client:client");
     // Выбора канала строкой нет; единственный список в окне — срок паузы бота над полем ввода.
     expect(html).not.toContain('aria-label="Куда ответить"');
-    expect(html.match(/<select/g)?.length).toBe(1);
+    // Серых списков браузера в новом виде нет вовсе: срок паузы — шторка выбора (пачка shell2, 27.11.2026).
+    expect(html).not.toContain("<select");
+    expect(html).toContain('data-testid="chat-reply-pause-picker"');
     expect(html).not.toContain("Выберите канал");
     expect(html).toContain('placeholder="Сообщение в Instagram"');
     expect(h.replyTarget).toBe(instagramSource);

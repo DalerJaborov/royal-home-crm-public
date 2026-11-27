@@ -2,7 +2,7 @@ import { Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEve
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, House, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useNavigation, type NavItem } from "../../lib/navigation";
-import { defaultCleanNavigation, navGroupsKey, partitionCleanNavigation, readOpenNavGroups, royalSideNavigation, type RoyalNavGroup } from "../../lib/cleanNavigationOrder";
+import { ROYAL_PRIORITY, defaultCleanNavigation, navGroupsKey, partitionCleanNavigation, readOpenNavGroups, royalSideNavigation, type RoyalNavGroup } from "../../lib/cleanNavigationOrder";
 import { useUiPrefs } from "../../store/uiPrefs";
 import { CleanNavigationOrderSheet } from "./CleanNavigationOrderSheet";
 export { partitionCleanNavigation } from "../../lib/cleanNavigationOrder";
@@ -40,35 +40,44 @@ function Tab({ item, royal }: { item: NavItem; royal?: boolean }) {
   </NavLink>;
 }
 
+/** Ключ запомненного раскрытия «Ещё» (тот же список раскрытых групп на устройстве). */
+const ROYAL_MORE_KEY = "more";
+
 /**
- * Группа бокового меню «Нового вида»: свёрнута, пока человек сам её не открыл
- * (запоминается на этом устройстве — удобство, а не настройка) или пока в ней
- * открытый сейчас раздел. Непрочитанное внутри видно на заголовке суммой.
+ * «ЕЩЁ» БОКОВОГО МЕНЮ «Нового вида» (макет 27.11.2026, пачка shell2): шесть главных
+ * пунктов сверху, всё остальное — одной раскрывающейся группой. Внутри разделы
+ * идут прежними группами (Работа, Команда и контроль, Отчёты, Маркетинг, Система)
+ * под тихими подзаголовками: ни один раздел не потерян, каждый путь — один раз.
+ * Свёрнута, пока человек сам её не открыл (запоминается на этом устройстве) или
+ * пока в ней открытый сейчас раздел. Непрочитанное внутри видно на заголовке суммой.
  */
-function RoyalNavGroupBlock({ group, active }: { group: RoyalNavGroup; active: boolean }) {
+function RoyalNavMore({ groups, active }: { groups: RoyalNavGroup[]; active: boolean }) {
   const agentId = useAuthStore((state) => state.agent?.id);
-  const [open, setOpen] = useState(() => active || readOpenNavGroups(agentId).includes(group.key));
+  const [open, setOpen] = useState(() => active || readOpenNavGroups(agentId).includes(ROYAL_MORE_KEY));
   useEffect(() => { if (active) setOpen(true); }, [active]);
-  const unread = group.items.reduce((total, item) => total + (item.badgeQuiet ? 0 : item.badge ?? 0), 0);
-  // Запоминается только нажатие человека: раскрытие из-за открытого раздела — нет,
-  // иначе группы оставались бы открытыми после любого перехода.
+  const unread = groups.reduce((total, group) => total + group.items.reduce((sum, item) => sum + (item.badgeQuiet ? 0 : item.badge ?? 0), 0), 0);
+  // Запоминается только нажатие человека: раскрытие из-за открытого раздела — нет.
   const toggle = (event: ReactMouseEvent) => {
     event.preventDefault();
     const next = !open;
     setOpen(next);
     try {
       const keys = new Set(readOpenNavGroups(agentId));
-      if (next) keys.add(group.key); else keys.delete(group.key);
+      if (next) keys.add(ROYAL_MORE_KEY); else keys.delete(ROYAL_MORE_KEY);
       window.localStorage.setItem(navGroupsKey(agentId), JSON.stringify([...keys]));
-    } catch { /* Без хранилища группа просто не запомнит положение. */ }
+    } catch { /* Без хранилища «Ещё» просто не запомнит положение. */ }
   };
-  return <details className="ry-nav-group" open={open}>
+  return <details className="ry-nav-group ry-nav-more" open={open}>
     <summary className="ry-nav-group-title" onClick={toggle}>
-      <span className="ry-nav-label">{group.title}</span>
+      <span className="ry-nav-glyph" aria-hidden="true"><Suspense fallback={null}><RoyalNavIcon to="/more" active={open} /></Suspense></span>
+      <span className="ry-nav-label">Ещё</span>
       {!!unread && <><span className="clean-nav-count" aria-hidden="true">{unread > 99 ? "99+" : unread}</span><span className="sr-only">Новых: {unread}</span></>}
       <ChevronDown aria-hidden="true" className="ry-nav-group-chev" />
     </summary>
-    {group.items.map((item) => <Tab key={item.to} item={item} royal />)}
+    {groups.map((group) => <div key={group.key} className="ry-nav-sub" role="group" aria-label={group.title}>
+      <span className="ry-nav-sub-title" aria-hidden="true">{group.title}</span>
+      {group.items.map((item) => <Tab key={item.to} item={item} royal />)}
+    </div>)}
   </details>;
 }
 
@@ -156,16 +165,16 @@ export function CleanShell({ royal = false }: { royal?: boolean }) {
   return <>
     <header ref={header} className={`clean-header${context ? " clean-header-context" : ""}${ownHeader || pathname === "/messages" ? " clean-header-own" : ""}`}>
       <Link to="/" className="clean-brand" aria-label="Royal Home CRM · Главная">
-        <span><House aria-hidden="true" /></span>
-        <b className="clean-brand-desktop">Royal Home CRM</b>
+        {/* «Новый вид»: знак Royal Home (герб с сайта, как в макете) вместо синего домика. */}
+        {royal ? <img className="ry-brand-crest" src="/brand/royal-home-crest.png" alt="" width={36} height={36} /> : <span><House aria-hidden="true" /></span>}
+        <b className="clean-brand-desktop">{royal ? "Royal Home" : "Royal Home CRM"}</b>
         <b className="clean-brand-mobile">{title ?? "Royal Home"}</b>
       </Link>
       <nav className="clean-tabs" aria-label="Основные разделы">
         {royal ? <>
           {side.primary.map((item) => <Tab key={item.to} item={item} royal />)}
-          {side.groups.length > 0 && <span className="ry-side-sep" role="separator" />}
-          {side.groups.map((group) => <RoyalNavGroupBlock key={group.key} group={group}
-            active={group.items.some((item) => pathname === item.to || (!item.end && item.to !== "/" && pathname.startsWith(`${item.to}/`)))} />)}
+          {side.groups.length > 0 && <RoyalNavMore groups={side.groups}
+            active={side.groups.some((group) => group.items.some((item) => pathname === item.to || (!item.end && item.to !== "/" && pathname.startsWith(`${item.to}/`))))} />}
         </> : tabs.map((item) => <Tab key={item.to} item={item} />)}
       </nav>
       {!royal && overflow.length > 0 && <details ref={menu} className="clean-more" data-active={!!activeOverflow || undefined} onBlur={(event) => {
@@ -181,14 +190,19 @@ export function CleanShell({ royal = false }: { royal?: boolean }) {
           {actorId && <CButton variant="soft" className="mt-2 w-full justify-start" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /><span>Порядок вкладок</span></CButton>}
         </nav>
       </details>}
-      <div className="clean-header-tools">
+      {/* «Новый вид»: порядок вкладок, ИИ-помощник и тема — в меню профиля, «+» — круглой кнопкой
+          у колокола (Topbar → RoyalTopbarRow). Здесь у него инструментов нет. */}
+      {!royal && <div className="clean-header-tools">
         {actorId && (royal || overflow.length === 0) && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
         {assistantEntry.visible && <CButton variant="soft" size="icon-md" className="clean-ai" aria-label={ASSISTANT_ENTRY_LABEL} title={ASSISTANT_ENTRY_TITLE} onClick={assistantEntry.open} {...assistantEntry.preloadProps}><Sparkles /></CButton>}
         {canCreate && <CLink to="/properties/new" className="clean-create" variant="soft" size="icon-md" aria-label="Создать объект"><Plus /></CLink>}
-      </div>
-      <div className="clean-existing-topbar"><Topbar clean /></div>
+      </div>}
+      <div className="clean-existing-topbar"><Topbar clean royal={royal} profileExtras={royal ? {
+        orderTabs: actorId ? { disabled: !prefsHydrated, open: openNavigationEditor } : undefined,
+        assistant: assistantEntry.visible ? { open: assistantEntry.open, preload: assistantEntry.preloadProps } : undefined,
+      } : undefined} /></div>
     </header>
-    {navigationEditor && navigationEditor.actorId === actorId && navigationEditor.epoch === epoch && <CleanNavigationOrderSheet key={`${actorId}:${epoch}`} items={defaultCleanNavigation(main, all)} savedOrder={savedOrder} onSave={saveOrder} onClose={() => setNavigationEditor(null)} />}
+    {navigationEditor && navigationEditor.actorId === actorId && navigationEditor.epoch === epoch && <CleanNavigationOrderSheet key={`${actorId}:${epoch}`} items={defaultCleanNavigation(main, all, royal ? ROYAL_PRIORITY : undefined)} savedOrder={savedOrder} onSave={saveOrder} onClose={() => setNavigationEditor(null)} />}
     <CleanCriticalHost />
   </>;
 }

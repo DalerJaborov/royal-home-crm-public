@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Settings as SettingsIcon, UserCircle } from "lucide-react";
 import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
@@ -29,10 +29,25 @@ import { RoyalSection } from "./look/clients/RoyalSection";
  * разделов убран отсюда — он и так есть в «Ещё»; здесь остаётся только сам
  * профиль, «Настройки CRM» и выход, на десктопе и телефоне одинаково.
  */
+/**
+ * Пункт, переехавший в меню профиля из шапки «Нового вида» (27.11.2026, пачка shell2):
+ * тема, ИИ-помощник, «Порядок вкладок». Действие то же, что у прежней кнопки шапки.
+ */
+export interface ProfileMenuExtra {
+  key: string;
+  label: string;
+  tone: "a0" | "a1" | "a2" | "a3" | "a4" | "a5";
+  icon: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+  buttonProps?: { onPointerEnter?: () => void; onFocus?: () => void; onPointerDown?: () => void };
+}
+
 export function ProfileMenu({
   triggerClassName,
   avatarTextClassName = "text-[13px]",
-}: { triggerClassName?: string; avatarTextClassName?: string } = {}) {
+  extras = [],
+}: { triggerClassName?: string; avatarTextClassName?: string; extras?: ProfileMenuExtra[] } = {}) {
   const navigate = useNavigate();
   const agent = useAuthStore((s) => s.agent);
   const [open, setOpen] = useState(false);
@@ -151,6 +166,12 @@ export function ProfileMenu({
                 <span className="ry-circle" data-tone="a5" data-size="44" aria-hidden="true"><RoyalIcon name="settings" /></span>Настройки CRM
               </button>
             )}
+            {extras.map((extra) => (
+              <button key={extra.key} type="button" role="menuitem" className="ry-pmenu-item" disabled={extra.disabled} {...extra.buttonProps}
+                onClick={() => { setOpen(false); extra.onSelect(); }}>
+                <span className="ry-circle" data-tone={extra.tone} data-size="44" aria-hidden="true">{extra.icon}</span>{extra.label}
+              </button>
+            ))}
             <button type="button" role="menuitem" className="ry-pmenu-item" data-danger onClick={handleLogout}>
               <span className="ry-circle" data-tone="a0" data-size="44" aria-hidden="true"><RoyalIcon name="log-out" /></span>Выйти
             </button>
