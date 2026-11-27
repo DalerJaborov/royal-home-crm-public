@@ -80,6 +80,7 @@ import { checkYouTubeTokenHealth, refreshThreadsTokenIfDue } from "./lib/socialP
 import { runInstagramPendingContainersTick } from "./lib/instagramPendingContainers.js";
 import { runInstagramSubscriptionWatch } from "./lib/instagramWebhookSubscription.js";
 import { runInstagramIdentityGuard } from "./lib/instagramIdentityGuard.js";
+import { runWhatsappOwnNumberGuard } from "./lib/whatsappOwnNumberLookup.js";
 import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
@@ -2507,6 +2508,14 @@ export function startCronJobs() {
       }
     } catch (err) {
       reportCronTickError("Ошибка сторожа ников Instagram", err);
+    }
+    // Тот же класс в WhatsApp (27.11.2026, lib/whatsappOwnNumberLookup.ts): неизвестный цифрами наш номер держит
+    // ответы клиентам ДРУГОГО нашего номера. Дописать у Meta, а если держим всё равно — CRITICAL директору.
+    try {
+      const { fetched, held, alerted } = await runWhatsappOwnNumberGuard();
+      if (fetched || held) console.log(`[cron] Номера WhatsApp: узнано ${fetched}, задержано входящих ${held}${alerted ? ", тревога директору" : ""}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа номеров WhatsApp", err);
     }
   }, { timezone: "Asia/Dushanbe" });
 

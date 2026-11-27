@@ -61,6 +61,8 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   // lib/customerAgentRevisionAlert.ts: the core is stopped after a CRM update (incident 26.11.2026); the owner reads words, not codes.
   current_artifact_revision_mismatch: "бот остановился после обновления CRM и клиенту не ответил",
   current_artifact_verification_unavailable: "бот остановился после обновления CRM и клиенту не ответил",
+  // customerIngressClassification.ts: another of our WhatsApp numbers is not known in digits (lib/whatsappOwnNumbers.ts).
+  own_phone_identity_unavailable: "бот не смог проверить, что пишет не наш же номер WhatsApp, и не ответил",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 /** customerAgentEnrollment.ts, kill switch off: a WhatsApp customer wrote to our other number while their one chat lives on the first one. */

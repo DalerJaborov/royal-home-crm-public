@@ -50,6 +50,11 @@ export const AUTOMATION_SWITCH_KEYS = [
   "chatArchiveEnabled",
   "callObjectToOwnerEnabled",
   "botSilenceWatchEnabled",
+  "chatObjectToOwnerEnabled",
+  "callAdObjectToOwnerEnabled",
+  "objectInterestPullsQueueLeadEnabled",
+  "notifyOwnerOfOtherAgentClientEnabled",
+  "notifyOwnerBeforeLeadEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -68,6 +73,11 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   // Владелец 26.11.2026: «Шабнам вступает сама в беседу в группах». Пробный режим (решает, но не пишет) — опция для
   // руководства, по умолчанию выключен. Колонка `DEFAULT false`.
   "shabnamGroupLiveShadowEnabled",
+  // Владелец 27.11.2026: «нет удали это пусть ничего не получает сам агент потом скажет» — клиент другого агента хозяину
+  // объекта пуша не шлёт; агент клиента скажет сам. Колонка `DEFAULT false`.
+  "notifyOwnerOfOtherAgentClientEnabled",
+  // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали… отключи».
+  "notifyOwnerBeforeLeadEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -227,6 +237,32 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "После звонка в офис ИИ узнаёт объект по приметам с допуском на ошибки расшифровки: цена не вычёркивает объект (другая валюта, потерянные тысячи, не та первая цифра), ориентир с опечаткой, «масҷид» = «мечеть», номер словами. Названная фамилия с ошибкой сверяется с хозяином узнанного объекта, уволенные уступают действующему. Сильное совпадение по приметам объявления перебивает снявшего трубку агента. Похожих несколько — руководству подсказка в колокольчик. Расшифровка получает фамилии сотрудников и ориентиры.",
     off: "Как до 26.11.2026: объект узнаётся по номеру, адресу, ссылке и по приметам без допуска на ошибки (цена дальше 20 % вычёркивает объект); похожие фамилии — «не угадываем»; снявшего трубку перебивает только прямое указание; подсказок руководству и расшифровке нет.",
   },
+  // Владелец 27.11.2026: «бот должен узнать объект и по рекламе, и по переписке, и по скриншотам… чтобы агенты не теряли своих клиентов».
+  chatObjectToOwnerEnabled: {
+    title: "Переписка по объекту: заявка хозяину объекта",
+    on: "Объект, который бот узнал в переписке WhatsApp, Instagram и Facebook (номер, ссылка, пересланный пост или ролик, скриншот карточки), уходит вместе с заявкой покупателя, и заявка достаётся агенту этого объекта; хозяин объекта видит переписку. Скриншот без нашего логотипа узнаётся по цене и площади, только если подходит ровно один объект. В Telegram номер объекта в словах клиента тоже ведёт заявку к хозяину. Заказ из каталога WhatsApp читается как номер объекта.",
+    off: "Как до 27.11.2026: новый бот передаёт хозяину объекта только клиентов с рекламы, узнанный в переписке объект заявку не направляет, скриншот без логотипа не узнаётся, в личке Telegram номер объекта не учитывается.",
+  },
+  callAdObjectToOwnerEnabled: {
+    title: "Звонок клиента с рекламы объекта — хозяину объекта",
+    on: "Покупатель, который за последние 30 дней писал нам с рекламы одного объекта, а потом позвонил в офис и не назвал другой объект, попадает к агенту этого объекта (как при сильном совпадении по приметам).",
+    off: "Реклама, с которой клиент пришёл в переписку, на звонок не влияет: звонок раздаётся по расшифровке и по очереди.",
+  },
+  objectInterestPullsQueueLeadEnabled: {
+    title: "Непринятая заявка переходит хозяину объекта",
+    on: "Клиент из общей очереди, которого агент ещё не принял, пишет про конкретный объект — заявка переходит агенту этого объекта. Только покупатель, отданный очередью: принятых клиентов, продавцов, клиентов, которых передал руководитель или которые назвали агента, это не касается.",
+    off: "Заявка остаётся у агента из очереди.",
+  },
+  notifyOwnerOfOtherAgentClientEnabled: {
+    title: "Хозяину объекта: пуш о клиенте другого агента",
+    on: "Клиент, которого уже ведёт другой агент, интересуется вашим объектом — вам приходит пуш «клиент другого агента интересуется вашим объектом».",
+    off: "Как решил владелец 27.11.2026: хозяин объекта ничего не получает, клиент остаётся у своего агента, и тот сам договаривается с хозяином. В истории клиента остаётся запись для его агента.",
+  },
+  notifyOwnerBeforeLeadEnabled: {
+    title: "Хозяину объекта: пуш, пока у клиента нет заявки",
+    on: "Человек пишет про ваш объект, но номера не оставил и карточки нет — вам приходит пуш «Интерес к вашему объекту» и «Новое сообщение по вашему объекту» на каждое его сообщение. Во всех каналах.",
+    off: "Как решил владелец 27.11.2026: пока у клиента нет карточки или заявки, хозяину объекта ничего не приходит. Как только заявка появилась — обычный пуш о новой заявке и о сообщениях клиента.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -270,7 +306,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

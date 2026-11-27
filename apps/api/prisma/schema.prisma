@@ -4624,6 +4624,27 @@ model MessengerAccount {
   @@index([channel, enabled])
 }
 
+/// НАШИ НОМЕРА WHATSAPP: phone_number_id у Meta → сам номер цифрами (27.11.2026).
+///
+/// Зачем: бот не должен отвечать НАШЕМУ ЖЕ номеру. Пока номер был один, «свой» узнавался
+/// по получателю в самом сообщении (metadata.display_phone_number). С вторым номером
+/// («Арван», строка MessengerAccount) нужен и номер ДРУГОГО нашего аккаунта — а его
+/// нигде не было, и ядро держало ВСЕ сообщения основного номера без ответа
+/// (own_phone_identity_unavailable, 18 сообщений 26.11). Одна дверь — lib/whatsappOwnNumbers.ts.
+///
+/// Заполняется само: из подписанных вебхуков (metadata каждого события номера), при
+/// подключении номера и, если номера ещё нет, одним запросом к Meta. Руками не ведётся.
+model WhatsappOwnNumber {
+  /// phone_number_id — тот же, что Settings.metaWaPhoneId или MessengerAccount.externalId.
+  phoneNumberId String   @id
+  /// Номер только цифрами, с кодом страны: 992877914444.
+  digits        String
+  /// Откуда узнали: webhook | connect | graph.
+  source        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())
@@ -7521,6 +7542,16 @@ model Settings {
   /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
   /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
   botSilenceWatchEnabled                Boolean @default(true)
+  /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
+  /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
+  /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
+  chatObjectToOwnerEnabled              Boolean @default(true)
+  callAdObjectToOwnerEnabled            Boolean @default(true)
+  objectInterestPullsQueueLeadEnabled   Boolean @default(true)
+  /// Пуш хозяину объекта, когда объектом интересуется клиент ДРУГОГО агента. ВЫКЛ (владелец 27.11: «пусть ничего не получает»).
+  notifyOwnerOfOtherAgentClientEnabled  Boolean @default(false)
+  /// Пуши хозяину объекта по переписке без карточки клиента. ВЫКЛ (владелец 27.11: «просто интересуется… отключи»).
+  notifyOwnerBeforeLeadEnabled          Boolean @default(false)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -12301,7 +12332,7 @@ model CustomerPendingMedia {
 }
 
 /// ЭПИЗОД «БОТ ЗАМОЛЧАЛ» (27.11.2026, lib/botSilenceWatch.ts). Открытый эпизод (recoveredAt IS NULL) один на всю
-/// систему (частичный уникальный индекс в миграции 20261127090000_bot_silence_watch). Нужен, чтобы сказать
+/// систему (частичный уникальный индекс в миграции 20261127130000_bot_silence_watch). Нужен, чтобы сказать
 /// руководству один раз, напоминать не чаще раза в час и сказать «бот снова отвечает, без ответа остались N человек».
 /// Только служебные поля, без текстов клиентов.
 model BotSilenceIncident {

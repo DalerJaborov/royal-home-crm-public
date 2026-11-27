@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4379**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4374**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18892,6 +18892,8 @@
       · ответ 200
 - handleWhatsappCallEvents(req.body);
   · зовёт handleWhatsappCallEvents()
+- await learnWhatsappOwnNumbersFromWebhook(req.body);
+  · зовёт learnWhatsappOwnNumbersFromWebhook()
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -19036,7 +19038,7 @@
               · зовёт resolveCustomerEndpoint()
             - const senderName = msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.…
               · читает в базе: botConversation
-            - если await isOwnAccountSender({ senderId: msg.senderId, senderName })
+            - если await isOwnAccountSender({ senderId: msg.senderId, senderName, channel: msg.channel })
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
@@ -20227,65 +20229,6 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка «бот на паузе и забыли»", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
-### bot-silence-watch — 2-59/5 * * * *
-
-- пробует
-  - const { action, alerted } = await runBotSilenceWatchTick();
-    · зовёт runBotSilenceWatchTick()
-    - если !(await automationSwitchOn("botSilenceWatchEnabled"))
-      - return { action: "off", alerted: false };
-        · дословно из кода
-    - const snapshot = await loadSilenceSnapshot(now);
-      · зовёт loadSilenceSnapshot()
-    - return prisma.$transaction(async (tx)
-      · ошибка Error — «очередь тревог руководству недоступна»
-      · всё внутри — одной транзакцией
-      · обращается к базе своим SQL
-      · читает в базе: botSilenceIncident
-      · создаёт в базе: botSilenceIncident
-      · меняет в базе: botSilenceIncident
-      - const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext…
-        · обращается к базе своим SQL
-      - если !locked
-        - return { action: "busy" as const, alerted: false };
-          · дословно из кода
-      - const row = await tx.botSilenceIncident.findFirst({ where: { recoveredAt: null }, orderBy: { detectedAt: "des…
-        · читает в базе: botSilenceIncident
-      - const decision = decideBotSilence(snapshot, open, now);
-        · зовёт decideBotSilence()
-      - const send = async (tag: string, text: { title: string; body: string }, urgent: boolean)
-        · ошибка Error — «очередь тревог руководству недоступна»
-        - const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], .…
-          · зовёт enqueueDirectorAlert()
-        - если !queued
-          - throw new Error("очередь тревог руководству недоступна");
-            · ошибка Error — «очередь тревог руководству недоступна»
-      - если decision.kind === "open"
-        - const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.sta…
-          · создаёт в базе: botSilenceIncident
-      - если decision.kind === "update" && open
-        - если decision.remind
-          - await send(`bot-silence-${open.id}`, silenceAlertText({ groups: decision.groups, labels, since: open.startedA…
-            · дословно из кода
-        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: dec…
-          · меняет в базе: botSilenceIncident
-      - если decision.kind === "recover" && open
-        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
-          · меняет в базе: botSilenceIncident
-      - если decision.kind === "close" && open
-        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
-          · меняет в базе: botSilenceIncident
-  - если alerted
-    - console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка сторожа «бот замолчал»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -22257,6 +22200,39 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сторожа ников Instagram", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- пробует
+  - const { fetched, held, alerted } = await runWhatsappOwnNumberGuard();
+    · зовёт runWhatsappOwnNumberGuard()
+    - const fetched = await fetchMissingWhatsappOwnNumbers();
+      · зовёт fetchMissingWhatsappOwnNumbers()
+    - если !held
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - const [settings, accounts, registry] = await Promise.all([ prisma.settings.findUnique({ where: { id: "singlet…
+      · читает в базе: settings
+      · читает в базе: messengerAccount
+    - если !missing.length
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - await logSystemError("ai", `Бот не отвечает в WhatsApp: ${held} входящих задержаны, потому что CRM не знает н…
+      · запись в журнал ошибок
+    - const already = await prisma.pendingDirectorAlert.findFirst({ where: { tag: WA_OWN_NUMBER_ALERT_TAG, createdA…
+      · читает в базе: pendingDirectorAlert
+    - если already
+      - return { fetched, held, alerted: false };
+        · дословно из кода
+    - await enqueueDirectorAlert({ title: "Бот молчит в WhatsApp — клиенты без ответа", body: `CRM не знает номер $…
+      · зовёт enqueueDirectorAlert()
+  - если fetched || held
+    - console.log(`[cron] Номера WhatsApp: узнано ${fetched}, задержано входящих ${held}${alerted ? ", тревога дире…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа номеров WhatsApp", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -28479,6 +28455,8 @@
         · дословно из кода
     - const baseContext: CustomerIntakeContext = { version: 1, kind: location.locationOutsideDushanbe ? "OTHER" : i…
       · зовёт isWithinWorkingHours()
+    - const focusPropertyId = intake.role === "buyer" && !location.locationOutsideDushanbe ? await customerFocusPro…
+      · зовёт customerFocusPropertyForLead()
     - const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), …
       · зовёт deriveOwnBuyerPreferences()
   - если сорвалось

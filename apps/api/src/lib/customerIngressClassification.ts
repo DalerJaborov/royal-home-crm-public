@@ -4,6 +4,7 @@ import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlight
 import { isFinalCustomerInputFrame } from "./customerInputFrame.js";
 import type { CustomerNormalizedIngressInput, CustomerPendingVerification } from "./customerIngressPayload.js";
 import { inspectCustomerDeliveryObservation } from "./customerDeliveryObservation.js";
+import { readWhatsappOwnRegistry, requiredOtherWhatsappNumbers } from "./whatsappOwnNumbers.js";
 
 type ReadDb = Pick<TxClient, "$queryRaw">;
 const normalizeName = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
@@ -82,12 +83,21 @@ export async function classifyCustomerPendingFrame(db: ReadDb, payload: Customer
     if (ownAccountSender) return { status: "ignored", reason: "own_account" };
   }
   if (payload.channel === "WHATSAPP") {
+    // Our own numbers, not only the recipient (27.11.2026): with a second number (Arvan, a MessengerAccount row next to
+    // the Settings number) the old "exactly one WhatsApp installation" rule HELD every message of BOTH numbers. Now the
+    // sender must not be ANY of our numbers; every other enabled number has to be known in digits
+    // (lib/whatsappOwnNumbers.ts), otherwise HOLD as before. Never a guess that a number is not ours.
     const businessPhone = payload.observations.classifier.recipientPhoneDigits;
-    if (!businessPhone || !/^\+?\d{8,15}$/.test(payload.peer) || own.whatsappAccountIds.some(id => id !== verification.accountId) ||
-        own.installedWhatsappId && own.installedWhatsappId !== payload.accountExternalId) {
-      return { status: "held", reason: "own_phone_identity_unavailable" };
-    }
-    ownAccountSender = payload.peer.replace(/^\+/, "") === businessPhone;
+    const recipient = payload.accountExternalId;
+    if (!businessPhone || !/^\+?\d{8,15}$/.test(payload.peer) || !recipient) return { status: "held", reason: "own_phone_identity_unavailable" };
+    const wa = await readWhatsappOwnRegistry(db);
+    // The attested recipient is exactly the installation this endpoint was resolved to (never another of our numbers).
+    const recipientBound = verification.accountId
+      ? wa.accounts.some(a => a.id === verification.accountId && a.externalId === recipient)
+      : !own.installedWhatsappId || own.installedWhatsappId === recipient;
+    const others = requiredOtherWhatsappNumbers(wa, own.installedWhatsappId, recipient);
+    if (!recipientBound || others.some(id => !wa.digits.has(id))) return { status: "held", reason: "own_phone_identity_unavailable" };
+    ownAccountSender = new Set([businessPhone, ...wa.digits.values()]).has(payload.peer.replace(/^\+/, ""));
     if (ownAccountSender) return { status: "ignored", reason: "own_account" };
   }
   return isFinalCustomerInputFrame({ kind: payload.eventKind === "postback" ? "postback" : "message",
