@@ -95308,6 +95308,14 @@
               "зовёт reportUnansweredCustomerTurn()"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
             }
            ]
           }

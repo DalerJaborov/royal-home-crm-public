@@ -2,7 +2,9 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGoldenFixture.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
-import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn, runCustomerCatchUpTurn, CATCH_UP_MAX_AGE_HOURS, CATCH_UP_MAX_ATTEMPTS } from "../src/lib/customerTurnCatchUp.js";
+import { runCustomerTurnCatchUpTick, resumeHeldCustomerTurn, runCustomerCatchUpTurn, CATCH_UP_MAX_AGE_HOURS, CATCH_UP_MAX_ATTEMPTS,
+  CATCH_UP_REPORTED_MARK } from "../src/lib/customerTurnCatchUp.js";
+import { customerInboxConsumeJob } from "../src/jobs/customerInboxConsume.js";
 import { findStuckConversations } from "../src/lib/stuckConversations.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
@@ -19,6 +21,7 @@ beforeAll(async () => { f = await createCustomerCoreGoldenFixture(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); f?.assertIoClean(); });
 afterAll(async () => {
   await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: catchUpKeys.map((key) => `customer-inbox-catch-up:${key}`) } } });
+  await prisma.processedMessage.deleteMany({ where: { channel: CATCH_UP_REPORTED_MARK, messageId: { in: catchUpKeys } } });
   await f?.cleanup();
 }, 90_000);
 
@@ -209,19 +212,51 @@ it("граница окна: сообщение старше окна бот н�
   const outside = await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 second" });
   expect(await job(asked)).toBeNull();
   expect(outside.reported).toBeGreaterThanOrEqual(1);
-  // То же сообщение в окне часа — задание ставится.
-  await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 hour" });
+  // То же сообщение в боевом окне (три часа, без подмены) — задание ставится.
+  await runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
   expect(await job(asked)).toMatchObject({ status: "PENDING" });
 }, 120_000);
 
-it("сбой базы при возобновлении — не «условия изменились»: задание падает и повторяет попытку, потом возобновляет", async () => {
+it("список «человеку» движется: каждый билет отдаётся один раз, за ним — следующий", async () => {
+  const a = await heldDuringPause("Хона дар Исмоили Сомонӣ ҳаст?");
+  const b = await heldDuringPause("Нархи хонаи якҳуҷрагӣ чанд?");
+  await sleep(1_200);
+  const marked = () => prisma.processedMessage.findMany({ where: { channel: CATCH_UP_REPORTED_MARK, messageId: { in: [a.asked, b.asked] } } });
+  // По одному за тик (в бою — десять): дверь человека может не поставить свою отметку эпизода, а список всё равно идёт.
+  const seen = new Set<string>();
+  for (let i = 0; i < 20 && seen.size < 2; i++) {
+    const before = await prisma.processedMessage.count({ where: { channel: CATCH_UP_REPORTED_MARK } });
+    const tick = await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 second", reportPerTick: 1 });
+    if (tick.reported === 0) break;
+    expect(await prisma.processedMessage.count({ where: { channel: CATCH_UP_REPORTED_MARK } })).toBe(before + 1); // новый, не тот же
+    for (const row of await marked()) seen.add(row.messageId);
+  }
+  expect([...seen].sort()).toEqual([a.asked, b.asked].sort());
+  // Оба отданы — повторно их не берут.
+  const again = await runCustomerTurnCatchUpTick({ minAge: "0 seconds", maxAge: "1 second", reportPerTick: 50 });
+  expect((await marked()).length).toBe(2);
+  expect(again.reported).toBe(0);
+}, 120_000);
+
+it("сбой базы при возобновлении — не «условия изменились»: журнал, задание падает, очередь повторяет, потом возобновляет", async () => {
   const { asked } = await heldDuringPause("Нархаш чанд аст?");
+  await prisma.errorLog.deleteMany({ where: { dedupKey: "customer-turn-catch-up-resume-failed" } });
+  // Одно задание за тик, старшие сообщения — первыми (удержанные ходы соседних тестов стоят в очереди раньше).
+  for (let i = 0; i < 10 && !(await job(asked)); i++) expect((await runCustomerTurnCatchUpTick({ minAge: "0 seconds" })).queued).toBe(1);
+  const queued = await job(asked);
+  expect(queued).toMatchObject({ status: "PENDING", maxAttempts: CATCH_UP_MAX_ATTEMPTS });
+  const payload = customerInboxConsumeJob.schema.parse(queued!.payload);
   vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(new Error("deadlock detected"));
-  // Исключение — очередь повторит задание (до CATCH_UP_MAX_ATTEMPTS раз, потом человеку через onGiveUp).
-  await expect(runCustomerCatchUpTurn(asked)).rejects.toThrow(/повторит/);
+  // Само задание очереди падает — очередь повторит его (до CATCH_UP_MAX_ATTEMPTS раз, потом человеку через onGiveUp).
+  await expect(customerInboxConsumeJob.run(payload)).rejects.toThrow(/повторит/);
   expect((await ticket(asked)).resumedAt).toBeNull();
+  await vi.waitFor(async () => expect(await prisma.errorLog.count({ where: { dedupKey: "customer-turn-catch-up-resume-failed" } })).toBe(1));
   vi.restoreAllMocks();
+  // Следующий тик сторожа второго задания не ставит: повторяет то же, поставленное.
+  await runCustomerTurnCatchUpTick({ minAge: "0 seconds" });
+  expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-inbox-catch-up:${asked}` } })).toBe(1);
   // Следующая попытка проходит: часы хода поставлены ровно один раз.
   expect(await resumeHeldCustomerTurn(asked)).toBe("resumed");
   expect((await ticket(asked)).resumedAt).not.toBeNull();
+  expect(await resumeHeldCustomerTurn(asked)).toBe("not_eligible");
 }, 120_000);

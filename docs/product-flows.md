@@ -21271,6 +21271,8 @@
       - для каждого: const row of forHuman
         - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
           · зовёт reportUnansweredCustomerTurn()
+        - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
+          · обращается к базе своим SQL
     - если сорвалось
       - void logSystemError("ai", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…
         · запись в журнал ошибок

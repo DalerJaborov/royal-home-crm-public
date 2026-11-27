@@ -23,6 +23,7 @@
 //
 // Номера из таких сообщений попадают в карточку сторожем #497 (phoneLeadWatchdog.ts) и самим ходом ядра.
 // Ничего не пишет клиенту сам: ответ — только ход ядра. Рубильник `botCatchUpEnabled` (ВКЛ).
+import { randomUUID } from "node:crypto";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
 import { automationSwitchOn } from "./automationSwitches.js";
@@ -56,6 +57,10 @@ const CATCH_UP_MAX_AGE = `${CATCH_UP_MAX_AGE_HOURS} hours`;
 const REPORT_MAX_AGE = "23 hours";
 /** Сколько невозобновимых ходов отдаём человеку за тик; дверь идемпотентна по эпизоду молчания. */
 const REPORT_PER_TICK = 10;
+/** Отметка «этот билет уже отдан человеку» (ProcessedMessage, канал — этот ключ, messageId — eventKey). Курсор списка
+ *  (ревью #503): дверь «бот не ответил» ставит свою отметку эпизода не всегда (режим «бот отвечает сам», чат исключён), и
+ *  без своей отметки первые десять таких билетов занимали бы каждый тик, а одиннадцатый не дошёл бы до человека никогда. */
+export const CATCH_UP_REPORTED_MARK = "customer-catch-up-reported";
 /** Сколько раз задание пробует возобновить ход при сбое базы, прежде чем отдать человеку (customerInboxConsume.ts). */
 export const CATCH_UP_MAX_ATTEMPTS = 5;
 /** Моложе — не трогаем: удержанный ход мог ещё не закончить свои повторы (возобновление отложенного — через 15 с). */
@@ -96,8 +101,9 @@ function unansweredLatestHeld(minAge: string, maxAge: string): Prisma.Sql {
 export interface CustomerCatchUpResult { queued: number; reported: number }
 
 /** Тик сторожа. Не бросает: сбой уходит в журнал одной строкой. */
-export async function runCustomerTurnCatchUpTick(options: { minAge?: string; maxAge?: string } = {}): Promise<CustomerCatchUpResult> {
+export async function runCustomerTurnCatchUpTick(options: { minAge?: string; maxAge?: string; reportPerTick?: number } = {}): Promise<CustomerCatchUpResult> {
   const minAge = options.minAge ?? MIN_AGE, maxAge = options.maxAge ?? CATCH_UP_MAX_AGE;
+  const reportPerTick = options.reportPerTick ?? REPORT_PER_TICK;
   const result: CustomerCatchUpResult = { queued: 0, reported: 0 };
   try {
     if (!(await automationSwitchOn("botCatchUpEnabled"))) return result;
@@ -120,19 +126,21 @@ export async function runCustomerTurnCatchUpTick(options: { minAge?: string; max
     // Бот этот ход не догоняет: пин хода уже был (модель закреплялась — второй ход того же сообщения невозможен по
     // устройству ядра) или сообщение старше окна догоняния. Пока шла пауза, «бот не ответил» молчал (переписка
     // считалась отвеченной): пауза только что кончилась — человек узнаёт сейчас, а не молча никогда. Дверь сама не шлёт
-    // второй сигнал на тот же эпизод (silenceAlertFor); такие переписки — в конце списка, чтобы очередь двигалась.
+    // второй сигнал на тот же эпизод (silenceAlertFor). Каждый билет отдаём ОДИН раз (отметка CATCH_UP_REPORTED_MARK):
+    // уже отданные из выборки выпадают, и список движется, даже если дверь человека свою отметку не поставила.
     const forHuman = await prisma.$queryRaw<Candidate[]>`
       SELECT t."eventKey", t."errorCode"
       ${unansweredLatestHeld(minAge, REPORT_MAX_AGE)}
         AND (t."agentRevisionId" IS NOT NULL OR t."receivedAt" <= now() - ${maxAge}::interval)
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now() - ${PAUSE_JUST_ENDED}::interval
-      ORDER BY (c."silenceAlertFor" IS NOT NULL AND c."silenceAlertFor" >= COALESCE((
-          SELECT max((m.elem ->> 'at')::timestamptz AT TIME ZONE 'UTC') FROM jsonb_array_elements(c.messages) m(elem)
-          WHERE m.elem ->> 'role' = 'assistant' AND m.elem ->> 'at' IS NOT NULL), '-infinity'::timestamp)) ASC,
-        t."receivedAt" ASC
-      LIMIT ${REPORT_PER_TICK}`;
+        AND NOT EXISTS (SELECT 1 FROM "ProcessedMessage" pm WHERE pm."channel" = ${CATCH_UP_REPORTED_MARK} AND pm."messageId" = t."eventKey")
+      ORDER BY t."receivedAt" ASC
+      LIMIT ${reportPerTick}`;
     for (const row of forHuman) {
+      // Дверь не бросает (сбой — строка в журнал). Отметка — после неё: падение процесса посередине даст повтор, а не пропуск.
       await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
+      await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+        VALUES (${randomUUID()}, ${CATCH_UP_REPORTED_MARK}, ${row.eventKey}, now(), now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
       result.reported++;
     }
   } catch (error) {
