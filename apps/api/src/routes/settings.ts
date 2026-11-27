@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_STAFF_TOTP_KEY, assistantStaffTotpSwitchUpdateSchema, AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
+import { autoCleanupDaysUpdateSchema, AUTO_CLEANUP_DAYS_KEYS, ASSISTANT_STAFF_TOTP_KEY, assistantStaffTotpSwitchUpdateSchema, AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -1316,6 +1316,8 @@ const settingsUpdateSchema = z.object({
     .max(ASSISTANT_LOG_RETENTION_DAYS.max)
     .optional(),
   /** Шагов помощницы на один ответ и срок ответа в секундах (решение владельца 07.11.2026). */
+  /** Сроки автоочистки мусора, дней (28.11.2026); рубильник autoCleanupEnabled — в реестре автоматики. */
+  ...autoCleanupDaysUpdateSchema.shape,
   aiAssistantMaxRounds: z.number().int().min(ASSISTANT_MAX_ROUNDS.min).max(ASSISTANT_MAX_ROUNDS.max).optional(),
   aiAssistantDeadlineSec: z.number().int().min(ASSISTANT_DEADLINE_SEC.min).max(ASSISTANT_DEADLINE_SEC.max).optional(),
   /** Улучшение фото объекта ИИ (пункт 7 очереди, 23.08.2026). Выключено по
@@ -2032,6 +2034,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest[SECURITY_AUTOMATION_KEY] !== undefined ? { [SECURITY_AUTOMATION_KEY]: rest[SECURITY_AUTOMATION_KEY] } : {}),
     // Код Authenticator для сотрудников в Telegram (23.11.2026): кто и когда снял или вернул — в журнале.
     ...(rest[ASSISTANT_STAFF_TOTP_KEY] !== undefined ? { [ASSISTANT_STAFF_TOTP_KEY]: rest[ASSISTANT_STAFF_TOTP_KEY] } : {}),
+    // Сроки автоочистки (28.11.2026): удаление безвозвратное — кто и какой срок поставил, видно в журнале.
+    ...Object.fromEntries(AUTO_CLEANUP_DAYS_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
     // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
     ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
   });

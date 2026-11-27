@@ -1287,6 +1287,25 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
+  /** Автоочистка мусора с короткими сроками (владелец 28.11.2026): прочитанные уведомления, разобранные
+   *  ошибки, технический лог ИИ, обработанные оповещения директору. Рубильник Settings.autoCleanupEnabled,
+   *  ВЫКЛ по умолчанию; вся логика и тест — lib/dataCleanup.ts (здесь только расписание). Через полчаса после
+   *  общей уборки журналов: та работает по 90 дням, эта — по срокам из Настроек. */
+  scheduleTracked(
+    "data-cleanup",
+    "30 3 * * *",
+    async () => {
+      try {
+        const { runAutoCleanup } = await import("./lib/dataCleanup.js");
+        const r = await runAutoCleanup();
+        if (r.ran) console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, журнал ИИ -${r.aiLog}, оповещения директору -${r.directorAlerts}, счётчики щитов -${r.botCounters}, одноразовые -${r.oneTime}`);
+      } catch (err) {
+        reportCronTickError("Ошибка автоочистки", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
   // Ночные автостатусы клиентов («остыл», «не отвечает», «в архиве») удалены
   // 16.11.2026: владелец убрал статусы-папки, список клиентов один.
 

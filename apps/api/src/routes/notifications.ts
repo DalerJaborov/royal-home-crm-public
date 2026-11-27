@@ -2,6 +2,7 @@ import { investigationViewerRole } from "../auth/investigations.js";
 import { loadVisibleNotificationsWhere } from "../lib/investigationNotifications.js";
 import { Router } from "express";
 import { z } from "zod";
+import type { Prisma } from "../generated/prisma/client.js";
 import { pageQuerySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth } from "../auth/middleware.js";
@@ -53,7 +54,10 @@ notificationsRouter.get("/", async (req, res) => {
   const { page } = parsed.data;
   // Время выборки снимаем ДО запросов: всё, что создано позже, клиент не «видел».
   const listedAt = new Date();
-  const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
+  // Скрытое («Скрыть», 28.11.2026) в ленту и счётчики не попадает — строка остаётся в базе.
+  const where: Prisma.NotificationWhereInput = {
+    AND: [await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), { hiddenAt: null }],
+  };
 
   /**
    * ДВА ВЕРХНИХ УРОВНЯ ТЯНЕМ ПО ВСЕЙ ЛЕНТЕ, а не только со страницы.
@@ -188,4 +192,29 @@ notificationsRouter.post("/read-all", async (req, res) => {
     data: { read: true, seenAt: new Date() },
   });
   res.json({ ok: true });
+});
+
+/**
+ * СКРЫТЬ (владелец 28.11.2026): запись остаётся в базе, но пропадает из ленты ЭТОГО сотрудника
+ * (уведомление у каждого своё). Только свои: чужой id молча не находится. Повтор того же события
+ * (тот же tag) вернёт строку в ленту — это уже новое событие, а не старое.
+ */
+notificationsRouter.post("/:id/hide", async (req, res) => {
+  const parsed = idParamSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ error: "Неверный идентификатор" });
+  const result = await prisma.notification.updateMany({
+    where: { id: parsed.data.id, ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)) },
+    data: { hiddenAt: new Date() },
+  });
+  if (result.count === 0) return res.status(404).json({ error: "Уведомление не найдено" });
+  res.json({ ok: true });
+});
+
+/** «Скрыть всё прочитанное» одной кнопкой: непрочитанное и «Ждёт решения» остаётся на виду. */
+notificationsRouter.post("/hide-read", async (req, res) => {
+  const result = await prisma.notification.updateMany({
+    where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), read: true, hiddenAt: null },
+    data: { hiddenAt: new Date() },
+  });
+  res.json({ ok: true, count: result.count });
 });

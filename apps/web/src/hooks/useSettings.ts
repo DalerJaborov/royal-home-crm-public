@@ -592,6 +592,13 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   aiAssistantLogRetentionDays?: number;
   /** Шагов помощницы на один ответ и срок ответа, секунд (решение владельца 07.11.2026). */
   aiAssistantMaxRounds?: number;
+  /** Автоочистка мусора (28.11.2026): рубильник и сроки в днях. У сотрудников без настроек — нет. */
+  autoCleanupNotificationsReadDays?: number;
+  autoCleanupErrorsResolvedDays?: number;
+  autoCleanupAiLogDays?: number;
+  autoCleanupDirectorAlertsDays?: number;
+  autoCleanupBotCountersDays?: number;
+  autoCleanupOneTimeDays?: number;
   aiAssistantDeadlineSec?: number;
   /** Google Search grounding для справочных вопросов ассистента CRM (рынок/законы/
    *  налоги/ипотека Таджикистана вне данных CRM). Выключен по умолчанию. */
