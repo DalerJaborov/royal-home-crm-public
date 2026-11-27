@@ -43101,7 +43101,7 @@
     },
     {
      "k": "do",
-     "t": "const where: Prisma.NotificationWhereInput = { AND: [await loadVisibleNotificationsWhere(req.agent!.id, inves…",
+     "t": "const where: Prisma.NotificationWhereInput = { ...await loadVisibleNotificationsWhere(req.agent!.id, investig…",
      "a": [
       "зовёт loadVisibleNotificationsWhere()"
      ],
