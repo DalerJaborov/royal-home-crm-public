@@ -60,7 +60,7 @@ exchangeRateRouter.get("/status", async (_req, res) => {
 
 const configSchema = z.object({ alertPct: z.number().min(0.1).max(20) });
 
-exchangeRateRouter.patch("/config", async (req, res) => {
+exchangeRateRouter.patch("/config", requireElevation, async (req, res) => {
   const parsed = configSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Порог — число от 0,1 до 20 процентов" });
   await prisma.settings.upsert({
@@ -80,7 +80,7 @@ exchangeRateRouter.post("/confirm-pending", requireElevation, async (req, res) =
   const previous = s.usdToTjsRate != null ? Number(s.usdToTjsRate) : null;
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { usdToTjsRate: next, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto", usdRatePendingValue: null, usdRatePendingAt: null },
+    data: { usdToTjsRate: next, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto", usdRatePendingValue: null, usdRatePendingAt: null, usdRateDismissedValue: null },
   });
   logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: next, source: "alif-auto", confirmedJump: true });
   await onUsdRateApplied(previous, next, "alif-auto");
@@ -89,7 +89,12 @@ exchangeRateRouter.post("/confirm-pending", requireElevation, async (req, res) =
 
 /** Оставить прежний курс, не принимать скачок. */
 exchangeRateRouter.post("/dismiss-pending", async (req, res) => {
-  await prisma.settings.update({ where: { id: "singleton" }, data: { usdRatePendingValue: null, usdRatePendingAt: null } });
+  const cur = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdRatePendingValue: true } });
+  // Запоминаем отклонённое значение (то же не будит повторно) и считаем действующий курс подтверждённым сегодня.
+  await prisma.settings.update({
+    where: { id: "singleton" },
+    data: { usdRateDismissedValue: cur?.usdRatePendingValue ?? null, usdRatePendingValue: null, usdRatePendingAt: null, usdToTjsRateUpdatedAt: new Date() },
+  });
   logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdRatePendingDismissed: true });
   res.json({ ok: true });
 });

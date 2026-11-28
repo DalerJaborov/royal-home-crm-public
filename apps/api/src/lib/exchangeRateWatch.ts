@@ -7,7 +7,7 @@ import { loadMoneyContext } from "./money.js";
 import { buildPriceDisplay } from "./reelsCaptionTemplate.js";
 import { replaceCaptionPriceLines } from "./captionPriceLine.js";
 import { stagePriceCaptionTargets } from "./priceCaptionDelivery.js";
-import { formatShortCode } from "@royal-home/shared";
+import { formatShortCode, propertyPriceTjs } from "@royal-home/shared";
 
 /**
  * СТРАЖ КУРСА ДОЛЛАРА (владелец 28.11.2026: «курсы работают? узнаем ли мы о сбое? что будет, если курс изменится?»).
@@ -57,8 +57,10 @@ export async function holdJumpedRate(current: number, fetched: number): Promise<
     const pct = changePct(current, fetched) ?? 0;
     const settings = await prisma.settings.findUnique({
       where: { id: "singleton" },
-      select: { usdRatePendingValue: true, usdRateAlertsEnabled: true },
+      select: { usdRatePendingValue: true, usdRateDismissedValue: true, usdRateAlertsEnabled: true },
     });
+    // Руководитель уже сказал «оставить прежний» именно про это значение: не ждём решения и не будим повторно.
+    if (settings?.usdRateDismissedValue != null && Number(settings.usdRateDismissedValue) === fetched) return;
     const alreadyPending = settings?.usdRatePendingValue != null && Number(settings.usdRatePendingValue) === fetched;
     await prisma.settings.update({
       where: { id: "singleton" },
@@ -66,10 +68,14 @@ export async function holdJumpedRate(current: number, fetched: number): Promise<
     });
     if (alreadyPending) return;
     logSystemAudit("EXCHANGE_RATE_HELD", "Settings", "singleton", { current, fetched, pct: Math.round(pct * 100) / 100 });
-    if (settings?.usdRateAlertsEnabled === false) return;
+    if (settings?.usdRateAlertsEnabled === false) {
+      // Предупреждения выключены: скачок не должен держаться молча, он виден в журнале ошибок.
+      void logSystemError("exchange-rate", `Курс с alif.tj ${rateText(fetched)} отличается от ${rateText(current)} на ${pctText(pct)}: не применён, ждёт подтверждения в Настройках → Деньги.`);
+      return;
+    }
     await alertLeadership(
       `Курс доллара скакнул: ${rateText(current)} → ${rateText(fetched)} (${pctText(pct)})`,
-      `alif.tj отдал курс ${rateText(fetched)}, у нас ${rateText(current)}. Скачок больше ${JUMP_LIMIT_PCT} %, поэтому я его не применил: цены на сайте и деньги остаются по старому курсу. Если курс настоящий — подтвердите в Настройках → Деньги → Курс доллара.`,
+      `alif.tj отдал курс ${rateText(fetched)}, у нас ${rateText(current)}. Скачок больше ${JUMP_LIMIT_PCT} %, поэтому я его не применил: цены на сайте и деньги остаются по старому курсу. Если курс настоящий, подтвердите в Настройках → Деньги → Курс доллара.`,
       `usd-rate-held-${fetched}`
     );
   } catch (err) {
@@ -100,6 +106,10 @@ export async function onUsdRateApplied(previous: number | null, next: number, so
     if (base == null) {
       await prisma.settings.update({ where: { id: "singleton" }, data: { usdRateSyncedRate: next } });
       return;
+    }
+    // Базы не было (первый запуск): запоминаем прежний курс, иначе медленный дрейф по 0,2 % в сутки не накопится никогда.
+    if (settings.usdRateSyncedRate == null) {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { usdRateSyncedRate: base } });
     }
     const pct = changePct(base, next) ?? 0;
     if (Math.abs(pct) < settings.usdRateAlertPct) return;
@@ -154,11 +164,20 @@ export interface StaleCaption {
  * Объекты в долларах, у которых подпись вышедшего поста несёт цену по другому курсу. Признак — по тексту: в подписи
  * есть строка цены, но нет сегодняшней «сомони ($)». Старого курса хранить не надо, и список сам пустеет после обновления.
  */
-export async function findStaleRateCaptions(): Promise<StaleCaption[]> {
+export async function findStaleRateCaptions(onlyIds?: string[]): Promise<StaleCaption[]> {
   const money = await loadMoneyContext();
   if (money.fallback) return [];
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdRateAlertPct: true } });
+  const thresholdPct = settings?.usdRateAlertPct ?? 1;
   const rows = await prisma.property.findMany({
-    where: { currency: "USD", deletedAt: null, publishedChannels: { isEmpty: false }, reelsCaption: { not: null } },
+    where: {
+      currency: "USD",
+      deletedAt: null,
+      status: { in: ["AVAILABLE", "RESERVED"] },
+      publishedChannels: { isEmpty: false },
+      reelsCaption: { not: null },
+      ...(onlyIds ? { id: { in: onlyIds } } : {}),
+    },
     select: { id: true, shortId: true, price: true, currency: true, reelsCaption: true, publishedChannels: true },
     orderBy: { shortId: "asc" },
   });
@@ -168,9 +187,23 @@ export async function findStaleRateCaptions(): Promise<StaleCaption[]> {
     const expected = buildPriceDisplay(row.price, row.currency, money);
     if (caption.includes(expected)) continue;
     if (replaceCaptionPriceLines(caption, expected).replaced === 0) continue;
+    // Подпись только в долларах от курса не зависит. Сомони в подписи есть: сравниваем с сегодняшними,
+    // отличие меньше порога (округление до тысяч) устаревшим не считается.
+    const shown = captionTjsAmount(caption);
+    if (shown === null) continue;
+    const today = propertyPriceTjs(Number(row.price), "USD", money.usdToTjs);
+    if (today && (Math.abs(shown - today) / today) * 100 < thresholdPct) continue;
     stale.push({ id: row.id, shortId: row.shortId, code: formatShortCode("ОБ", row.shortId), channels: row.publishedChannels });
   }
   return stale;
+}
+
+/** Сумма в сомони из строки цены подписи вида «465 000 сомони ($50 000)»; null — сомони в подписи нет. */
+function captionTjsAmount(caption: string): number | null {
+  const m = /(\d[\d\s\u00a0\u202f.,]*\d|\d)\s?(?:с\.|сомони|сомонӣ|смн\.?|TJS)\s*\(\s*(?:\$|\d)/u.exec(caption);
+  if (!m) return null;
+  const digits = m[1].replace(/\D/g, "");
+  return digits ? Number(digits) : null;
 }
 
 export interface CaptionRefreshSummary {
@@ -188,8 +221,8 @@ export interface CaptionRefreshSummary {
  * Заменяет строку цены в сохранённой подписи на сегодняшнюю и ставит правку живых постов в ту же очередь, что и правка цены
  * объекта (priceCaptionDelivery): с повторами, сверкой результата и записью в журнал. Остальной текст подписи не трогается.
  */
-export async function refreshStaleRateCaptions(): Promise<CaptionRefreshSummary> {
-  const stale = await findStaleRateCaptions();
+export async function refreshStaleRateCaptions(onlyIds?: string[]): Promise<CaptionRefreshSummary> {
+  const stale = await findStaleRateCaptions(onlyIds);
   const batch = stale.slice(0, CAPTION_BATCH_LIMIT);
   const money = await loadMoneyContext();
   const summary: CaptionRefreshSummary = { queued: 0, manual: [], skipped: 0, remaining: stale.length - batch.length };
@@ -215,7 +248,7 @@ export async function refreshStaleRateCaptions(): Promise<CaptionRefreshSummary>
       }
       if (staged.queued.length > 0) summary.queued++;
       if (staged.manual.length > 0) summary.manual.push({ code: item.code, channels: staged.manual });
-      logSystemAudit("PROPERTY_CAPTIONS_REFRESHED", "Property", item.id, {
+      logSystemAudit("PROPERTY_RATE_CAPTIONS_REFRESHED", "Property", item.id, {
         shortId: item.shortId,
         reason: "курс доллара",
         queued: staged.queued,
@@ -234,10 +267,13 @@ export async function checkRateFreshness(now = new Date()): Promise<boolean> {
   try {
     const settings = await prisma.settings.findUnique({
       where: { id: "singleton" },
-      select: { usdToTjsRate: true, usdToTjsRateUpdatedAt: true, usdRateStaleAlertedAt: true, usdRateAlertsEnabled: true },
+      select: { usdToTjsRate: true, usdToTjsRateUpdatedAt: true, usdRateStaleAlertedAt: true, usdRateAlertsEnabled: true, usdRatePendingAt: true },
     });
     if (!settings || !settings.usdRateAlertsEnabled) return false;
-    const updatedAt = settings.usdToTjsRateUpdatedAt;
+    // Пока скачок ждёт решения, alif.tj отвечает исправно (pendingAt обновляется каждую ночь): курс не «застрял», он ждёт человека.
+    const updatedAt = [settings.usdToTjsRateUpdatedAt, settings.usdRatePendingAt]
+      .filter((d): d is Date => d != null)
+      .sort((x, y) => y.getTime() - x.getTime())[0] ?? null;
     const ageHours = updatedAt ? (now.getTime() - updatedAt.getTime()) / 3_600_000 : Infinity;
     if (settings.usdToTjsRate != null && ageHours <= STALE_HOURS) return false;
     const hasUsd = (await prisma.property.count({ where: { currency: "USD", deletedAt: null } })) > 0;

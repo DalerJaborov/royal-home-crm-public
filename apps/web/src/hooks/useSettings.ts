@@ -675,6 +675,7 @@ export function useUsdToTjsRate(): number {
  * по старому значению до следующего тика поллинга.
  */
 export function invalidateAfterSettingsChange(qc: ReturnType<typeof useQueryClient>, options?: { skipSettings?: boolean }) {
+  void qc.invalidateQueries({ queryKey: ["exchange-rate-status"] });
   for (const key of [
     ...(options?.skipSettings ? [] : ["settings"]),
     "finance-summary",

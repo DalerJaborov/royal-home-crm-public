@@ -115,7 +115,7 @@ export async function refreshUsdToTjsRateFromAlif(opts: { confirmJump?: boolean 
   }
   await prisma.settings.upsert({
     where: { id: "singleton" },
-    update: { usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto", usdRatePendingValue: null, usdRatePendingAt: null },
+    update: { usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto", usdRatePendingValue: null, usdRatePendingAt: null, usdRateDismissedValue: null },
     create: { id: "singleton", usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto" },
   });
   await onUsdRateApplied(previous, rate, "alif-auto");

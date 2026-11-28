@@ -89,6 +89,7 @@ export const SYSTEM_SETTINGS_FIELDS = [
   // Страж курса (28.11.2026): состояние, а не выбор директора.
   "usdRatePendingValue",
   "usdRatePendingAt",
+  "usdRateDismissedValue",
   "usdRateSyncedRate",
   "usdRateStaleAlertedAt",
   // Пауза очереди монтажа — оперативное состояние (lib/videoHandoff.ts).

@@ -228,7 +228,7 @@ describe("подписи в соцсетях: только кнопкой", () =
     await setRate(9.5, 1, { telegramChannelId: "-1001234567890" });
     const p = await makeUsdProperty("Квартира\nЦена: 465 500 сомони ($50 000)\nЗвоните", { channels: ["TELEGRAM", "INSTAGRAM"] });
     await prisma.property.update({ where: { id: p.id }, data: { publishedPostIds: { TELEGRAM: "123", INSTAGRAM: "ig1" } } });
-    const summary = await refreshStaleRateCaptions();
+    const summary = await refreshStaleRateCaptions([p.id]);
     expect(summary.queued).toBeGreaterThanOrEqual(1);
     const after = await prisma.property.findUnique({ where: { id: p.id } });
     expect(after?.reelsCaption).toBe(`Квартира\nЦена: ${NEW_PRICE}\nЗвоните`);
@@ -238,5 +238,41 @@ describe("подписи в соцсетях: только кнопкой", () =
     expect(summary.manual.some((m) => m.channels.includes("INSTAGRAM"))).toBe(true);
     // Второе нажатие: уже свежо — нечего менять.
     expect((await findStaleRateCaptions()).map((c) => c.id)).not.toContain(p.id);
+  });
+});
+
+describe("находки ревью 28.11", () => {
+  it("первый запуск без базы: дрейф по мелким шагам накапливается и срабатывает", async () => {
+    const p = await makeUsdProperty("x", { site: true });
+    await setRate(9.35, 1, { usdRateSyncedRate: null });
+    await onUsdRateApplied(9.3, 9.35, "alif-auto"); // +0,5 %: порог не пройден, но база запомнена как 9,30
+    expect((await prisma.settings.findUnique({ where: { id: "singleton" } }))?.usdRateSyncedRate?.toString()).toBe("9.3");
+    expect(await prisma.backgroundJob.count({ where: { type: "site-resync", dedupeKey: `site-resync:${p.id}` } })).toBe(0);
+    await setRate(9.4, 1, { usdRateSyncedRate: 9.3 });
+    await onUsdRateApplied(9.35, 9.4, "alif-auto"); // от 9,30 уже +1,07 %
+    expect(await prisma.backgroundJob.count({ where: { type: "site-resync", dedupeKey: `site-resync:${p.id}` } })).toBe(1);
+  });
+
+  it("«Оставить прежний» запоминается: тот же курс повторно не будит", async () => {
+    await setRate(9.31, 1, { usdRateDismissedValue: 10.2 });
+    alifReturns("10.20");
+    await refreshUsdToTjsRateFromAlif();
+    expect(alerts).toHaveLength(0);
+    expect((await prisma.settings.findUnique({ where: { id: "singleton" } }))?.usdRatePendingValue).toBeNull();
+  });
+
+  it("пока скачок ждёт решения, сторож свежести не кричит «не обновляется»", async () => {
+    await makeUsdProperty(null);
+    await setRate(9.31, 50, { usdRatePendingValue: 10.2, usdRatePendingAt: new Date() });
+    expect(await checkRateFreshness()).toBe(false);
+  });
+
+  it("подпись только в долларах и подпись в пределах порога устаревшими не считаются", async () => {
+    await setRate(9.5);
+    const usdOnly = await makeUsdProperty("Квартира\nЦена: $50 000", { channels: ["TELEGRAM"] });
+    const close = await makeUsdProperty("Квартира\nЦена: 474 000 сомони ($50 000)", { channels: ["TELEGRAM"] });
+    const ids = (await findStaleRateCaptions()).map((c) => c.id);
+    expect(ids).not.toContain(usdOnly.id);
+    expect(ids).not.toContain(close.id);
   });
 });

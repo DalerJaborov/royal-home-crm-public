@@ -1806,7 +1806,7 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Ручная правка курса — помечаем источник, чтобы в интерфейсе было видно,
     // что это не официальный курс с alif.tj (тот перезапишет её следующим циклом cron).
     ...(usdToTjsRate !== undefined
-      ? { usdToTjsRate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "manual", usdRatePendingValue: null, usdRatePendingAt: null }
+      ? { usdToTjsRate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "manual", usdRatePendingValue: null, usdRatePendingAt: null, usdRateDismissedValue: null }
       : {}),
   };
 

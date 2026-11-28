@@ -79,6 +79,12 @@ export function ExchangeRateWatchPanel() {
         </div>
       )}
 
+      {(confirm.isError || dismiss.isError) && (
+        <p className="quiet crit" role="alert">
+          {((confirm.error ?? dismiss.error) as Error | null)?.message ?? "Не удалось выполнить"}
+        </p>
+      )}
+
       <div className="mod">
         <div className="t">
           <b>Цены на сайте</b>
