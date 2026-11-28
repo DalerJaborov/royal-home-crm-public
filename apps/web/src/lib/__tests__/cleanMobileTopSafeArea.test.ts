@@ -98,3 +98,16 @@ describe("вырез считается одной схемой (одна пер
     expect(read("theme-2026-clean.css")).not.toMatch(/\.app-shell\.clean-shell \{[^}]*padding-top:\s*max\(8px/);
   });
 });
+
+describe("шапка при сворачивании не двигает страницу (рывок «Календаря» 138→111)", () => {
+  it("CleanShell отдаёт убавку высоты шапки полем под ней", () => {
+    const tsx = fs.readFileSync(path.join(SRC, "components/clean/CleanShell.tsx"), "utf8");
+    expect(tsx).toMatch(/\[data-ry-top\]\[data-scrolled\]/);
+    expect(tsx).toMatch(/node\.style\.marginBottom\s*=\s*gap/);
+    expect(tsx).toMatch(/node\.style\.marginBottom\s*=\s*""/); // и снимает при размонтировании
+  });
+
+  it("основная колонка не якорит прокрутку (иначе Chrome съедает убавку и верх «залипает»)", () => {
+    expect(blockOf(read("theme-2026-clean-mobile-shell.css"), "[data-mobile-ux] .app-main-col {\n  overflow-anchor")).toMatch(/overflow-anchor:\s*none/);
+  });
+});

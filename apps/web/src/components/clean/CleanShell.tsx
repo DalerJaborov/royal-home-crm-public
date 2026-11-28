@@ -155,15 +155,27 @@ export function CleanShell({ royal = false }: { royal?: boolean }) {
     const node = header.current;
     const frame = node?.parentElement;
     if (!node || !frame) return;
+    // ШАПКА НЕ ДВИГАЕТ СТРАНИЦУ ПРИ СВЁРТЫВАНИИ (28.11.2026, «Календарь», кадры 138→111).
+    // Крупное название экрана (RoyalTopbarRow) на узком телефоне стоит второй строкой и при
+    // прокрутке (> 12 px) уходит в одну строку с кнопками: липкая шапка худеет на 27 px, всё
+    // ниже подпрыгивает вверх под пальцем (iOS Safari не умеет якорить прокрутку). Теперь
+    // убавку отдаём обратно полем ПОД шапкой: сумма «шапка + поле» не меняется, шапка наверху
+    // остаётся компактной, а поле уезжает вместе со страницей. Высоту «развёрнутой» шапки
+    // запоминаем, пока страница наверху.
+    let restHeight = 0;
     const measure = () => {
       const bounds = node.getBoundingClientRect();
+      const collapsed = !!node.querySelector("[data-ry-top][data-scrolled]");
+      if (!collapsed) restHeight = bounds.height;
+      const gap = collapsed && restHeight > bounds.height ? Math.round(restHeight - bounds.height) : 0;
+      node.style.marginBottom = gap ? `${gap}px` : "";
       frame.style.setProperty("--clean-header-height", `${bounds.height + 8}px`);
       setTabCapacity(window.matchMedia("(min-width: 820px)").matches ? 6 : 4);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
-    return () => { observer.disconnect(); frame.style.removeProperty("--clean-header-height"); };
+    return () => { observer.disconnect(); node.style.marginBottom = ""; frame.style.removeProperty("--clean-header-height"); };
   }, []);
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
