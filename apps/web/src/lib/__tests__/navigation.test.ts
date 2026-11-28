@@ -204,3 +204,19 @@ describe("нижнее меню «Нового вида» (royalBottom)", () => 
     for (const path of paths) expect(allowed.has(path), path).toBe(true);
   });
 });
+
+describe("технические разделы в меню — только директор и администратор (28.11.2026)", () => {
+  const TECH = ["/health", "/integrations", "/backups", "/stuck-work"];
+  it.each(["HEAD_OF_SALES", "MANAGER", "AGENT", "SECURITY", "SHAREHOLDER", "MARKETING", "EDITOR"] as Role[])(
+    "%s не видит технических пунктов ни в одном списке меню",
+    (role) => {
+      const nav = buildNavigation(makeInputs(role));
+      const all = routes(nav.all);
+      for (const to of TECH) expect(all, `${role} ${to}`).not.toContain(to);
+    },
+  );
+  it.each(["ADMIN", "DIRECTOR"] as Role[])("%s видит все четыре", (role) => {
+    const all = routes(buildNavigation(makeInputs(role)).all);
+    for (const to of TECH) expect(all, `${role} ${to}`).toContain(to);
+  });
+});
