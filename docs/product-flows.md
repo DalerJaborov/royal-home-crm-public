@@ -24006,6 +24006,8 @@
     - если !settings.enabled
       - return "disabled";
         · дословно из кода
+    - await prisma.missedCallRedial.updateMany({ where: { status: "pending", createdAt: { lt: new Date(now.getTime(…
+      · меняет в базе: missedCallRedial
     - const awaiting = await prisma.missedCallRedial.findMany({ where: { status: "pending", lastAttemptAt: { not: n…
       · читает в базе: missedCallRedial
     - для каждого: const row of awaiting
@@ -24039,7 +24041,7 @@
     - если !operator
       - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…
         · меняет в базе: missedCallRedial
-    - если hasLiveCall(operator.id) || !beginOrigination(operator.id)
+    - если (operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operato…
       - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…
         · меняет в базе: missedCallRedial
     - пробует
@@ -24067,6 +24069,8 @@
           - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { ...base, lastOutcome: "failed", nextAtt…
             · меняет в базе: missedCallRedial
       - если !client
+        - operatorHold.set(operator.id, now.getTime() + REDIAL_NO_CARD_OPERATOR_HOLD_MS);
+          · дословно из кода
         - await closeRow(row.id, "gave_up", "outcome_unseen", { ...base, lastOutcome: "unknown" });
           · дословно из кода
       - иначе

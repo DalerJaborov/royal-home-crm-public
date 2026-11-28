@@ -187,6 +187,7 @@
   "(expenseDay(p.data.to!).getTime() - expenseDay(p.data.from!).getTime()) / 86400000 > 366",
   "(latest?.revision ?? 0) !== parsed.data.expectedRevision",
   "(onlyResult || orphan) && (await abortLocalUploadSession(d.id))",
+  "(operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operato…",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
   "(property.publishedChannels ?? []).includes(channel)",
   "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
@@ -357,7 +358,6 @@
   "found !== wanted.length",
   "found.length !== propertyIds.length",
   "from.id === actor.id",
-  "hasLiveCall(operator.id) || !beginOrigination(operator.id)",
   "hasLiveCall(req.agent!.id) || !beginOrigination(req.agent!.id)",
   "held.answered + held.expired > 0",
   "history[history.length - 1]?.role === \"user\"",
@@ -74540,7 +74540,7 @@
   {
    "id": "missed-call-redial",
    "when": "* * * * *",
-   "label": "missed-call-redial",
+   "label": "Перезванивает пропущенным клиентам через дежурного, по одному в минуту",
    "tree": [
     {
      "t": "если есть is redial идёт сейчас",
@@ -74561,6 +74561,12 @@
         {
          "t": "если нет: включено (настройки)",
          "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "меняет: missed звонок redial",
+         "k": "do",
          "a": [],
          "c": []
         },
@@ -74649,7 +74655,7 @@
          ]
         },
         {
-         "t": "если hasLiveCall(operator.id) || !beginOrigination(operator.id)",
+         "t": "если (operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operato…",
          "k": "if",
          "a": [],
          "c": [
@@ -74660,7 +74666,7 @@
            "c": []
           }
          ],
-         "raw": "hasLiveCall(operator.id) || !beginOrigination(operator.id)"
+         "raw": "(operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operato…"
         },
         {
          "t": "пробует сделать",

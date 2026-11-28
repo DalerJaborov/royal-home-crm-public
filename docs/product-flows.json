@@ -108061,6 +108061,14 @@
         },
         {
          "k": "do",
+         "t": "await prisma.missedCallRedial.updateMany({ where: { status: \"pending\", createdAt: { lt: new Date(now.getTime(…",
+         "a": [
+          "меняет в базе: missedCallRedial"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const awaiting = await prisma.missedCallRedial.findMany({ where: { status: \"pending\", lastAttemptAt: { not: n…",
          "a": [
           "читает в базе: missedCallRedial"
@@ -108224,7 +108232,7 @@
         },
         {
          "k": "if",
-         "t": "hasLiveCall(operator.id) || !beginOrigination(operator.id)",
+         "t": "(operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operato…",
          "a": [],
          "c": [
           {
@@ -108354,6 +108362,14 @@
            "t": "!client",
            "a": [],
            "c": [
+            {
+             "k": "do",
+             "t": "operatorHold.set(operator.id, now.getTime() + REDIAL_NO_CARD_OPERATOR_HOLD_MS);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
             {
              "k": "do",
              "t": "await closeRow(row.id, \"gave_up\", \"outcome_unseen\", { ...base, lastOutcome: \"unknown\" });",

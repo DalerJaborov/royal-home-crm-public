@@ -8,7 +8,7 @@ vi.mock("../src/lib/telephony/callbackConnect.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { scheduleMissedCallRedial, runMissedCallRedialTick } = await import("../src/lib/telephony/missedCallRedial.js");
+const { scheduleMissedCallRedial, runMissedCallRedialTick, resetMissedCallRedialMemory } = await import("../src/lib/telephony/missedCallRedial.js");
 const { beginOrigination, endOrigination } = await import("../src/lib/telephony/callTracker.js");
 const { reserveExtensionBase } = await import("./helpers/extensionBase.js");
 
@@ -21,8 +21,16 @@ const { reserveExtensionBase } = await import("./helpers/extensionBase.js");
 const stamp = String(Date.now()).slice(-5);
 let seq = 0;
 const mobile = () => `+99290${stamp}${String(++seq).padStart(2, "0")}`;
-const DAY = new Date("2026-11-30T06:00:00Z");
-const NIGHT = new Date("2026-11-30T18:00:00Z");
+// «Сегодня-завтра» считаем от настоящих часов, а не из зашитой даты: строки очереди создаются сейчас, и «будущий»
+// DAY обязан оставаться будущим и не дальше 48 часов (предел устаревания), в какой бы день ни шёл прогон.
+const DAY = (() => {
+  const d = new Date();
+  d.setUTCHours(6, 0, 0, 0); // 11:00 в Душанбе: рабочее окно 09:30-18:00
+  while (d.getTime() < Date.now() + 3600_000) d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+})();
+const NIGHT = new Date(DAY.getTime() + 12 * 3600_000); // 23:00 в Душанбе
+const NEXT_MORNING = new Date(DAY.getTime() + 22.5 * 3600_000); // 09:30 в Душанбе следующего дня
 const min = (d: Date, m: number) => new Date(d.getTime() + m * 60_000);
 
 let saved: Record<string, unknown> | null = null;
@@ -65,6 +73,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  resetMissedCallRedialMemory();
   dialMock.mockReset();
   dialMock.mockResolvedValue({ outcome: "connected", interactionId: null });
   await prisma.missedCallRedial.deleteMany({});
@@ -115,7 +124,7 @@ describe("постановка в очередь", () => {
   it("ночной пропущенный: первая попытка утром 09:30", async () => {
     const phone = mobile();
     await scheduleMissedCallRedial({ phone, now: NIGHT });
-    expect((await rowFor(phone))?.nextAttemptAt).toEqual(new Date("2026-12-01T04:30:00Z"));
+    expect((await rowFor(phone))?.nextAttemptAt).toEqual(NEXT_MORNING);
   });
 
   it("повторный звонок с того же номера не плодит вторую очередь", async () => {
@@ -240,7 +249,7 @@ describe("тик: звонок и его исход", () => {
     await dueRow(phone, { nextAttemptAt: new Date(NIGHT.getTime() - 60_000) });
     expect(await runMissedCallRedialTick(NIGHT)).toBe("off_hours");
     expect(dialMock).not.toHaveBeenCalled();
-    expect((await rowFor(phone))?.nextAttemptAt).toEqual(new Date("2026-12-01T04:30:00Z"));
+    expect((await rowFor(phone))?.nextAttemptAt).toEqual(NEXT_MORNING);
   });
 
   it("дежурный занят: попытка не сгорает, переносится на 2 минуты", async () => {
@@ -398,14 +407,52 @@ describe("замечания ревью 28.11", () => {
     expect(dialMock).not.toHaveBeenCalled();
   });
 
-  it("голосовое: замок VoicemailMessage (он встаёт раньше, чем имя файла в звонке) тоже останавливает перезвон", async () => {
+  it("голосовое: замок VoicemailMessage (начало записи раньше создания строки очереди) останавливает перезвон", async () => {
     const phone = mobile();
-    const r = await dueRow(phone);
-    await prisma.voicemailMessage.create({ data: { file: `vm-${stamp}-${seq}.wav`, phone, recordedAt: DAY } });
+    // Звонок начался 3 минуты назад, голосовое записано через 20 секунд, строка очереди создана только сейчас.
+    const started = new Date(Date.now() - 3 * 60_000);
+    const call = await prisma.incomingCall.create({ data: { channelId: `redial-vm-${stamp}-${seq}`, phone, startedAt: started } });
+    const r = await dueRow(phone, { incomingCallId: call.id });
+    expect(new Date(started.getTime() + 20_000).getTime()).toBeLessThan(r.createdAt.getTime());
+    await prisma.voicemailMessage.create({ data: { file: `vm-${stamp}-${seq}.wav`, phone, recordedAt: new Date(started.getTime() + 20_000) } });
     expect(await runMissedCallRedialTick(DAY)).toBe("closed");
     expect((await prisma.missedCallRedial.findUnique({ where: { id: r.id } }))?.closedReason).toBe("voicemail");
     expect(dialMock).not.toHaveBeenCalled();
     await prisma.voicemailMessage.deleteMany({ where: { phone } });
+  });
+
+  it("старое голосовое того же номера (задолго до звонка) перезвон не останавливает", async () => {
+    const phone = mobile();
+    const started = new Date(Date.now() - 3 * 60_000);
+    const call = await prisma.incomingCall.create({ data: { channelId: `redial-vm2-${stamp}-${seq}`, phone, startedAt: started } });
+    await dueRow(phone, { incomingCallId: call.id });
+    await prisma.voicemailMessage.create({ data: { file: `vm-old-${stamp}-${seq}.wav`, phone, recordedAt: new Date(started.getTime() - 3 * 3600_000) } });
+    expect(await runMissedCallRedialTick(DAY)).toBe("dialed");
+    await prisma.voicemailMessage.deleteMany({ where: { phone } });
+  });
+
+  it("очередь старше 48 часов закрывается как устаревшая, в том числе когда дежурного нет", async () => {
+    await setSettings({ callbackOperatorAgentId: null });
+    const phone = mobile();
+    const r = await dueRow(phone, { createdAt: new Date(DAY.getTime() - 49 * 3600_000) });
+    expect(await runMissedCallRedialTick(DAY)).toBe("idle");
+    const cur = await prisma.missedCallRedial.findUnique({ where: { id: r.id } });
+    expect([cur?.status, cur?.closedReason]).toEqual(["skipped", "stale"]);
+    expect(dialMock).not.toHaveBeenCalled();
+  });
+
+  it("звонок без карточки: дежурный считается занятым, второй номер не набирается, попытка не сгорает", async () => {
+    await dueRow(mobile());
+    const second = mobile();
+    await dueRow(second);
+    expect(await runMissedCallRedialTick(DAY)).toBe("dialed");
+    expect(await runMissedCallRedialTick(min(DAY, 1))).toBe("operator_busy");
+    expect(dialMock).toHaveBeenCalledTimes(1);
+    const row = await rowFor(second);
+    expect(row?.attempts).toBe(0);
+    expect(row?.status).toBe("pending");
+    // Через пять минут занятость снята.
+    expect(await runMissedCallRedialTick(min(DAY, 7))).toBe("dialed");
   });
 
   it("открыта просьба «перезвоните»: не звоним (skipped, причина)", async () => {

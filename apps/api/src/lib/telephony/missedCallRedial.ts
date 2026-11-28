@@ -8,7 +8,7 @@ import { findStaffPhone } from "../staffPhoneGuard.js";
 import { logSystemError } from "../systemError.js";
 import { logTimeline } from "../timeline.js";
 import { beginOrigination, endOrigination, hasLiveCall } from "./callTracker.js";
-import { dialOperatorThenClient, loadDutyOperator } from "./callbackConnect.js";
+import { AUTO_CONNECT_MAX_AGE_MS, dialOperatorThenClient, loadDutyOperator } from "./callbackConnect.js";
 import { isCompanyPhone } from "./missedCallFollowup.js";
 import { phoneTail } from "../clientPhones.js";
 
@@ -53,7 +53,15 @@ export const REDIAL_OPERATOR_NO_PICKUP_LONG_RETRY_MS = 30 * 60 * 1000;
 /** ...и после стольких молчаний дежурного серию закрываем: звонить некому. */
 export const REDIAL_OPERATOR_NO_PICKUP_GIVE_UP = 8;
 
+/** Запас к началу звонка при поиске голосового сообщения. */
+export const VOICEMAIL_SLACK_MS = 5 * 60 * 1000;
+/** Звонок не найден: считаем, что он начался за это время до создания строки очереди. */
+const VOICEMAIL_LOOKBACK_FALLBACK_MS = 15 * 60 * 1000;
+/** Дежурный после набора БЕЗ карточки не виден в карте живых звонков: считаем его занятым это время. */
+export const REDIAL_NO_CARD_OPERATOR_HOLD_MS = 5 * 60 * 1000;
+
 const MINUTE_MS = 60 * 1000;
+const operatorHold = new Map<string, number>();
 
 /**
  * Номера, по которым набор УЖЕ ушёл, но запись об этом в базу не легла (сбой базы после набора). Живёт в памяти
@@ -316,12 +324,15 @@ async function closeReasonBeforeDial(row: Row): Promise<{ status: "done" | "skip
   if (calls.some((c) => c.answered)) return { status: "done", reason: "self_answered" };
   // Наговорил на автоответчик: это разбирает человек, перезвон не нужен.
   const first = row.incomingCallId
-    ? await prisma.incomingCall.findUnique({ where: { id: row.incomingCallId }, select: { voicemailFile: true } })
+    ? await prisma.incomingCall.findUnique({ where: { id: row.incomingCallId }, select: { voicemailFile: true, startedAt: true } })
     : null;
   if (first?.voicemailFile || calls.some((c) => c.voicemailFile)) return { status: "skipped", reason: "voicemail" };
-  // Замок голосовой почты встаёт раньше, чем имя файла попадает в звонок: смотрим и его.
+  // Замок голосовой почты встаёт раньше, чем имя файла попадает в звонок: смотрим и его. recordedAt это начало
+  // записи из имени файла, а строка очереди создаётся позже: отсчёт от начала самого звонка минус запас, не от createdAt.
   const tail = phoneTail(row.phone);
-  if ((await prisma.voicemailMessage.count({ where: { phone: { endsWith: tail }, recordedAt: { gte: row.createdAt } } })) > 0) {
+  const callStart = first?.startedAt ?? new Date(row.createdAt.getTime() - VOICEMAIL_LOOKBACK_FALLBACK_MS);
+  const since = new Date(callStart.getTime() - VOICEMAIL_SLACK_MS);
+  if ((await prisma.voicemailMessage.count({ where: { phone: { endsWith: tail }, recordedAt: { gte: since } } })) > 0) {
     return { status: "skipped", reason: "voicemail" };
   }
   // Человек уже занимается: открыта просьба «перезвоните» или у агента висит его задача «перезвонить».
@@ -358,6 +369,13 @@ async function closeReasonBeforeDial(row: Row): Promise<{ status: "done" | "skip
 export async function runMissedCallRedialTick(now: Date = new Date()): Promise<RedialTickStatus> {
   const settings = await loadSettings();
   if (!settings.enabled) return "disabled";
+
+  // 0. Устаревшее: очередь старше предела (как у просьб клиента) закрываем, а не переносим бесконечно:
+  // и при «дежурного нет», и после повторного включения рубильника.
+  await prisma.missedCallRedial.updateMany({
+    where: { status: "pending", createdAt: { lt: new Date(now.getTime() - AUTO_CONNECT_MAX_AGE_MS) } },
+    data: { status: "skipped", closedReason: "stale" },
+  });
 
   // 1. Итоги уже набранных попыток (звонить не нужно, поэтому можно пачкой).
   const awaiting = await prisma.missedCallRedial.findMany({
@@ -410,7 +428,7 @@ export async function runMissedCallRedialTick(now: Date = new Date()): Promise<R
     await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() + REDIAL_NO_OPERATOR_RETRY_MS) } });
     return "no_operator";
   }
-  if (hasLiveCall(operator.id) || !beginOrigination(operator.id)) {
+  if ((operatorHold.get(operator.id) ?? 0) > now.getTime() || hasLiveCall(operator.id) || !beginOrigination(operator.id)) {
     await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() + REDIAL_BUSY_RETRY_MS) } });
     return "operator_busy";
   }
@@ -465,6 +483,7 @@ export async function runMissedCallRedialTick(now: Date = new Date()): Promise<R
     }
     dialPlaced = true;
     if (!client) {
+      operatorHold.set(operator.id, now.getTime() + REDIAL_NO_CARD_OPERATOR_HOLD_MS);
       // Без карточки итог звонка не виден: повторно по этому номеру автоматически не звоним (одна попытка).
       await closeRow(row.id, "gave_up", "outcome_unseen", { ...base, lastOutcome: "unknown" });
     } else {
@@ -494,6 +513,12 @@ export async function runMissedCallRedialTick(now: Date = new Date()): Promise<R
   } finally {
     endOrigination(operator.id);
   }
+}
+
+/** Только для тестов: сбросить замки в памяти процесса. */
+export function resetMissedCallRedialMemory(): void {
+  dialGuard.clear();
+  operatorHold.clear();
 }
 
 /** Сколько попыток автоперезвона набрано за 7 дней: строка «включено, N» в реестре функций. */

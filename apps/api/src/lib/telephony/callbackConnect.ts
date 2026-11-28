@@ -104,26 +104,34 @@ export async function dialOperatorThenClient(input: {
   let interactionId: string | null = null;
   // След в хронологии — ЕДИНСТВЕННАЯ запись на разговор: исход и запись допишет
   // обработчик событий АТС (callTracker), ровно как у звонка из карточки.
+  // НАБОР УЖЕ СОСТОЯЛСЯ: сбой записи в базу не должен выглядеть как «не набрали», иначе вызывающий
+  // (автоперезвон) повторит набор каждую минуту. Сбой уходит в журнал ошибок, результат остаётся «соединяю».
   if (client) {
-    const interaction = await logTimeline({
-      clientId: client.id,
-      actor: { kind: "agent", agentId: operator.id },
-      type: "CALL",
-      notes: `${input.notePrefix ?? CALLBACK_CALL_NOTE_PREFIX}: ${topic}`,
-    });
-    interactionId = interaction.id;
-    if (result.channelId) {
-      trackCall({
-        channelId: result.channelId,
-        agentId: operator.id,
+    try {
+      const interaction = await logTimeline({
         clientId: client.id,
-        clientShortId: client.shortId,
-        clientName: client.fullName,
-        dialingTo: agentMobile ?? operator.sipExtension,
-        interactionId: interaction.id,
-        agentExtension: operator.sipExtension,
-        clientPhone: phone,
-        ...(input.redial ? { redial: true } : {}),
+        actor: { kind: "agent", agentId: operator.id },
+        type: "CALL",
+        notes: `${input.notePrefix ?? CALLBACK_CALL_NOTE_PREFIX}: ${topic}`,
+      });
+      interactionId = interaction.id;
+      if (result.channelId) {
+        trackCall({
+          channelId: result.channelId,
+          agentId: operator.id,
+          clientId: client.id,
+          clientShortId: client.shortId,
+          clientName: client.fullName,
+          dialingTo: agentMobile ?? operator.sipExtension,
+          interactionId: interaction.id,
+          agentExtension: operator.sipExtension,
+          clientPhone: phone,
+          ...(input.redial ? { redial: true } : {}),
+        });
+      }
+    } catch (err) {
+      void logSystemError("telephony", `Обратный звонок набран, но запись о нём не сохранена: ${describeError(err)}`, {
+        dedupKey: "callback-dial-bookkeeping",
       });
     }
   }

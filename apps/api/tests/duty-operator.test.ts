@@ -24,7 +24,7 @@ import { reserveExtensionBase } from "./helpers/extensionBase.js";
 
 const stamp = String(Date.now()).slice(-6);
 let ext = 0;
-let saved: { callbackOperatorAgentId: string | null; incomingForwardPhone: string | null } | null = null;
+let saved: { callbackOperatorAgentId: string | null; incomingForwardPhone: string | null; incomingNoAnswerAction: string } | null = null;
 const made: string[] = [];
 
 async function agent(over: { phone: string; sipExtension?: string | null; isActive?: boolean; name: string }) {
@@ -42,13 +42,15 @@ async function agent(over: { phone: string; sipExtension?: string | null; isActi
   return a;
 }
 
-const setDuty = (data: { callbackOperatorAgentId?: string | null; incomingForwardPhone?: string | null }) =>
+const setDuty = (data: { callbackOperatorAgentId?: string | null; incomingForwardPhone?: string | null; incomingNoAnswerAction?: string }) =>
   prisma.settings.update({ where: { id: "singleton" }, data });
 
 beforeAll(async () => {
   ext = await reserveExtensionBase(8);
   const row = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
-  saved = { callbackOperatorAgentId: row.callbackOperatorAgentId, incomingForwardPhone: row.incomingForwardPhone };
+  saved = { callbackOperatorAgentId: row.callbackOperatorAgentId, incomingForwardPhone: row.incomingForwardPhone, incomingNoAnswerAction: row.incomingNoAnswerAction };
+  // Номер переадресации действует в режимах forward и both (как в Настройках).
+  await prisma.settings.update({ where: { id: "singleton" }, data: { incomingNoAnswerAction: "both" } });
 });
 
 afterAll(async () => {
@@ -126,11 +128,40 @@ describe("один дежурный на все пути", () => {
     expect((await loadDutyOperator())?.id).toBe(owner.id);
   });
 
-  it("для уведомлений внутренний номер не обязателен, для набора обязателен", async () => {
-    const noSip = await agent({ name: "Принимает без SIP", phone: `+99293${stamp}7`, sipExtension: null });
+  it("уведомление и звонок одному человеку: у держателя номера нет внутреннего номера, оба идут к запасному", async () => {
+    await agent({ name: "Принимает без SIP", phone: `+99293${stamp}7`, sipExtension: null });
     const spare = await agent({ name: "Запасной с SIP", phone: `+99295${stamp}7` });
     await setDuty({ incomingForwardPhone: `+99293${stamp}7`, callbackOperatorAgentId: spare.id });
-    expect(await loadDutyAgentId()).toBe(noSip.id);
+    expect(await loadDutyAgentId()).toBe(spare.id);
     expect((await loadDutyOperator())?.id).toBe(spare.id);
+  });
+
+  it("звонить некому (ни у кого нет внутреннего номера): уведомление всё равно уходит человеку по номеру", async () => {
+    const noSip = await agent({ name: "Единственный без SIP", phone: `+99293${stamp}8`, sipExtension: null });
+    const spareNoSip = await agent({ name: "Запасной без SIP", phone: `+99295${stamp}8`, sipExtension: null });
+    await setDuty({ incomingForwardPhone: `+99293${stamp}8`, callbackOperatorAgentId: spareNoSip.id });
+    expect(await loadDutyOperator()).toBeNull();
+    expect(await loadDutyAgentId()).toBe(noSip.id);
+  });
+
+  it("номер переадресации не используется, когда правило «если оператор не ответил» его не применяет", async () => {
+    const owner = await agent({ name: "Держатель номера", phone: `+99293${stamp}9` });
+    const spare = await agent({ name: "Запасной режим none", phone: `+99295${stamp}9` });
+    await setDuty({ incomingForwardPhone: `+99293${stamp}9`, callbackOperatorAgentId: spare.id, incomingNoAnswerAction: "none" });
+    expect((await loadDutyOperator())?.id).toBe(spare.id);
+    await setDuty({ incomingNoAnswerAction: "forward" });
+    expect((await loadDutyOperator())?.id).toBe(owner.id);
+    await setDuty({ incomingNoAnswerAction: "both" });
+    expect((await loadDutyOperator())?.id).toBe(owner.id);
+  });
+
+  it("несколько сотрудников с одним хвостом номера: выбор детерминированный, у кого есть внутренний номер, затем самый давний", async () => {
+    // Один и тот же номер, записанный по-разному (телефон сотрудника уникален только как строка).
+    await agent({ name: "Дубль без SIP", phone: `+99296${stamp}1`, sipExtension: null });
+    const older = await agent({ name: "Дубль с SIP старший", phone: `99296${stamp}1` });
+    await agent({ name: "Дубль с SIP младший", phone: `+992 96${stamp}1` });
+    await setDuty({ incomingForwardPhone: `+99296${stamp}1`, callbackOperatorAgentId: null });
+    expect((await loadDutyOperator())?.id).toBe(older.id);
+    expect(await loadDutyAgentId()).toBe(older.id);
   });
 });

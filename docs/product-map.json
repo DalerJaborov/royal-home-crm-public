@@ -1973,7 +1973,7 @@
     {
       "id": "missed-call-redial",
       "expr": "* * * * *",
-      "label": null
+      "label": "Перезванивает пропущенным клиентам через дежурного, по одному в минуту"
     },
     {
       "id": "missed-call-task-whatsapp-close",
