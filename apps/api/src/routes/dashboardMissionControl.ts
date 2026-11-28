@@ -117,6 +117,8 @@ interface McContext {
    *  первый запрос директора наполнил бы кэш открытыми данными для менеджера. */
   canSeePhone: boolean;
   seesInvestigations: boolean;
+  /** Технический блок «система» (сбои, фоновые задания) — только директор и администратор (28.11.2026). */
+  seesTechnical: boolean;
   viewerRole?: string;
   off: ReadonlySet<PultModuleId>;
 }
@@ -143,14 +145,15 @@ async function buildContext(req: Request): Promise<McContext> {
   const seesInvestigations = canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview");
   // All downstream investigation projections must receive effective access,
   // including charts and team counters, rather than the unqualified role.
-  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, seesInvestigations,
+  const seesTechnical = can(req, "auditLog.view");
+  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, seesInvestigations, seesTechnical,
     viewerRole: seesInvestigations ? req.agent?.role : undefined, off };
 }
 
 /** Секция модуля: выключен → undefined (ключа не будет), иначе — через кэш своего темпа. */
 function makeGated(ctx: McContext) {
   return <T,>(module: PultModuleId, fn: () => Promise<T>): Promise<SectionResult<T> | undefined> =>
-    ctx.off.has(module)
+    ctx.off.has(module) || (module === "system" && !ctx.seesTechnical)
       ? Promise.resolve(undefined)
       : cachedSection(`${module}:${ctx.seesMoney}:${ctx.canSeePhone}:${ctx.seesInvestigations}`, LIVE_MODULES.has(module) ? LIVE_TTL_MS : ZONES_TTL_MS, () =>
           section(module, fn)
