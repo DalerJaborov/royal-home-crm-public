@@ -3,6 +3,7 @@ import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { RefreshCw } from "lucide-react";
 import { Switch } from "../../components/Switch";
 import { useSettings, useUpdateSettings, useRefreshExchangeRate } from "../../hooks/useSettings";
+import { ExchangeRateWatchPanel } from "./ExchangeRateWatchPanel";
 
 /** Вкладка «Деньги»: план комиссии на месяц и курс доллара (проценты комиссии убраны
  *  25.11.2026: 1% компании и 1% агенту зашиты в shared, при закрытии сделки суммы
@@ -349,6 +350,8 @@ export function ExchangeRateSection() {
     setRefreshError(null);
     try {
       const fresh = await refreshRate.mutateAsync();
+      // Скачок больше 5 %: курс не применён, подтверждение — в блоке состояния курса ниже.
+      if (fresh.held) return;
       // Человек просил свежий курс — кладём его в поле, даже если там было
       // набрано своё (форма не перезаливает поле, которое правят, — F3).
       setRate(String(fresh.rate));
@@ -411,6 +414,7 @@ export function ExchangeRateSection() {
           <span className="txt">{refreshError}</span>
         </div>
       )}
+      <ExchangeRateWatchPanel />
     </section>
   );
 }

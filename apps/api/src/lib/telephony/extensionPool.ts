@@ -29,6 +29,17 @@ import { logSystemError } from "../systemError.js";
  *  правильную настройку. Резерв защищает только от случайной автовыдачи. */
 const RESERVED_EXTENSIONS = new Set(["1001", "1002"]);
 
+/** ОФИСНЫЙ АППАРАТ ПРИЁМА — НИКОМУ НЕ ВЫДАЁТСЯ ВОВСЕ (владелец 28.11.2026: «2020 должен
+ *  быть только у нашего аппарата, даже если заведём будущих сотрудников»).
+ *
+ *  В отличие от RESERVED_EXTENSIONS это жёсткий запрет: ни автовыдача, ни ручной ввод.
+ *  Живая причина: 2020 числился за сотрудницей, её убрали, а на аппарате остался её личный
+ *  мобильный — каждый входящий звонил постороннему человеку, а «аппарат выключен → сразу
+ *  директору» не срабатывало. Освободись номер в CRM, он ушёл бы следующему сотруднику
+ *  автовыдачей, и входящие компании звонили бы ему. Единственное исключение — тот, кто
+ *  держит номер уже сейчас (старая запись): его правка карточки не должна ломаться. */
+export const OFFICE_EXTENSIONS: ReadonlySet<string> = new Set(["2020"]);
+
 /** Почему список номеров с АТС получить не удалось. */
 export type ExtensionPoolProblem = "телефония не настроена" | "АТС недоступна";
 
@@ -85,7 +96,9 @@ export async function readExtensionPool(): Promise<ExtensionPool> {
     .filter((r) => /^\d{3,5}$/.test(r))
     .sort();
 
-  const free = all.filter((r) => !RESERVED_EXTENSIONS.has(r)).filter((r) => !taken.has(r));
+  const free = all
+    .filter((r) => !RESERVED_EXTENSIONS.has(r) && !OFFICE_EXTENSIONS.has(r))
+    .filter((r) => !taken.has(r));
   return { all, free };
 }
 
@@ -134,6 +147,20 @@ export type ExtensionCheck =
  * @param agentId правящийся сотрудник — его собственный номер конфликтом не считается.
  */
 export async function checkManualExtension(extension: string, agentId?: string): Promise<ExtensionCheck> {
+  // Офисный аппарат приёма — не сотрудникам (см. OFFICE_EXTENSIONS). Тому, кто держит его
+  // уже сейчас, оставляем как есть: иначе правка его карточки упёрлась бы в запрет.
+  if (OFFICE_EXTENSIONS.has(extension)) {
+    const current = agentId
+      ? await prisma.agent.findUnique({ where: { id: agentId }, select: { sipExtension: true } })
+      : null;
+    if (current?.sipExtension !== extension) {
+      return {
+        ok: false,
+        error: `Внутренний номер ${extension} принадлежит офисному аппарату приёма звонков и сотрудникам не выдаётся. Выберите другой номер.`,
+      };
+    }
+  }
+
   // Сначала занятость: она видна по своей базе и работает даже при мёртвой АТС.
   const holder = await prisma.agent.findFirst({
     where: { sipExtension: extension, ...(agentId ? { id: { not: agentId } } : {}) },
