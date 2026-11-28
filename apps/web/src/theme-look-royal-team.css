@@ -664,7 +664,7 @@
    раскрытия (20) = 36 слева у заголовка, карточка 16 + `.cols2` 12 = 28 у досок, и ещё
    узкие столбцы «Доска почёта | номинанты за ноябрь…» из `.sec-h` в одну строку. Поле
    теперь одно (16), подпись и заголовок досок — друг под другом. */
-@media (max-width: 819px) {
+@media (max-width: 819.98px) {
   :root[data-ui-look="royal"] .ry-teamp[data-ry-section="team"] details.clean-team-recognition { padding: 0; }
   :root[data-ui-look="royal"] .ry-teamp[data-ry-section="team"] details.clean-team-recognition > summary { padding: 0 16px; min-height: 56px; }
   :root[data-ui-look="royal"] .ry-teamp[data-ry-section="team"] details.clean-team-recognition > .cols2 { padding: 0 8px 8px; }
