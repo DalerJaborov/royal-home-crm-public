@@ -106,6 +106,36 @@ html[data-shell="clean"][data-mobile-ux] .app-main-col {
   padding: 10px var(--clean-mobile-gutter) var(--clean-mobile-bottom-space);
 }
 
+/* ЭКРАН БЕЗ ШАПКИ ОБОЛОЧКИ НЕ ЗАХОДИТ ПОД ВЫРЕЗ (владелец 28.11.2026, iPhone).
+   Выше `.clean-header-own` гасит шапку оболочки на экранах, которые рисуют свою
+   (метка ShellOwnHeader и «Чаты»). Но safe-area-inset-top, чтобы строка
+   состояния не лежала на содержимом, платила именно эта шапка (padding выше):
+   с её уходом `.app-main-col` начинался на 10 px от края экрана, и заголовок с
+   кнопками оказывался ПОД часами и островом камеры — «ничего не видно, пока не
+   потянешь вниз». Старое правило `.mh > .top` (theme-2026-mobile-shell.css, 7.4)
+   рассчитано на оболочку с `pt-[env(safe-area-inset-top)]` и вычитает вырез
+   отрицательным отступом, поэтому поле возвращаем здесь, а не в нём. */
+html[data-shell="clean"][data-mobile-ux] .clean-header-own ~ .app-main-col {
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+}
+
+/* Полоса под часами при прокрутке: содержимое не должно проезжать под строкой
+   состояния (PWA, status-bar-style black-translucent). У экранов с липкой
+   `.top` её закрывает сама шапка; у остальных (Чаты) — эта полоса. Ниже шапки
+   `.top` (z 20) и ниже шторок, ничего не ловит пальцем; на телефоне без выреза
+   и в обычном Safari высота ноль. */
+html[data-shell="clean"][data-mobile-ux] .clean-frame:has(> .clean-header-own)::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--rh-ui-bg, var(--c-page));
+  z-index: 19;
+  pointer-events: none;
+}
+
 /* Fixed navigation reserves exactly one bottom area, including the home
    indicator. The centre action still opens the existing permission-aware menu. */
 html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] {
