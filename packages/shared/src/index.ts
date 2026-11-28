@@ -4,6 +4,7 @@ export * from "./permissions.js";
 export * from "./transferRequest.js";
 export * from "./schemas.js";
 export * from "./labels.js";
+export * from "./clientSourceGroups.js";
 export * from "./querySchemas.js";
 export * from "./format.js";
 export * from "./money.js";
