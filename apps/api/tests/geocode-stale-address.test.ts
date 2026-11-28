@@ -158,16 +158,34 @@ describe("Задание геокодера читает адрес из баз�
     expect(Number(after.lat)).toBeCloseTo(38.55, 4);
   });
 
-  it("адрес не нашёлся — одна запись в журнале, координаты пустые", async () => {
+  it("адрес не нашёлся, агент есть — задача ему в ленту со ссылкой на карточку, директору в журнал ничего", async () => {
     const property = await makeProperty({ address: `Ненаходимая ${runId}, 9` });
+    nominatimAnswer = [];
+    await geocodeJob.run({ propertyId: property.id });
+    // Агент (createdById/intakeAgentId = admin из beforeAll) получил запись в ленте — «поставьте точку вручную».
+    // Запись в ленте идёт «в отрыве» (void createNotifications) — ждём, а не читаем сразу.
+    const note = await waitFor(
+      () => prisma.notification.findFirst({ where: { agentId, tag: `geocode-not-found-${property.id}` } }),
+      { timeoutMs: 10_000, label: "запись в ленте агенту про адрес без точки" },
+    );
+    expect(note?.title).toContain(`№${property.shortId}`);
+    expect(note?.url).toBe(`/properties/${property.shortId}`);
+    // Журнал директора не засоряется: это задача агента, а не поломка.
+    expect(await prisma.errorLog.count({ where: { source: "geocode", message: { contains: `№${property.shortId} не найден` } } })).toBe(0);
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(after.lat).toBeNull();
+    await prisma.notification.deleteMany({ where: { tag: `geocode-not-found-${property.id}` } });
+  });
+
+  it("адрес не нашёлся, ответственного агента нет — одна запись в журнале (некому сказать)", async () => {
+    const property = await makeProperty({ address: `Ненаходимая-без-агента ${runId}, 10` });
+    await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: null, createdById: null, assignedAgentId: null } });
     nominatimAnswer = [];
     await geocodeJob.run({ propertyId: property.id });
     const logged = await prisma.errorLog.count({
       where: { source: "geocode", message: { contains: `№${property.shortId} не найден` } },
     });
     expect(logged).toBe(1);
-    const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
-    expect(after.lat).toBeNull();
     await prisma.errorLog.deleteMany({ where: { source: "geocode", message: { contains: `№${property.shortId} не найден` } } });
   });
 });

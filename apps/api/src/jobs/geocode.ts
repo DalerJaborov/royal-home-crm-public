@@ -80,6 +80,8 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
       // Поставить точку на карте может только тот, кто знает объект, — ему и идёт задача пушем со ссылкой на карточку.
       // Директору в журнал строка попадает, только если отвечающего агента нет (некому сказать).
       const owner = property.assignedAgentId ?? property.intakeAgentId ?? property.createdById;
+      // Запись в ленте уведомлений (колокольчик) ставится всегда, пуш на устройство зависит от подписки и тихих часов —
+      // поэтому «сказали» значит «нашёлся адресат и вызов не упал», а не «пуш дошёл до телефона».
       const told = owner
         ? await sendPushToAgents([owner], {
             kind: "task",
@@ -87,7 +89,7 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
             body: `Адрес «${address.slice(0, 80)}» не нашёлся в справочнике. Откройте карточку и отметьте место на карте вручную.`,
             url: `/properties/${property.shortId}`,
             tag: `geocode-not-found-${payload.propertyId}`,
-          }).then((n) => n > 0, () => false)
+          }).then(() => true, () => false)
         : false;
       if (!told) {
         await logSystemError(
