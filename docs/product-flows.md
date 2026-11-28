@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **800**. Развилок в самих путях: **2535**; вместе с задачами по расписанию и фоновыми заданиями — **4417**. Модулей: **89**.
+Путей: **800**. Развилок в самих путях: **2535**; вместе с задачами по расписанию и фоновыми заданиями — **4419**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11422,6 +11422,8 @@
   - если narration.some(version => version.status === "GENERATING")
     - return null;
       · дословно из кода
+  - await tx.interaction.updateMany({ where: { propertyId: property.id, type: "SHOWING", showingEvidenceVersion: …
+    · меняет в базе: interaction
   - await tx.interaction.updateMany({ where: { propertyId: property.id }, data: { propertyId: null } });
     · меняет в базе: interaction
   - для каждого: const s of openShowings
@@ -23982,6 +23984,10 @@
         - void logSystemError("meta", `${channel === "INSTAGRAM" ? "Instagram" : "Страница"} «${page.title}»: ${told} ч…
           · запись в журнал ошибок
       - если сорвалось
+        - если TIMEOUT_TEXT.test(String(err instanceof Error ? err.message : err))
+          - если streak < RECONCILE_TIMEOUT_STREAK_TO_LOG
+            - continue;
+              · переходит к следующему
         - void logSystemError("meta", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…
           · запись в журнал ошибок
   - если people > 0
@@ -30179,45 +30185,52 @@
     - return null;
       · дословно из кода
 - если !result
-  - await logSystemError( "geocode", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…
-    · запись в журнал ошибок
-    - message = maskPhoneNumbersInText(String(message));
-      · зовёт maskPhoneNumbersInText()
-    - message = redactSecretsInText(message);
-      · зовёт redactSecretsInText()
-    - если context && (context.url || context.stack)
-      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+  - const active = candidates.length ? new Set((await prisma.agent.findMany({ where: { id: { in: candidates }, is…
+    · читает в базе: agent
+  - const told = owner ? await sendPushToAgents([owner], { kind: "task", title: `Объект №${property.shortId}: пос…
+    · push-уведомление
+    - return sendPushToAgentsMasked(agentIds, payload, true);
+      · push-уведомление
+  - если !told
+    - await logSystemError( "geocode", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…
+      · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
         · зовёт redactSecretsInText()
-    - если isPrivateOperation()
-      - source = "investigation";
-        · дословно из кода
-    - если source === "investigation"
-      - context = { ...context, silent: true };
-        · дословно из кода
-    - если isShuttingDown()
-      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
-        · пишет строку в журнал сервера
-      - return;
-        · дальше не идёт, ничего не меняя
-    - пробует
-      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
-        · читает в базе: errorLog
-      - если recent
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
+      - если isShuttingDown()
+        - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+          · пишет строку в журнал сервера
         - return;
           · дальше не идёт, ничего не меняя
-      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
-        · читает в базе: errorLog
-      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
-        · создаёт в базе: errorLog
-      - если !context?.quietPult
-        - requestPultSnapshot();
-          · зовёт requestPultSnapshot()
-      - если !everSeen && !context?.silent
-        - пробует
-        - если сорвалось
-    - если сорвалось
-      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
-        · пишет строку в журнал сервера
+      - пробует
+        - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+          · читает в базе: errorLog
+        - если recent
+          - return;
+            · дальше не идёт, ничего не меняя
+        - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+          · читает в базе: errorLog
+        - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+          · создаёт в базе: errorLog
+        - если !context?.quietPult
+          - requestPultSnapshot();
+            · зовёт requestPultSnapshot()
+        - если !everSeen && !context?.silent
+          - пробует
+          - если сорвалось
+      - если сорвалось
+        - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+          · пишет строку в журнал сервера
   - await autoLinkPropertyById(payload.propertyId);
     · зовёт autoLinkPropertyById()
     - пробует
@@ -30243,15 +30256,6 @@
     · дальше не идёт, ничего не меняя
 - await autoLinkPropertyById(payload.propertyId);
   · зовёт autoLinkPropertyById()
-  - пробует
-    - если !(await loadRegistrySettings()).enabled
-      - return null;
-        · дословно из кода
-    - return await autoLinkProperty(propertyId, { actorId, notify: true });
-      · зовёт autoLinkProperty()
-  - если сорвалось
-    - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
-      · запись в журнал ошибок
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()
