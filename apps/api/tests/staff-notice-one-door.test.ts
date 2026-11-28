@@ -69,6 +69,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "telegram/assistantExpenseFollowup.ts": { calls: 1, why: "ответ на «внеси расходы» без данных: одной фразой, чего не хватает (17.11.2026)" },
   "telegram/assistantExpenseReceipt.ts": { calls: 4, why: "ответ на присланный чек" },
   "lib/ownershipTransferRecord.ts": { calls: 1, why: "директору: карточка «РОП передал» с кнопками «Подтвердить» / «Отклонить» — рабочая очередь решений директора (16.11.2026), выключается рубильником ropTransferAlertEnabled" },
+  "lib/lessons/sender.ts": { calls: 4, why: "видеоуроки по CRM: файл и подпись в ответ на просьбу самого человека («скинь урок», «скинь все уроки»), без напоминаний и по своему почину; 28.11.2026" },
   "telegram/transferReviewBot.ts": { calls: 2, why: "ответ директору на нажатую им кнопку «Подтвердить» / «Отклонить»" },
 };
 const PUSH_WITHOUT_KIND_BASELINE = 107;

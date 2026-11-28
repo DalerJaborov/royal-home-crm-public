@@ -12,6 +12,8 @@ import {
   useDeleteLandmark,
   useAddLandmarkAlias,
   useRemoveLandmarkAlias,
+  useLandmarkSummary,
+  useLandmarkCleanup,
 } from "../../hooks/useLandmarks";
 import { useCan } from "../../lib/permissions";
 import { useMobileUx } from "../../hooks/useMobileUx";
@@ -439,6 +441,7 @@ function LandmarkRow({
   const addAlias = useAddLandmarkAlias();
   const removeAlias = useRemoveLandmarkAlias();
   const [aliasText, setAliasText] = useState("");
+  const [aliasOpen, setAliasOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function submitAlias(e: React.FormEvent) {
@@ -540,18 +543,34 @@ function LandmarkRow({
         </div>
       </div>
 
-      <form onSubmit={submitAlias} className="wrap" style={{ marginTop: 4, marginLeft: "var(--s2)" }}>
-        <input
-          className="inp"
-          value={aliasText}
-          onChange={(e) => setAliasText(e.target.value)}
-          placeholder="Добавить синоним («82 мкр»)"
+      {aliasOpen ? (
+        <form onSubmit={submitAlias} className="wrap" style={{ marginTop: 4, marginLeft: "var(--s2)" }}>
+          <input
+            className="inp"
+            value={aliasText}
+            onChange={(e) => setAliasText(e.target.value)}
+            placeholder="Как ещё называют («82 мкр»)"
+            aria-label={`Добавить синоним для «${landmark.name}»`}
+            autoFocus
+          />
+          <button className="pill ghost sm" type="submit" disabled={addAlias.isPending || !aliasText.trim()}>
+            Добавить
+          </button>
+          <button className="pill ghost sm" type="button" onClick={() => { setAliasOpen(false); setAliasText(""); }}>
+            Отмена
+          </button>
+        </form>
+      ) : (
+        <button
+          className="pill ghost sm"
+          type="button"
+          style={{ marginTop: 4, marginLeft: "var(--s2)" }}
+          onClick={() => setAliasOpen(true)}
           aria-label={`Добавить синоним для «${landmark.name}»`}
-        />
-        <button className="pill ghost sm" type="submit" disabled={addAlias.isPending || !aliasText.trim()}>
-          Добавить
+        >
+          + синоним
         </button>
-      </form>
+      )}
 
       {editing && (mobile ? (
         <LandmarkFormDialog titleId={`landmark-edit-${landmark.id}`} title={`Править «${landmark.name}»`} onClose={onToggleEdit}>
@@ -609,13 +628,19 @@ export function LandmarksSection() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  /** По умолчанию — только народные названия сотрудников; купленный слой (~800 записей) — отдельной вкладкой. */
+  const [layer, setLayer] = useState<"own" | "import">("own");
+  const { data: summary } = useLandmarkSummary();
+  const cleanup = useLandmarkCleanup();
+  const [confirmClean, setConfirmClean] = useState<null | "junk" | "duplicates">(null);
+  const [cleanDone, setCleanDone] = useState<string | null>(null);
   /**
    * «ПОКАЗАТЬ ЕЩЁ» (02.10.2026). Сервер и раньше отдавал страницы, а экран брал
    * первые пятьдесят и молчал об остальных. Страница привязана к фильтру
    * (`listKey`): сменили поиск, категорию или «скрытые» — лента с первой
    * страницы, без отдельного сброса в каждом обработчике.
    */
-  const filters = { q: q.trim() || undefined, category: category.trim() || undefined, showHidden };
+  const filters = { q: q.trim() || undefined, category: category.trim() || undefined, showHidden, layer };
   const listKey = JSON.stringify(filters);
   const [paging, setPaging] = useState({ key: listKey, page: 1 });
   const page = paging.key === listKey ? paging.page : 1;
@@ -670,8 +695,8 @@ export function LandmarksSection() {
       <div className="sec-h stack">
         <h2>Ориентиры</h2>
         <span className="note">
-          Народные названия, которых нет в купленном слое («ЦУМ», «Садбарг», «Овир»). Заводит и правит любой
-          сотрудник — синонимы делают справочник рабочим для бота и подбора.
+          Так клиенты называют места («ЦУМ», «Садбарг», «Овир»). Бот и подбор по месту понимают клиента по этому списку.
+          Заводит и правит любой сотрудник. Купленная база (больницы, школы, отели) лежит отдельно — вкладка «Купленный слой».
         </span>
       </div>
 
@@ -680,6 +705,77 @@ export function LandmarksSection() {
           <option key={c} value={c} />
         ))}
       </datalist>
+
+      <div className="wrap" role="tablist" aria-label="Слой справочника" style={{ marginTop: 8 }}>
+        <button className={layer === "own" ? "pill sm" : "pill ghost sm"} type="button" role="tab" aria-selected={layer === "own"} onClick={() => setLayer("own")}>
+          Наши{summary ? ` · ${summary.own}` : ""}
+        </button>
+        <button className={layer === "import" ? "pill sm" : "pill ghost sm"} type="button" role="tab" aria-selected={layer === "import"} onClick={() => setLayer("import")}>
+          Купленный слой{summary ? ` · ${summary.importTotal}` : ""}
+        </button>
+      </div>
+      {layer === "import" && (
+        <div className="quiet" style={{ marginTop: 8 }}>
+          <span className="dot" />
+          <span className="txt">
+            Это купленная база мест: ничего из неё не удаляется, лишнее только скрывается и возвращается кнопкой «Показать скрытые».
+            {summary && summary.importHidden > 0 ? ` Сейчас скрыто: ${summary.importHidden}.` : ""}
+          </span>
+        </div>
+      )}
+      {layer === "import" && canManage && summary && (summary.junk > 0 || summary.duplicateGroups > 0) && (
+        <div className="wrap" style={{ marginTop: 8 }}>
+          {summary.junk > 0 && (
+            <button className="pill ghost sm" type="button" onClick={() => setConfirmClean("junk")}>
+              Скрыть мусор ({summary.junk})
+            </button>
+          )}
+          {summary.duplicateGroups > 0 && (
+            <button className="pill ghost sm" type="button" onClick={() => setConfirmClean("duplicates")}>
+              Объединить дубли ({summary.duplicateExtra})
+            </button>
+          )}
+        </div>
+      )}
+      {cleanDone && <div className="quiet" style={{ marginTop: 8 }}><span className="dot ok" /><span className="txt">{cleanDone}</span></div>}
+      {confirmClean && summary && (
+        <LandmarkFormDialog
+          titleId="landmark-cleanup-title"
+          title={confirmClean === "junk" ? `Скрыть мусор: ${summary.junk}` : `Объединить дубли: скрыть лишних ${summary.duplicateExtra}`}
+          onClose={() => setConfirmClean(null)}
+        >
+          <div className="quiet" style={{ marginTop: 8 }}>
+            <span className="dot warn" />
+            <span className="txt">
+              {confirmClean === "junk"
+                ? "Записи вроде «I», «HS», «25» — не названия мест. Они скроются, но не удалятся."
+                : `Одинаковые названия рядом друг с другом (${summary.duplicateGroups} групп) станут одной записью, остальные скроются. Синонимы переедут на оставшуюся.`}{" "}
+              Вернуть можно через «Показать скрытые». Записи с вашими синонимами не трогаются.
+            </span>
+          </div>
+          <div className="wrap" style={{ marginTop: "var(--s4)" }}>
+            <button className="pill ghost" type="button" onClick={() => setConfirmClean(null)}>
+              Отмена
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={cleanup.isPending}
+              onClick={() =>
+                cleanup.mutate(confirmClean, {
+                  onSuccess: (r) => {
+                    setCleanDone(r.hidden > 0 ? `Скрыто записей: ${r.hidden}` : "Скрывать нечего");
+                    setConfirmClean(null);
+                  },
+                })
+              }
+            >
+              {cleanup.isPending ? "Скрываю…" : "Скрыть"}
+            </button>
+            {cleanup.isError && <span className="note" role="alert">Не вышло, попробуйте ещё раз.</span>}
+          </div>
+        </LandmarkFormDialog>
+      )}
 
       <div className="wrap" style={{ marginTop: 8 }}>
         <input
@@ -723,7 +819,13 @@ export function LandmarksSection() {
         ))}
 
       {isLoading && items.length === 0 && <div className="state">Загрузка…</div>}
-      {!isLoading && items.length === 0 && <div className="state">Ничего не найдено</div>}
+      {!isLoading && items.length === 0 && (
+        <div className="state">
+          {layer === "own" && !q.trim() && !category.trim()
+            ? "Пока нет народных названий. Добавьте, как клиенты называют места: ЦУМ, Садбарг, Овир."
+            : "Ничего не найдено"}
+        </div>
+      )}
 
       {items.length > 0 && (
         <div className="list" style={{ marginTop: "var(--s3)" }}>

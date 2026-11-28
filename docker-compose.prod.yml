@@ -391,6 +391,8 @@ services:
       # бы всю озвучку, а фоновая задача переозвучивала бы её заново — то есть
       # каждый выкат стоил бы агентству денег за синтез речи на всю базу клиентов.
       WHISPER_AUDIO_DIR: /app/whisper
+      # Видеоуроки по CRM (каталог на сервере, только чтение): Шабнам находит и шлёт их в Telegram.
+      LESSONS_DIR: /app/lessons
     volumes:
       - uploads_data:/app/uploads
       # Вложения переписки — свой том: без него каждый выкат стирал фото и
@@ -402,6 +404,8 @@ services:
       - whisper_audio_data:/app/whisper
       # Документы сделки — свой том (см. DEAL_DOCS_DIR выше).
       - deal_docs_data:/app/uploads-deal-docs
+      # Видеоуроки: /opt/royalhome-lessons на сервере, только чтение (ai/assistant/tools/lessonTools.ts).
+      - /opt/royalhome-lessons:/app/lessons:ro
     networks:
       - default
       - royalhome-shared
@@ -463,6 +467,8 @@ services:
       - property_video_data:/app/uploads-private-video
       - whisper_audio_data:/app/whisper
       - deal_docs_data:/app/uploads-deal-docs
+      # Видеоуроки: /opt/royalhome-lessons на сервере, только чтение (ai/assistant/tools/lessonTools.ts).
+      - /opt/royalhome-lessons:/app/lessons:ro
     networks:
       - default
       - royalhome-shared

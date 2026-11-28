@@ -963,7 +963,7 @@
       "mount": "/api/v1/landmarks",
       "router": "landmarksRouter",
       "file": "apps/api/src/routes/landmarks.ts",
-      "endpoints": 8,
+      "endpoints": 10,
       "label": "Народные ориентиры, которые ведут агенты",
       "usedBy": 1
     },
@@ -2409,7 +2409,7 @@
     {
       "name": "Telegram",
       "keys": 5,
-      "files": 7
+      "files": 8
     },
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
