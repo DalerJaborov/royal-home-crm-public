@@ -161,7 +161,7 @@ export const createClientTool: AssistantWriteToolPlugin = {
     properties: {
       fullName: { type: "string", description: "Имя клиента как сказал сотрудник" },
       phone: { type: "string", description: "Продиктованный или написанный номер клиента" },
-      source: { type: "string", enum: [...CLIENT_SOURCES], description: "Источник клиента, указанный сотрудником" },
+      source: { type: "string", enum: [...CLIENT_SOURCES], description: "Источник клиента, указанный сотрудником. Если сотрудник сказал «мой клиент», «личный клиент» или «сам нашёл» — OWN_CLIENT (не REFERRAL); «посоветовали» — REFERRAL; «пришёл в офис» — WALK_IN" },
       kind: { type: "string", enum: ["BUYER", "SELLER"], description: "Покупатель или продавец" },
       requirementsNotes: { type: "string", description: "Что ищет клиент или другие указанные пожелания" },
     },

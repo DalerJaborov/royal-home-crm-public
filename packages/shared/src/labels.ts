@@ -76,6 +76,7 @@ export const CLIENT_SOURCE_LABELS: Record<ClientSource, string> = {
   REFERRAL: "Рекомендация",
   PHONE_CALL: "Звонок",
   WALK_IN: "Пришёл в офис",
+  OWN_CLIENT: "Свой клиент",
 };
 
 export const ROLE_LABELS: Record<Role, string> = {

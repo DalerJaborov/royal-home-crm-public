@@ -1,4 +1,4 @@
-import { parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
+import { isAgentCreatedClientSource, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
 import { createHash, randomUUID } from 'node:crypto';
 import { prisma, type TxClient } from '../db.js';
 import { mediaRecipientHash } from './mediaExecution.js';
@@ -37,7 +37,7 @@ export async function scheduleManualOwnerVerification(tx: TxClient, propertyId: 
   const seller = await tx.client.findUnique({ where: { id: property.sellerClientId }, select: {
     id: true, source: true, phone: true, assignedAt: true, assignedAgentId: true, lastClientMessageAt: true, deletedAt: true,
   } });
-  if (!seller || seller.deletedAt || seller.source !== 'WALK_IN' || !seller.phone || seller.lastClientMessageAt || !seller.assignedAgentId) return;
+  if (!seller || seller.deletedAt || !isAgentCreatedClientSource(seller.source) || !seller.phone || seller.lastClientMessageAt || !seller.assignedAgentId) return;
   const verifiedCall = await tx.interaction.findFirst({ where: { clientId: seller.id, investigationOnly: false,
     type: 'CALL', callAttempt: 'TALKED', recordingUrl: { not: null }, recordingDurationSec: { gt: 0 } }, select: { id: true } });
   if (verifiedCall) return;

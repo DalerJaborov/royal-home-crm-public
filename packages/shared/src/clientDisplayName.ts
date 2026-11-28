@@ -93,6 +93,7 @@ const STUB_CHANNEL_PHRASE: Record<ClientSource, string> = {
   REFERRAL: "по рекомендации",
   PHONE_CALL: "со звонка",
   WALK_IN: "из офиса",
+  OWN_CLIENT: "от агента",
 };
 
 /** Обрезка якоря по СЛОВУ, не по символу — «Маяковского 45 корпус 2, кв…» не должна

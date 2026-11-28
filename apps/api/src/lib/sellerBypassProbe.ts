@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import type { ConversationMessage } from "@royal-home/shared";
+import { isAgentCreatedClientSource, type ConversationMessage } from "@royal-home/shared";
 import { guessShownProperty, type ShownPropertyCandidate } from "../ai/shownPropertyGuess.js";
 import { loadWorkWindow, outagesBetween, workingOutageMs } from "./stationOutage.js";
 
@@ -248,7 +248,7 @@ export async function buildBypassDossier(postShowingCallId: string, now: Date = 
     sellerName: seller?.fullName ?? null,
     // Карточку из канала (звонок, мессенджер) подделать нельзя — номер проверен
     // самим фактом связи. WALK_IN здесь и значит «завёл агент руками».
-    sellerCardCreatedByAgent: seller?.source === "WALK_IN",
+    sellerCardCreatedByAgent: isAgentCreatedClientSource(seller?.source),
     signals: [],
     closedByDeal: false,
     shouldAskSeller: false,

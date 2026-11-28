@@ -324,6 +324,9 @@ export const CLIENT_SOURCES = [
   "REFERRAL",
   "PHONE_CALL",
   "WALK_IN",
+  /** «Свой клиент» (28.11.2026): агент сам нашёл человека — знакомый, обзвон, объявление,
+   *  соцсети агента. Не «пришёл в офис» и не рекомендация. Подписи и группы — clientSourceGroups.ts. */
+  "OWN_CLIENT",
 ] as const;
 export type ClientSource = (typeof CLIENT_SOURCES)[number];
 
