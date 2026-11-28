@@ -6230,6 +6230,18 @@ model AiProviderOperation {
 /// hash — от (модель + стабильный текст + схема инструмента, если есть): один и тот
 /// же текст правил при смене намерения клиента (см. promptEconomy) даёт РАЗНЫЙ хэш —
 /// не нужно перечислять варианты вручную, старые просто устаревают по TTL сами.
+/// Telegram file_id видеоурока по CRM (lib/lessons/telegramCache.ts): после первой отправки с диска
+/// дальше шлём по file_id. fileSig = размер:mtime файла — сменился файл, кэш недействителен.
+model LessonVideoCache {
+  lang       String
+  number     Int
+  fileSig    String
+  fileId     String
+  updatedAt  DateTime @updatedAt
+
+  @@id([lang, number])
+}
+
 model GeminiCache {
   hash      String   @id
   /// Имя ресурса у Google: "cachedContents/xxxxx" — им ссылаемся в generateContent.

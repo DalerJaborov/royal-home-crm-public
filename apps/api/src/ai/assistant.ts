@@ -56,7 +56,7 @@ import { UNTRUSTED_CONTENT_RULE, wrapUntrusted } from "./untrustedContent.js";
 import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { assertClientWritable, assistantInvestigationRole, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
-import { assistantChannelGuide, assistantSectionsGuide } from "./assistant/promptSections.js";
+import { ASSISTANT_LESSONS_GUIDE, assistantChannelGuide, assistantSectionsGuide } from "./assistant/promptSections.js";
 import { assistantPluginAllowed, findAssistantToolPlugin, listAssistantToolPlugins, pluginWrites } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
 import { safeField } from "./assistant/tools/safeField.js";
@@ -1747,7 +1747,7 @@ export async function runAssistantDetailed(
       .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor))
       .replace("{{CHANNEL}}", () => assistantChannelGuide(actor))
       .replace(OFF_TOPIC_RULE, () => (options.liveGroupChat ? LIVE_GROUP_CHAT_RULE : OFF_TOPIC_RULE))
-      + registryGuide + assistantStyle(options.channel ?? "crm", { group: options.liveGroupChat === true }) + languagePolicy.instruction + glossary + sharedKnowledge;
+      + registryGuide + ASSISTANT_LESSONS_GUIDE + assistantStyle(options.channel ?? "crm", { group: options.liveGroupChat === true }) + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);
