@@ -47,6 +47,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "clientRecordResultEnabled",
   "clientCardRobotRowsEnabled",
   "autoCleanupEnabled",
+  "usdRateSiteResyncEnabled",
+  "usdRateAlertsEnabled",
   "shabnamGroupLiveEnabled",
   "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
@@ -356,6 +358,17 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Раз в сутки ночью удаляются без возврата старые прочитанные уведомления, разобранные ошибки, обработанные оповещения директору и служебные счётчики и метки (сроки меняются в «Очистка данных»; для уведомлений, ошибок и оповещений не меньше 35 дней). Непрочитанное и неразобранное не трогается.",
     off: "Старое само не удаляется (кроме общей уборки журналов старше 90 дней). Почистить можно вручную кнопкой «Очистить».",
   },
+  // Владелец 28.11.2026: «если курс изменится, будет ли обновление?». Страж курса — lib/exchangeRateWatch.ts.
+  usdRateSiteResyncEnabled: {
+    title: "Курс изменился — пересчитать цены на сайте",
+    on: "Когда курс доллара сдвинулся больше порога (Настройки → Деньги → Курс доллара), цены объектов в долларах на сайте сами пересчитываются по новому курсу.",
+    off: "Цены на сайте остаются по курсу дня публикации, пока объект не правили; пересчитать можно кнопкой «Пересчитать цены на сайте».",
+  },
+  usdRateAlertsEnabled: {
+    title: "Предупреждать про курс доллара",
+    on: "Директору и админу приходит сообщение: курс не обновлялся больше 36 часов; курс скакнул больше чем на 5 % и ждёт подтверждения; курс сдвинулся и у каких объектов подпись в соцсетях осталась со старой ценой. Подписи сами не переписываются — только кнопкой.",
+    off: "Предупреждений про курс нет. Сбои обновления всё равно пишутся в журнал ошибок.",
+  },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
@@ -417,7 +430,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled", "autoCleanupEnabled"],
+    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled", "autoCleanupEnabled", "usdRateAlertsEnabled", "usdRateSiteResyncEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },

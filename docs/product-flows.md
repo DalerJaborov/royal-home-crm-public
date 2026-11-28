@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **794**. Развилок в самих путях: **2531**; вместе с задачами по расписанию и фоновыми заданиями — **4407**. Модулей: **88**.
+Путей: **800**. Развилок в самих путях: **2535**; вместе с задачами по расписанию и фоновыми заданиями — **4417**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -6461,6 +6461,86 @@
 - если req.destroyed || res.destroyed || res.writableEnded
   - close();
     · дословно из кода
+
+## /api/v1/exchange-rate
+
+### PATCH /api/v1/exchange-rate/config
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const parsed = configSchema.safeParse(req.body);
+  · проверяет данные схемой configSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Порог — число от 0,1 до 20 процентов" });
+    · ответ 400 — «Порог — число от 0,1 до 20 процентов»
+- await prisma.settings.upsert({ where: { id: "singleton" }, update: { usdRateAlertPct: parsed.data.alertPct },…
+  · создаёт или меняет в базе: settings
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdRateAlertPct: parsed.data.alertPct });
+  · зовёт logAudit()
+- res.json({ alertPct: parsed.data.alertPct });
+  · ответ 200
+
+### POST /api/v1/exchange-rate/confirm-pending
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true, usdRat…
+  · читает в базе: settings
+- если s?.usdRatePendingValue == null
+  - return res.status(409).json({ error: "Нового курса на подтверждение нет" });
+    · ответ 409 — «Нового курса на подтверждение нет»
+- await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: next, usdToTjsRateUpdatedAt:…
+  · меняет в базе: settings
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: next, source: "alif-auto", confirme…
+  · зовёт logAudit()
+- await onUsdRateApplied(previous, next, "alif-auto");
+  · зовёт onUsdRateApplied()
+- res.json({ rate: next });
+  · ответ 200
+
+### POST /api/v1/exchange-rate/dismiss-pending
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- await prisma.settings.update({ where: { id: "singleton" }, data: { usdRatePendingValue: null, usdRatePendingA…
+  · меняет в базе: settings
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdRatePendingDismissed: true });
+  · зовёт logAudit()
+- res.json({ ok: true });
+  · ответ 200
+
+### POST /api/v1/exchange-rate/refresh-captions
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const summary = await refreshStaleRateCaptions();
+  · зовёт refreshStaleRateCaptions()
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdCaptionsRefreshed: summary.queued, manual: sum…
+  · зовёт logAudit()
+- res.json(summary);
+  · ответ 200
+
+### POST /api/v1/exchange-rate/resync-site
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const count = await resyncUsdPropertiesOnSite("кнопка «Пересчитать цены на сайте» (курс доллара)");
+  · зовёт resyncUsdPropertiesOnSite()
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdSiteResync: count });
+  · зовёт logAudit()
+- res.json({ count });
+  · ответ 200
+
+### GET /api/v1/exchange-rate/status
+
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true, usdToT…
+  · читает в базе: settings
+- const [staleCaptions, siteCount] = await Promise.all([findStaleRateCaptions(), usdPropertiesOnSite()]);
+  · зовёт findStaleRateCaptions()
+- res.json({ rate, updatedAt: s?.usdToTjsRateUpdatedAt ?? null, source: s?.usdToTjsRateSource ?? null, ageHours…
+  · ответ 200
 
 ## /api/v1/expenses
 
@@ -15761,12 +15841,15 @@
 
 `apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
-- const result = await refreshUsdToTjsRateFromAlif();
+- const result = await refreshUsdToTjsRateFromAlif({ confirmJump: req.body?.confirmJump === true });
   · зовёт refreshUsdToTjsRateFromAlif()
 - если !result.ok
   - return res.status(400).json({ error: result.error });
     · ответ 400
-- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: result.rate, source: "alif-auto" });
+- если result.held
+  - return res.json({ rate: result.rate, held: true, pendingRate: result.pendingRate, changePct: result.changePct…
+    · ответ 200
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: result.rate, source: "alif-auto", c…
   · зовёт logAudit()
 - res.json({ rate: result.rate });
   · ответ 200
@@ -16270,8 +16353,13 @@
     · запись в журнал ошибок
 - const previousMontajerAgentId = pair.videoMontajerAgentId !== undefined ? ( await prisma.settings.findUnique(…
   · читает в базе: settings
+- const previousUsdRate = usdToTjsRate !== undefined ? (await prisma.settings.findUnique({ where: { id: "single…
+  · читает в базе: settings
 - const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? …
   · создаёт или меняет в базе: settings
+- если usdToTjsRate !== undefined
+  - void onUsdRateApplied(previousUsdRate ? Number(previousUsdRate) : null, usdToTjsRate, "manual");
+    · зовёт onUsdRateApplied()
 - если previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId
   - const holder = await prisma.property.findFirst({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
     · читает в базе: property
@@ -21779,9 +21867,21 @@
     - если rate == null
       - return { ok: false, error: "Не удалось получить курс с alif.tj (сайт недоступен или изменил структуру страниц…
         · дословно из кода
+    - const current = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true }…
+      · читает в базе: settings
+    - const pct = changePct(previous, rate);
+      · зовёт changePct()
+    - если previous != null && pct != null && Math.abs(pct) > JUMP_LIMIT_PCT && !opts.confirmJump
+      - await holdJumpedRate(previous, rate);
+        · зовёт holdJumpedRate()
     - await prisma.settings.upsert({ where: { id: "singleton" }, update: { usdToTjsRate: rate, usdToTjsRateUpdatedA…
       · создаёт или меняет в базе: settings
-  - если result.ok
+    - await onUsdRateApplied(previous, rate, "alif-auto");
+      · зовёт onUsdRateApplied()
+  - если result.ok && result.held
+    - console.log(`[cron] Курс USD→TJS с alif.tj (${result.pendingRate}) отличается больше чем на 5 % от ${result.r…
+      · пишет строку в журнал сервера
+  - иначе если result.ok
     - console.log(`[cron] Курс USD→TJS обновлён с alif.tj: ${result.rate}`);
       · пишет строку в журнал сервера
   - иначе
@@ -21878,6 +21978,41 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+
+### exchange-rate-watch — 40 7,10,13,16,19 * * *
+
+- пробует
+  - await checkRateFreshness();
+    · зовёт checkRateFreshness()
+    - пробует
+      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true,…
+        · читает в базе: settings
+      - если !settings || !settings.usdRateAlertsEnabled
+        - return false;
+          · дословно из кода
+      - если settings.usdToTjsRate != null && ageHours <= STALE_HOURS
+        - return false;
+          · дословно из кода
+      - const hasUsd = (await prisma.property.count({ where: { currency: "USD", deletedAt: null } })) > 0;
+        · считает в базе: property
+      - если !hasUsd
+        - return false;
+          · дословно из кода
+      - если settings.usdRateStaleAlertedAt && now.getTime() - settings.usdRateStaleAlertedAt.getTime() < STALE_REPEAT_MS
+        - return false;
+          · дословно из кода
+      - await prisma.settings.update({ where: { id: "singleton" }, data: { usdRateStaleAlertedAt: now } });
+        · меняет в базе: settings
+    - если сорвалось
+      - void logSystemError("exchange-rate", `Сторож курса не отработал: ${err instanceof Error ? err.message : Strin…
+        · запись в журнал ошибок
+- если сорвалось
+  - reportCronTickError("Сторож курса доллара", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### expired-property-drafts-cleanup — */15 * * * *
 

@@ -674,7 +674,7 @@ export function useUsdToTjsRate(): number {
  * ["settings"] мало: после правки курса цифры на экранах оставались посчитанными
  * по старому значению до следующего тика поллинга.
  */
-function invalidateAfterSettingsChange(qc: ReturnType<typeof useQueryClient>, options?: { skipSettings?: boolean }) {
+export function invalidateAfterSettingsChange(qc: ReturnType<typeof useQueryClient>, options?: { skipSettings?: boolean }) {
   for (const key of [
     ...(options?.skipSettings ? [] : ["settings"]),
     "finance-summary",
@@ -743,7 +743,7 @@ export function useUpdateSettings(options?: { silent?: boolean }) {
 export function useRefreshExchangeRate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<{ rate: number }>("/settings/exchange-rate/refresh", { method: "POST" }),
+    mutationFn: () => api<{ rate: number; held?: boolean; pendingRate?: number; changePct?: number }>("/settings/exchange-rate/refresh", { method: "POST" }),
     onSuccess: () => invalidateAfterSettingsChange(qc),
   });
 }

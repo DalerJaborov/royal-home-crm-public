@@ -35,6 +35,7 @@ import { upgradeStoredMetaUserToken } from "../lib/metaUserTokenRefresh.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { secretFormatError, type SecretKind } from "../lib/secretFormat.js";
 import { refreshUsdToTjsRateFromAlif } from "../lib/exchangeRate.js";
+import { onUsdRateApplied } from "../lib/exchangeRateWatch.js";
 import { crmPublicBase } from "../lib/crmPublicUrl.js";
 import {
   instagramTokenIdentity,
@@ -1805,7 +1806,7 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Ручная правка курса — помечаем источник, чтобы в интерфейсе было видно,
     // что это не официальный курс с alif.tj (тот перезапишет её следующим циклом cron).
     ...(usdToTjsRate !== undefined
-      ? { usdToTjsRate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "manual" }
+      ? { usdToTjsRate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "manual", usdRatePendingValue: null, usdRatePendingAt: null }
       : {}),
   };
 
@@ -1849,11 +1850,19 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         )?.videoMontajerAgentId ?? null
       : undefined;
 
+  // Курс до правки (страж курса, 28.11.2026): после сохранения сравнивать будет не с чем.
+  const previousUsdRate = usdToTjsRate !== undefined
+    ? (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } }))?.usdToTjsRate
+    : undefined;
+
   const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? "Неизвестно" }, tx => tx.settings.upsert({
     where: { id: "singleton" },
     update: data,
     create: { id: "singleton", ...data },
   }));
+  if (usdToTjsRate !== undefined) {
+    void onUsdRateApplied(previousUsdRate ? Number(previousUsdRate) : null, usdToTjsRate, "manual");
+  }
 
   /**
    * СМЕНА МОНТАЖЁРА ПРИ ОБЪЕКТЕ НА РУКАХ (23.09.2026, находка B4; переписано
@@ -2055,11 +2064,15 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
  * сбое — 400, не 502/503: Cloudflare подменяет тело таких статусов своей типовой
  * страницей, и понятная причина ошибки до интерфейса не доходила (см. bulk-sync). */
 settingsRouter.post("/exchange-rate/refresh", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
-  const result = await refreshUsdToTjsRateFromAlif();
+  const result = await refreshUsdToTjsRateFromAlif({ confirmJump: req.body?.confirmJump === true });
   if (!result.ok) {
     return res.status(400).json({ error: result.error });
   }
-  logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: result.rate, source: "alif-auto" });
+  if (result.held) {
+    // Скачок больше 5 %: курс не применён, ждёт подтверждения (страж курса, 28.11.2026).
+    return res.json({ rate: result.rate, held: true, pendingRate: result.pendingRate, changePct: result.changePct });
+  }
+  logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdToTjsRate: result.rate, source: "alif-auto", confirmedJump: req.body?.confirmJump === true });
   res.json({ rate: result.rate });
 });
 

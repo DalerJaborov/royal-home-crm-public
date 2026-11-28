@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { JUMP_LIMIT_PCT, changePct, holdJumpedRate, onUsdRateApplied } from "./exchangeRateWatch.js";
 
 /**
  * Официальный курс USD→TJS с alif.tj (раздел "Дар хазина" — касса, колонка "Фурӯш") —
@@ -87,11 +88,17 @@ export async function fetchAlifUsdSellRate(): Promise<number | null> {
   }
 }
 
-export type RefreshRateResult = { ok: true; rate: number } | { ok: false; error: string };
+export type RefreshRateResult =
+  | { ok: true; rate: number; held?: false }
+  /** Скачок больше JUMP_LIMIT_PCT: курс НЕ применён, `rate` — действующий, `pendingRate` ждёт подтверждения. */
+  | { ok: true; held: true; rate: number; pendingRate: number; changePct: number }
+  | { ok: false; error: string };
 
 /** Обёртка над fetchAlifUsdSellRate, которая сразу сохраняет результат в Настройки —
- * общая для ночного cron (cron.ts) и кнопки "Обновить курс сейчас" (settings.ts). */
-export async function refreshUsdToTjsRateFromAlif(): Promise<RefreshRateResult> {
+ * общая для ночного cron (cron.ts) и кнопки "Обновить курс сейчас" (settings.ts).
+ * Страж (28.11.2026, lib/exchangeRateWatch.ts): скачок больше 5 % без `confirmJump` не применяется — ждёт руководителя;
+ * применённый курс досылает цены на сайт и предупреждает про подписи. */
+export async function refreshUsdToTjsRateFromAlif(opts: { confirmJump?: boolean } = {}): Promise<RefreshRateResult> {
   const rate = await fetchAlifUsdSellRate();
   if (rate == null) {
     return {
@@ -99,10 +106,18 @@ export async function refreshUsdToTjsRateFromAlif(): Promise<RefreshRateResult> 
       error: "Не удалось получить курс с alif.tj (сайт недоступен или изменил структуру страницы) — задайте курс вручную",
     };
   }
+  const current = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
+  const previous = current?.usdToTjsRate ? Number(current.usdToTjsRate) : null;
+  const pct = changePct(previous, rate);
+  if (previous != null && pct != null && Math.abs(pct) > JUMP_LIMIT_PCT && !opts.confirmJump) {
+    await holdJumpedRate(previous, rate);
+    return { ok: true, held: true, rate: previous, pendingRate: rate, changePct: pct };
+  }
   await prisma.settings.upsert({
     where: { id: "singleton" },
-    update: { usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto" },
+    update: { usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto", usdRatePendingValue: null, usdRatePendingAt: null },
     create: { id: "singleton", usdToTjsRate: rate, usdToTjsRateUpdatedAt: new Date(), usdToTjsRateSource: "alif-auto" },
   });
+  await onUsdRateApplied(previous, rate, "alif-auto");
   return { ok: true, rate };
 }

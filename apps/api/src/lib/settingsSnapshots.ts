@@ -86,6 +86,11 @@ export const SYSTEM_SETTINGS_FIELDS = [
   "usdToTjsRate",
   "usdToTjsRateUpdatedAt",
   "usdToTjsRateSource",
+  // Страж курса (28.11.2026): состояние, а не выбор директора.
+  "usdRatePendingValue",
+  "usdRatePendingAt",
+  "usdRateSyncedRate",
+  "usdRateStaleAlertedAt",
   // Пауза очереди монтажа — оперативное состояние (lib/videoHandoff.ts).
   "videoHandoffQueuePaused",
   "videoHandoffQueuePausedAt",
