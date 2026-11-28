@@ -438,6 +438,15 @@ export interface MetaInboxReconcileResult {
 }
 
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
+/** Подряд идущие таймауты чтения переписок по Странице (в памяти процесса): в журнал — с третьего. */
+const reconcileTimeoutStreak = new Map<string, number>();
+const RECONCILE_TIMEOUT_STREAK_TO_LOG = 3;
+const TIMEOUT_TEXT = /aborted due to timeout|timed? ?out|ETIMEDOUT/i;
+/** Только для тестов. */
+export function resetReconcileTimeoutStreakForTests(): void {
+  reconcileTimeoutStreak.clear();
+}
+
 export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch,
   options: { processStartedAt?: number } = {}): Promise<MetaInboxReconcileResult> {
   const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, massMissedPages: 0, notDeliveredPages: 0, skipped: null };
@@ -462,6 +471,7 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
     result.pages++;
     try {
       const body = await fetchPageInbox(page, fetchImpl);
+      reconcileTimeoutStreak.delete(page.pageId);
       if (body.error) {
         result.failedPages++;
         // Instagram «Meta закрыла доступ» — одна отметка через общую дверь, дальше сверка аккаунт не трогает.
@@ -573,6 +583,16 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
         { dedupKey: `meta-inbox-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
     } catch (err) {
       result.failedPages++;
+      /**
+       * ОДИНОЧНЫЙ ТАЙМАУТ СВЕРКИ — НЕ ПОВОД ДЛЯ ЖУРНАЛА (28.11.2026: «оборвалась: The operation was aborted due to
+       * timeout», одна строка за ночь). Сверка идёт по кругу, и следующий проход прочитает ту же Страницу. Пишем,
+       * только если таймаут держится ТРИ прохода подряд (Meta или сеть лежат всерьёз); остальные ошибки — сразу.
+       */
+      if (TIMEOUT_TEXT.test(String(err instanceof Error ? err.message : err))) {
+        const streak = (reconcileTimeoutStreak.get(page.pageId) ?? 0) + 1;
+        reconcileTimeoutStreak.set(page.pageId, streak);
+        if (streak < RECONCILE_TIMEOUT_STREAK_TO_LOG) continue;
+      }
       void logSystemError("meta", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`,
         { dedupKey: `meta-inbox-reconcile-page-failed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
     }

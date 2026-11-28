@@ -83,7 +83,7 @@ export function reportCronRowError(label: string, rowRef: string | number | null
 }
 
 /** Что сторож знает о каждом тике: интервал считается из cron-выражения. */
-type TickMeta = { expr: string; intervalMs: number; lowFrequency: boolean; timezone?: string; timeoutMs?: number };
+type TickMeta = { expr: string; intervalMs: number; lowFrequency: boolean; timezone?: string; timeoutMs?: number; rerunIfInterrupted?: boolean };
 const registry = new Map<string, TickMeta>();
 
 const MINUTE = 60_000;
@@ -284,6 +284,14 @@ export interface ScheduleTrackedOptions {
    * Явно заданное значение НЕ ограничивается MAX_TICK_TIMEOUT_MS (оно — для умолчания).
    */
   timeoutMs?: number;
+  /**
+   * Тик можно безопасно запустить заново, если рестарт оборвал его посередине (журнал 28.11.2026:
+   * «market-paydo-daily начался и не закончился», выкатов в день два десятка, а ночной обход рынка идёт
+   * до трёх часов). ТОЛЬКО для идемпотентной работы: повтор с нуля ничего не задваивает (обход рынка пишет
+   * upsert-ом, «исчезло» ставит лишь после полного прохода, межпроцессный замок не даёт двум идти разом).
+   * Без флага оборванный тик по-прежнему не повторяется — полузавершённую работу повторять опаснее.
+   */
+  rerunIfInterrupted?: boolean;
 }
 
 export function scheduleTracked(
@@ -304,7 +312,7 @@ export function scheduleTracked(
   // Явно заданный предел не обрезаем: долгая задача (недельный обход рынка — 3 ч) просит больше
   // общего потолка осознанно; потолок защищает только тики, которым предел не задан.
   const timeoutMs = trackedOptions?.timeoutMs ?? Math.min(intervalMs * 2, MAX_TICK_TIMEOUT_MS);
-  registry.set(name, { expr, intervalMs, lowFrequency: isLowFrequency(expr), timezone: options?.timezone, timeoutMs });
+  registry.set(name, { expr, intervalMs, lowFrequency: isLowFrequency(expr), timezone: options?.timezone, timeoutMs, rerunIfInterrupted: trackedOptions?.rerunIfInterrupted === true });
   /**
    * Гвард наложения ВСТРОЕН в обёртку — и это часть честности пульса (аудит №4).
    * Пока прошлый запуск не завершился, новые срабатывания пропускаются ЦЕЛИКОМ,
@@ -447,16 +455,44 @@ const CATCH_UP_WINDOW_MS = 3 * HOUR;
  *
  * Возвращает имена запущенных тиков.
  */
+/** Последний плановый срок тика не позже `now` (для суточных и редких тиков хватает шага назад на двое суток). */
+function lastScheduledSlot(meta: TickMeta, now: Date): Date {
+  let slot = nextCronRun(meta.expr, new Date(now.getTime() - 2 * DAY), meta.timezone);
+  for (let i = 0; i < 400; i++) {
+    const next = nextCronRun(meta.expr, slot, meta.timezone);
+    if (next.getTime() > now.getTime()) break;
+    slot = next;
+  }
+  return slot;
+}
+
 export async function catchUpMissedTicks(now: Date = new Date()): Promise<string[]> {
   const daily = [...registry].filter(([name, meta]) => meta.intervalMs >= DAY && runners.has(name));
   if (daily.length === 0) return [];
   const rows = await prisma.cronHeartbeat.findMany({ where: { name: { in: daily.map(([name]) => name) } } });
   const byName = new Map(rows.map((r) => [r.name, r]));
   const missed: string[] = [];
+  const rerun: string[] = [];
   for (const [name, meta] of daily) {
     const row = byName.get(name);
     const lastSeen = Math.max(row?.lastRunAt?.getTime() ?? 0, row?.lastSkippedAt?.getTime() ?? 0);
     if (!lastSeen) continue;
+    // Оборванный рестартом тик, помеченный как повторяемый: запуск начался в ПРЕДЫДУЩЕМ процессе,
+    // успеха и ошибки нет — запускаем заново, пока не прошло больше срока тика (3,5 ч у обходов рынка).
+    const startedAt = row?.lastRunAt?.getTime() ?? 0;
+    const interruptedByRestart =
+      meta.rerunIfInterrupted === true &&
+      startedAt > 0 &&
+      startedAt < processStartedAt.getTime() &&
+      startedAt > (row?.lastOkAt?.getTime() ?? 0) &&
+      !row?.lastError &&
+      // Предел повтора считается от ПЛАНОВОГО срока, а не от lastRunAt (его обновляет каждый повтор): иначе при выкатах
+      // каждые 1–2 ч обход длиной 3 ч начинался бы заново весь день (ревью 28.11.2026).
+      now.getTime() - lastScheduledSlot(meta, now).getTime() <= Math.max(CATCH_UP_WINDOW_MS, tickTimeoutMs(meta));
+    if (interruptedByRestart) {
+      rerun.push(name);
+      continue;
+    }
     const due = nextCronRun(meta.expr, new Date(lastSeen), meta.timezone).getTime();
     if (due > now.getTime() || now.getTime() - due > CATCH_UP_WINDOW_MS) continue;
     missed.push(name);
@@ -465,7 +501,12 @@ export async function catchUpMissedTicks(now: Date = new Date()): Promise<string
     console.warn(`[cron] ${name}: запуск по расписанию пропущен рестартом — догоняем`);
     await runners.get(name)!();
   }
-  return missed;
+  // Оборванные длинные тики — в отрыве: многочасовой обход не должен задерживать остальные догоняемые тики.
+  for (const name of rerun) {
+    console.warn(`[cron] ${name}: тик оборван рестартом — запускаем заново`);
+    void runners.get(name)!();
+  }
+  return [...missed, ...rerun];
 }
 
 /** Молчание дольше двух интервалов (плюс люфт на занятый event loop) — тревога. */

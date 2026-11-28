@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 802,
-  "forks": 4423,
+  "forks": 4425,
   "mounts": 89,
   "cron": 151,
   "jobs": 37,
@@ -51221,6 +51221,14 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.interaction.updateMany({ where: { propertyId: property.id, type: \"SHOWING\", showingEvidenceVersion: …",
+       "a": [
+        "меняет в базе: interaction"
+       ],
+       "c": []
       },
       {
        "k": "do",
@@ -108181,6 +108189,28 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "TIMEOUT_TEXT.test(String(err instanceof Error ? err.message : err))",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "streak < RECONCILE_TIMEOUT_STREAK_TO_LOG",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "void logSystemError(\"meta\", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…",
              "a": [
@@ -137139,113 +137169,116 @@
      "c": [
       {
        "k": "do",
-       "t": "await logSystemError( \"geocode\", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…",
+       "t": "const active = candidates.length ? new Set((await prisma.agent.findMany({ where: { id: { in: candidates }, is…",
        "a": [
-        "запись в журнал ошибок"
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const told = owner ? await sendPushToAgents([owner], { kind: \"task\", title: `Объект №${property.shortId}: пос…",
+       "a": [
+        "push-уведомление"
        ],
        "c": [
         {
          "k": "do",
-         "t": "message = maskPhoneNumbersInText(String(message));",
+         "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
          "a": [
-          "зовёт maskPhoneNumbersInText()"
+          "push-уведомление"
          ],
          "c": []
-        },
+        }
+       ],
+       "from": "sendPushToAgents() — apps/api/src/push.ts"
+      },
+      {
+       "k": "if",
+       "t": "!told",
+       "a": [],
+       "c": [
         {
          "k": "do",
-         "t": "message = redactSecretsInText(message);",
+         "t": "await logSystemError( \"geocode\", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…",
          "a": [
-          "зовёт redactSecretsInText()"
+          "запись в журнал ошибок"
          ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "context && (context.url || context.stack)",
-         "a": [],
          "c": [
           {
            "k": "do",
-           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "t": "message = maskPhoneNumbersInText(String(message));",
            "a": [
-            "зовёт redactSecretsInText()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "isPrivateOperation()",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "source = \"investigation\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "source === \"investigation\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "context = { ...context, silent: true };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "isShuttingDown()",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
-           "a": [
-            "пишет строку в журнал сервера"
+            "зовёт maskPhoneNumbersInText()"
            ],
            "c": []
           },
           {
            "k": "do",
-           "t": "return;",
+           "t": "message = redactSecretsInText(message);",
            "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
-           "a": [
-            "читает в базе: errorLog"
+            "зовёт redactSecretsInText()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "recent",
+           "t": "context && (context.url || context.stack)",
            "a": [],
            "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isShuttingDown()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            },
             {
              "k": "do",
              "t": "return;",
@@ -137257,74 +137290,104 @@
            ]
           },
           {
-           "k": "do",
-           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
-           "a": [
-            "читает в базе: errorLog"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
-           "a": [
-            "создаёт в базе: errorLog"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!context?.quietPult",
+           "k": "try",
+           "t": "пробует",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "requestPultSnapshot();",
+             "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
              "a": [
-              "зовёт requestPultSnapshot()"
+              "читает в базе: errorLog"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "recent",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+             "a": [
+              "создаёт в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!everSeen && !context?.silent",
+             "a": [],
+             "c": [
+              {
+               "k": "try",
+               "t": "пробует",
+               "a": [],
+               "c": []
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": []
+              }
+             ]
             }
            ]
           },
           {
-           "k": "if",
-           "t": "!everSeen && !context?.silent",
+           "k": "catch",
+           "t": "если сорвалось",
            "a": [],
            "c": [
             {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": []
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
+             "k": "do",
+             "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
              "c": []
             }
            ]
           }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
+         ],
+         "from": "logSystemError() — apps/api/src/lib/systemError.ts"
         }
-       ],
-       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+       ]
       },
       {
        "k": "do",
@@ -137443,54 +137506,7 @@
      "a": [
       "зовёт autoLinkPropertyById()"
      ],
-     "c": [
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "!(await loadRegistrySettings()).enabled",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return null;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
-         "a": [
-          "зовёт autoLinkProperty()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ],
-     "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+     "c": []
     },
     {
      "k": "if",

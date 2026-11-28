@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { catchUpMissedTicks, scheduleTracked } from "../src/lib/cronHeartbeat.js";
 
@@ -76,6 +76,48 @@ describe("догон пропущенных суточных тиков посл
     const calls = dailyTick(name);
     const ran = await catchUpMissedTicks(now);
     expect(ran).not.toContain(name);
+    expect(calls).toHaveLength(0);
+  });
+
+  /**
+   * Журнал 28.11.2026: ночной обход рынка (до 3 ч) рвёт выкат; тик, помеченный повторяемым,
+   * запускается заново, но только в пределах окна от планового срока.
+   */
+  const slotExpr = (slot: Date) => `${slot.getUTCMinutes()} ${slot.getUTCHours()} * * *`;
+
+  it("оборванный рестартом повторяемый тик запускается заново, обычный — нет", async () => {
+    const resumable = `test-catchup-resume-${runId}`;
+    const plain = `test-catchup-noresume-${runId}`;
+    const callsA: number[] = [];
+    const callsB: number[] = [];
+    const slot = new Date(Date.now() - 60 * MINUTE); // плановый срок был час назад
+    const expr = slotExpr(slot);
+    tasks.push(scheduleTracked(resumable, expr, () => void callsA.push(1), undefined, undefined, { rerunIfInterrupted: true, timeoutMs: 3.5 * 60 * MINUTE }));
+    tasks.push(scheduleTracked(plain, expr, () => void callsB.push(1)));
+    for (const n of [resumable, plain]) {
+      await prisma.cronHeartbeat.create({ data: { name: n, expr, lastRunAt: new Date(slot.getTime() + MINUTE), lastOkAt: new Date(slot.getTime() - 24 * 60 * MINUTE) } });
+    }
+    const ran = await catchUpMissedTicks(new Date());
+    expect(ran).toContain(resumable);
+    expect(ran).not.toContain(plain);
+    await vi.waitFor(() => expect(callsA).toHaveLength(1), { timeout: 5000 });
+    expect(callsB).toHaveLength(0);
+  });
+
+  it("повтор не бесконечен: плановый срок давно позади (повторы сдвигали lastRunAt) или есть ошибка — не запускается", async () => {
+    const withError = `test-catchup-resume-err-${runId}`;
+    const stale = `test-catchup-resume-old-${runId}`;
+    const calls: number[] = [];
+    const freshSlot = new Date(Date.now() - 60 * MINUTE);
+    const oldSlot = new Date(Date.now() - 6 * 60 * MINUTE);
+    tasks.push(scheduleTracked(withError, slotExpr(freshSlot), () => void calls.push(1), undefined, undefined, { rerunIfInterrupted: true, timeoutMs: 3.5 * 60 * MINUTE }));
+    tasks.push(scheduleTracked(stale, slotExpr(oldSlot), () => void calls.push(1), undefined, undefined, { rerunIfInterrupted: true, timeoutMs: 3.5 * 60 * MINUTE }));
+    await prisma.cronHeartbeat.create({ data: { name: withError, expr: slotExpr(freshSlot), lastRunAt: new Date(freshSlot.getTime() + MINUTE), lastError: "упал сам" } });
+    // lastRunAt свежий (как после предыдущего повтора), но плановый срок — 6 часов назад
+    await prisma.cronHeartbeat.create({ data: { name: stale, expr: slotExpr(oldSlot), lastRunAt: new Date(Date.now() - 5 * MINUTE) } });
+    const ran = await catchUpMissedTicks(new Date());
+    expect(ran).not.toContain(withError);
+    expect(ran).not.toContain(stale);
     expect(calls).toHaveLength(0);
   });
 });

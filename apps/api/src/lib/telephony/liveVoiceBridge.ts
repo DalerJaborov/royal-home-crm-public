@@ -69,6 +69,7 @@ import {
 } from "../../ai/liveVoicePersona.js";
 import { describeError } from "../describeError.js";
 import { logSystemError } from "../systemError.js";
+import { logTelephonyFailure } from "./stationTimeoutLog.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS, NO_STATION_AUDIO_REASON } from "./liveVoiceAudioPath.js";
 import {
   expectedRtpPeer,
@@ -5708,7 +5709,7 @@ export async function sweepStasisOrphans(now: number = Date.now()): Promise<Stas
     try {
       channels = await listActiveChannels(creds, LIVE_RESYNC_ARI_TIMEOUT_MS);
     } catch (err) {
-      void logSystemError("telephony", `Живой голос: сверка сирот в Stasis не получила список каналов станции: ${describeError(err)}`, {
+      void logTelephonyFailure(`Живой голос: сверка сирот в Stasis не получила список каналов станции: ${describeError(err)}`, {
         dedupKey: "live-voice-stasis-sweep-list-failed",
       });
       return { ...result, skipped: "станция не ответила" };

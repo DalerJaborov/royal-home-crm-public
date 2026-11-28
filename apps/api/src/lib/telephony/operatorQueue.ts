@@ -1,6 +1,6 @@
 import { amiQueuePause, amiQueueStatus, loadAmiCredentials, type AmiCredentials } from "./amiClient.js";
 import { prisma } from "../../db.js";
-import { logSystemError } from "../systemError.js";
+import { logTelephonyFailure } from "./stationTimeoutLog.js";
 
 /**
  * «Я на месте» / «Отошёл» — оператор входящих ставит себя в очереди на паузу.
@@ -184,7 +184,7 @@ async function applyQueuePause(agentId: string, paused: boolean): Promise<void> 
     // «Не числится ни в одной очереди» — это НЕ ошибка синхронизации: агент мог
     // никогда не входить в очередь входящих (например, только личные лиды).
     if (!result.error.includes("не числится")) {
-      void logSystemError("telephony", `Синхронизация очереди со статусом агента: ${result.error}`);
+      void logTelephonyFailure(`Синхронизация очереди со статусом агента: ${result.error}`);
     }
   }
 }

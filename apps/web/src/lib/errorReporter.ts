@@ -9,6 +9,9 @@ import { connectionSnapshot } from "./upload/network";
  * не ждём, пока о поломке расскажет агент. Дедуп: одна и та же ошибка шлётся не
  * чаще раза в 5 минут, максимум 20 репортов за сессию (защита от циклов).
  */
+export const UPLOAD_ASSEMBLING_MESSAGE = "Файл уже собирается — подождите";
+/** Осознанные отказы сервера по сути файла (lib/videoHandoff.ts): исходник вместо ролика, тот же ролик у другого объекта. */
+const DELIBERATE_REJECTION = /^(Это исходник|Этот же ролик уже сдан)/;
 const sentAt = new Map<string, number>();
 let totalSent = 0;
 const DEDUPE_MS = 5 * 60 * 1000;
@@ -77,6 +80,22 @@ function report(message: string, stack?: string) {
  * отчёта директора.
  */
 export function reportUploadIssue(info: UploadIssueInfo): void {
+  /**
+   * «Файл уже собирается — подождите» (409 ASSEMBLING) на промежуточной попытке — это
+   * НОРМА, а не поломка (журнал 28.11.2026: iPhone, 130 МБ, части 33/33, попытка 2/10).
+   * Первый ответ «собрать» у тяжёлого ролика обрывается по времени (статус 0), сервер
+   * продолжает сборку, повтор честно получает «уже собирается» и ждёт. Писать это в
+   * журнал — значит будить директора ожидаемым ходом событий. Окончательный отказ
+   * («final») по-прежнему пишется всегда.
+   */
+  if (info.final !== true && info.error === UPLOAD_ASSEMBLING_MESSAGE) return;
+  /**
+   * ОСОЗНАННЫЙ ОТКАЗ СЕРВЕРА ПО СУТИ ФАЙЛА — не поломка (журнал 28.11.2026, объект №236:
+   * «Это исходник объекта (121382.mp4), а не смонтированный ролик», 409). Сотрудник
+   * выбрал не тот файл; сервер сказал это словами, и сотрудник видит текст на экране.
+   * только эти два вида (по тексту videoHandoff) в журнал не пишем; прочие 409/422 — как раньше.
+   */
+  if ((info.status === 409 || info.status === 422) && info.error && DELIBERATE_REJECTION.test(info.error)) return;
   void send(formatUploadIssueMessage(withUploadEnv(info)), undefined, { final: info.final === true, upload: true });
 }
 

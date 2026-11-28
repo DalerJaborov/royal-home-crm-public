@@ -1750,6 +1750,20 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
     if (!current?.deletedAt || current._count.deals > 0) return null;
     const narration = await tx.propertyNarrationVersion.findMany({ where: { propertyId: property.id }, select: { id: true, status: true } });
     if (narration.some(version => version.status === "GENERATING")) return null;
+    /**
+     * ПОКАЗЫ С ДОКАЗАТЕЛЬСТВОМ НЕЛЬЗЯ ОСТАВИТЬ БЕЗ ОБЪЕКТА (28.11.2026, журнал ошибок,
+     * Prisma 23514). База держит проверку Interaction_future_showing_evidence_check:
+     * показ версии ≥1 обязан иметь либо объект, либо пометку «вне CRM» с описанием
+     * (≥10 знаков). Общий updateMany с propertyId: null её нарушал — удаление объекта
+     * падало целиком, и мусор копился в Корзине. Поэтому такие показы переводим в
+     * «показ вне CRM» с названием и адресом удалённого объекта: он остаётся засчитанным
+     * (lib/conductedShowing.ts), а читаемый след не теряется. Остальные записи — как раньше.
+     */
+    const offCrmDetails = `Объект ${property.shortId} удалён навсегда: ${property.address ?? property.title ?? "адрес не указан"}`.slice(0, 300);
+    await tx.interaction.updateMany({
+      where: { propertyId: property.id, type: "SHOWING", showingEvidenceVersion: { gt: 0 } },
+      data: { propertyId: null, showingOffCrm: true, showingOffCrmDetails: offCrmDetails.length >= 10 ? offCrmDetails : `${offCrmDetails} (удалён)` },
+    });
     await tx.interaction.updateMany({ where: { propertyId: property.id }, data: { propertyId: null } });
     for (const s of openShowings) {
       await tx.interaction.update({

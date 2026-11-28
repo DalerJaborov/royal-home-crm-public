@@ -185,6 +185,56 @@ describe("Удаление объекта навсегда", () => {
     expect(summaryAfter.doneAt).not.toBeNull();
   });
 
+  /**
+   * Журнал ошибок 28.11.2026: Prisma 23514 «Interaction_future_showing_evidence_check».
+   * Показ с доказательством (showingEvidenceVersion ≥ 1) не может остаться без объекта,
+   * если он не помечен «вне CRM» с описанием — общий updateMany(propertyId: null) падал,
+   * и объект навсегда застревал в Корзине.
+   */
+  it("показ с доказательством (версия ≥1) не роняет удаление: становится «вне CRM» с описанием объекта", async () => {
+    const property = await makeTrashedPropertyWithVideos([]);
+    const client = await prisma.client.create({
+      data: {
+        fullName: `Клиент доказ. показа ${runId}`,
+        phone: `+992944${String(runId).slice(-7)}`,
+        source: "PHONE_CALL",
+        assignedAgentId: adminId,
+      },
+    });
+    clientIds.push(client.id);
+    const open = await prisma.interaction.create({
+      data: { clientId: client.id, agentId: adminId, propertyId: property.id, type: "SHOWING", notes: "Показ назначен",
+        nextAction: "Показ объекта", nextActionDate: new Date(Date.now() + 3600_000), showingEvidenceVersion: 1 },
+    });
+    const done = await prisma.interaction.create({
+      data: { clientId: client.id, agentId: adminId, propertyId: property.id, type: "SHOWING", notes: "Показ прошёл",
+        nextActionDate: new Date(Date.now() - 86_400_000), completedAt: new Date(), showingEvidenceVersion: 1 },
+    });
+    const call = await prisma.interaction.create({
+      data: { clientId: client.id, agentId: adminId, propertyId: property.id, type: "CALL", notes: "Звонок по объекту" },
+    });
+    interactionIds.push(open.id, done.id, call.id);
+
+    const res = await request(app)
+      .delete(`/api/v1/properties/${property.id}/permanent`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(204);
+    expect(await prisma.property.count({ where: { id: property.id } })).toBe(0);
+
+    for (const id of [open.id, done.id]) {
+      const after = await prisma.interaction.findUniqueOrThrow({ where: { id } });
+      expect(after.propertyId).toBeNull();
+      expect(after.showingOffCrm).toBe(true);
+      expect(after.showingOffCrmDetails ?? "").toContain("удалён навсегда");
+      expect((after.showingOffCrmDetails ?? "").length).toBeGreaterThanOrEqual(10);
+      expect(after.showingEvidenceVersion).toBe(1);
+    }
+    expect((await prisma.interaction.findUniqueOrThrow({ where: { id: open.id } })).nextAction).toBeNull();
+    const plain = await prisma.interaction.findUniqueOrThrow({ where: { id: call.id } });
+    expect(plain.propertyId).toBeNull();
+    expect(plain.showingOffCrm).toBe(false);
+  });
+
   it("исторические (уже завершённые) показы не трогает — это память, а не задача", async () => {
     const property = await makeTrashedPropertyWithVideos([]);
     const client = await prisma.client.create({

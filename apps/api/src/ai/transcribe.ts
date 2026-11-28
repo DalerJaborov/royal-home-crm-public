@@ -859,7 +859,11 @@ export async function transcribeAudioResult(
               void logSystemError(
                 "ai",
                 `Голосовое (${filename}) расшифровано ДЕШЁВОЙ моделью ${model} — все дорогие не ответили/отказали: ` +
-                  expensiveModels.map((m) => `${m}${failureNote(m)}`).join("; ")
+                  expensiveModels.map((m) => `${m}${failureNote(m)}`).join("; "),
+                // Имя файла стоит в начале текста и у каждого голосового своё — общий дедуп их не
+                // склеивал (журнал 28.11.2026). Ключ общий, окно — час: расшифровка ЕСТЬ, это лишь
+                // след «дорогие модели не отвечали».
+                { dedupKey: "voice-transcribed-by-cheap-model", dedupWindowMs: 60 * 60 * 1000 }
               );
             }
           } else if (model !== primaryModel && triedPrimary) {

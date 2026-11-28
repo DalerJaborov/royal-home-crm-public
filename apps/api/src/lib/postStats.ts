@@ -358,6 +358,11 @@ async function fetchFacebookAvgWatch(videoId: string, token: string): Promise<nu
   }
 }
 
+/** Graph API: «Object with ID … does not exist» — пост/медиа удалены на площадке. */
+export function isPostGoneError(error: string | null | undefined): boolean {
+  return /Object with ID '?[\d_]+'? does not exist/i.test(String(error ?? ""));
+}
+
 /** Собрать площадку из списка попыток: не подключена — сразу неудача без сети;
  *  подключена, но ВСЕ попытки провалились — `available: false` с последней
  *  причиной; иначе площадка живая, даже если часть постов не прочиталась. */
@@ -379,12 +384,18 @@ function settleChannel(
     if (failed.length === outcomes.length) {
       return { connected: true, available: false, reason: YOUTUBE_SCOPE_MISSING_SHORT };
     }
-  } else if (failed.length > 0) {
-    void logSystemError(
-      "meta",
-      `Статистика роликов (${channel}): не удалось прочитать ${failed.length} из ${outcomes.length} постов — ${failed[0].error ?? "неизвестная причина"}`,
-      { dedupKey: `post-stats:${channel}` }
-    );
+  } else {
+    // ПОСТ УДАЛЁН НА ПЛОЩАДКЕ — не поломка (журнал 28.11.2026: «Object with ID … does not
+    // exist» у 2 постов Facebook и 1 Instagram). Владелец или Meta убрали публикацию; читать
+    // её статистику нечем и чинить нечего. В журнал идут только настоящие сбои чтения.
+    const real = failed.filter((o) => !isPostGoneError(o.error));
+    if (real.length > 0) {
+      void logSystemError(
+        "meta",
+        `Статистика роликов (${channel}): не удалось прочитать ${real.length} из ${outcomes.length} постов — ${real[0].error ?? "неизвестная причина"}`,
+        { dedupKey: `post-stats:${channel}` }
+      );
+    }
   }
   if (failed.length === outcomes.length) {
     return { connected: true, available: false, reason: failed[0].error ?? "не удалось прочитать статистику" };
