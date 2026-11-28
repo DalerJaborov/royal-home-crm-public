@@ -1,14 +1,18 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { describeError } from "../describeError.js";
+import { logSystemError } from "../systemError.js";
 
 /**
  * КАТАЛОГ ВИДЕОУРОКОВ ПО CRM (28.11.2026).
  *
  * Уроки кладёт на сервер конвейер в /opt/royalhome-lessons (в контейнер — только на чтение, /app/lessons,
  * переменная LESSONS_DIR). Здесь — чтение и проверка manifest.json, поиск по номеру, названию и тексту озвучки
- * и фрагмент ответа. Каталога или манифеста нет — это «уроки пока не загружены», а не ошибка: помощница так и
- * отвечает. Сам файл урока (mp4, обложка) отдаётся только по пути внутри каталога.
+ * и фрагмент ответа. Каталога или манифеста нет (ENOENT) — это «уроки пока не загружены», а не ошибка: помощница
+ * так и отвечает. Любой другой сбой (нет прав, битый JSON, манифест не по схеме, путь урока вне каталога) —
+ * «уроки сейчас недоступны» и ОДНА запись в журнал на загрузку кэша. Файл урока (mp4, обложка) отдаётся только
+ * по пути внутри каталога, и после realpath тоже (символьная ссылка наружу — отказ).
  */
 export const LESSON_LANGS = ["ru", "tj"] as const;
 export type LessonLang = (typeof LESSON_LANGS)[number];
@@ -20,6 +24,9 @@ const lessonSchema = z.object({
   file: z.string().trim().min(1).max(300),
   cover: z.string().trim().max(300).nullish(),
   durationSec: z.number().min(0).max(36_000).nullish(),
+  /** Размеры кадра — необязательны; без них в Telegram width/height не передаём. */
+  width: z.number().int().min(1).max(10_000).nullish(),
+  height: z.number().int().min(1).max(10_000).nullish(),
   transcript: z.string().max(200_000).default(""),
 });
 const manifestSchema = z.object({ course: z.string().optional(), updated: z.string().optional(), lessons: z.array(lessonSchema).max(2000) });
@@ -32,12 +39,15 @@ export interface Lesson {
   filePath: string;
   coverPath: string | null;
   durationSec: number | null;
+  width: number | null;
+  height: number | null;
   transcript: string;
 }
 
 export type LessonCatalog = { status: "ok"; lessons: Lesson[] } | { status: "empty" } | { status: "invalid" };
 
 export const LESSONS_NOT_LOADED_TEXT = "Уроки пока не загружены";
+export const LESSONS_UNAVAILABLE_TEXT = "Уроки сейчас недоступны";
 const CACHE_MS = 60_000;
 let cache: { dir: string; at: number; value: LessonCatalog } | null = null;
 
@@ -57,36 +67,98 @@ function insideDir(dir: string, rel: string): string | null {
   return full.startsWith(root + path.sep) ? full : null;
 }
 
-async function readCatalog(dir: string): Promise<LessonCatalog> {
+function isInside(realRoot: string, realFile: string): boolean {
+  const rel = path.relative(realRoot, realFile);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function isMissing(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
+}
+
+/**
+ * Настоящий путь файла урока лежит внутри настоящего каталога уроков (симлинк наружу — нет).
+ * Файла ещё нет (ENOENT) — путь лексически внутри, отказывать не за что: отправка проверит наличие.
+ */
+export async function realPathInsideLessonsDir(filePath: string, dir = lessonsDir()): Promise<boolean> {
+  try {
+    const realRoot = await realpath(dir);
+    try {
+      return isInside(realRoot, await realpath(filePath));
+    } catch (err) {
+      return isMissing(err);
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function readCatalog(dir: string, problems: string[]): Promise<LessonCatalog> {
   let raw: string;
   try {
     raw = await readFile(path.join(dir, "manifest.json"), "utf8");
-  } catch {
-    return { status: "empty" };
+  } catch (err) {
+    if (isMissing(err)) return { status: "empty" };
+    problems.push(`манифест не прочитан: ${describeError(err)}`);
+    return { status: "invalid" };
   }
   let json: unknown;
   try {
     json = JSON.parse(raw.replace(/^﻿/, ""));
-  } catch {
+  } catch (err) {
+    problems.push(`манифест не JSON: ${describeError(err)}`);
     return { status: "invalid" };
   }
   const parsed = manifestSchema.safeParse(json);
-  if (!parsed.success) return { status: "invalid" };
+  if (!parsed.success) {
+    problems.push(`манифест не прошёл проверку: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+    return { status: "invalid" };
+  }
+  let realRoot: string | null = null;
+  try {
+    realRoot = await realpath(dir);
+  } catch (err) {
+    problems.push(`каталог уроков не читается: ${describeError(err)}`);
+    return { status: "invalid" };
+  }
+  /** Путь внутри каталога и по realpath; null — отказ (причина в problems). */
+  const safePath = async (rel: string, what: string): Promise<string | null> => {
+    const lexical = insideDir(dir, rel);
+    if (!lexical) {
+      problems.push(`${what}: путь вне каталога (${rel.slice(0, 80)})`);
+      return null;
+    }
+    try {
+      if (!isInside(realRoot!, await realpath(lexical))) {
+        problems.push(`${what}: ссылка уходит за пределы каталога (${rel.slice(0, 80)})`);
+        return null;
+      }
+    } catch (err) {
+      if (!isMissing(err)) {
+        problems.push(`${what}: путь не проверен: ${describeError(err)}`);
+        return null;
+      }
+    }
+    return lexical;
+  };
   const lessons: Lesson[] = [];
   for (const item of parsed.data.lessons) {
-    const filePath = insideDir(dir, item.file);
+    const label = `урок ${item.number} (${item.lang})`;
+    const filePath = await safePath(item.file, `${label}, файл`);
     if (!filePath) continue;
     lessons.push({
       number: item.number,
       lang: item.lang,
       title: item.title,
       filePath,
-      coverPath: item.cover ? insideDir(dir, item.cover) : null,
+      coverPath: item.cover ? await safePath(item.cover, `${label}, обложка`) : null,
       durationSec: item.durationSec ?? null,
+      width: item.width ?? null,
+      height: item.height ?? null,
       transcript: item.transcript,
     });
   }
-  if (lessons.length === 0) return { status: "empty" };
+  if (lessons.length === 0) return parsed.data.lessons.length === 0 ? { status: "empty" } : { status: "invalid" };
   lessons.sort((a, b) => a.number - b.number || a.lang.localeCompare(b.lang));
   return { status: "ok", lessons };
 }
@@ -94,15 +166,21 @@ async function readCatalog(dir: string): Promise<LessonCatalog> {
 export async function loadLessonCatalog(): Promise<LessonCatalog> {
   const dir = lessonsDir();
   if (cache && cache.dir === dir && Date.now() - cache.at < CACHE_MS) return cache.value;
-  const value = await readCatalog(dir);
+  const problems: string[] = [];
+  const value = await readCatalog(dir, problems);
   cache = { dir, at: Date.now(), value };
+  // Одна запись на загрузку кэша (раз в минуту при живом сбое; журнал дальше склеивает по ключу).
+  if (problems.length > 0) {
+    const shown = problems.slice(0, 5).join(" | ");
+    void logSystemError("api", `Каталог видеоуроков: ${problems.length} проблем(а). ${shown}`, { dedupKey: "lessons-catalog-problem" });
+  }
   return value;
 }
 
 /** Строка про состояние каталога для ответа инструмента; null — уроки есть. */
 export function catalogProblem(catalog: LessonCatalog): string | null {
   if (catalog.status === "ok") return null;
-  return catalog.status === "empty" ? LESSONS_NOT_LOADED_TEXT : "Список уроков сейчас не читается, сообщите руководителю";
+  return catalog.status === "empty" ? LESSONS_NOT_LOADED_TEXT : LESSONS_UNAVAILABLE_TEXT;
 }
 
 // ─── Поиск ────────────────────────────────────────────────────────────────

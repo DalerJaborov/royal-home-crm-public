@@ -9,10 +9,11 @@ import path from "node:path";
  * Telegram подменён (к нему тест не ходит), каталог — во временной папке из fixtures/lessons-manifest.json,
  * «видео» — пустые файлы.
  */
-const { sendVideoFromDisk, sendVideoByFileId, sendMessage, sentLog } = vi.hoisted(() => {
+const { sendVideoFromDisk, sendVideoByFileId, sendMessage, sentLog, logSpy } = vi.hoisted(() => {
   const sentLog: { via: "disk" | "file_id"; chat: string; caption: string; protect: boolean }[] = [];
   return {
     sentLog,
+    logSpy: vi.fn(),
     sendVideoFromDisk: vi.fn(async (chat: string, _path: string, caption: string, _t?: number, _b?: unknown, meta?: { protectContent?: boolean }) => {
       sentLog.push({ via: "disk", chat, caption, protect: meta?.protectContent === true });
       return { message_id: 1, video: { file_id: "FILEID-1" } };
@@ -31,6 +32,12 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   sendMessage,
 }));
 
+vi.mock("../src/lib/systemError.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/systemError.js")>();
+  logSpy.mockImplementation(original.logSystemError);
+  return { ...original, logSystemError: logSpy };
+});
+
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
 
 const { prisma } = await import("../src/db.js");
@@ -40,7 +47,10 @@ const { pluginDeclarations } = await import("../src/ai/assistant.js");
 const { findAssistantToolPlugin, listAssistantToolPlugins, assistantPluginAllowed } = await import("../src/ai/assistant/tools/index.js");
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const { resetLessonCatalogCache } = await import("../src/lib/lessons/catalog.js");
-const { resetLessonSendLimits, takeLessonSendSlot, LESSON_SENDS_PER_MINUTE } = await import("../src/lib/lessons/sender.js");
+const { resetLessonSendLimits, takeLessonSendSlot, takeLessonBroadcastSlot, LESSON_SENDS_PER_MINUTE } = await import("../src/lib/lessons/sender.js");
+const { TelegramApiError } = await import("../src/telegram/api.js");
+const { __resetShutdownStateForTests, beginShutdown } = await import("../src/lib/shutdownState.js");
+const { lessonsGuideFor } = await import("../src/ai/assistant.js");
 const { ASSISTANT_LESSON_TOPIC_TOOLS, ASSISTANT_LESSONS_GUIDE } = await import("../src/ai/assistant/promptSections.js");
 const { BUILTIN_ASSISTANT_TOOL_NAMES } = await import("../src/ai/assistant.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
@@ -108,10 +118,24 @@ afterAll(async () => {
   if (savedPause === undefined) delete process.env.LESSONS_SEND_PAUSE_MS;
   else process.env.LESSONS_SEND_PAUSE_MS = savedPause;
 });
+/** Фоновая рассылка прошлого теста дописывает кэш file_id уже после очистки: ждём, пока счётчики вызовов перестанут расти. */
+async function settleBackgroundSends() {
+  let last = -1;
+  for (;;) {
+    const now = sendVideoFromDisk.mock.calls.length + sendVideoByFileId.mock.calls.length + sendMessage.mock.calls.length;
+    if (now === last) return;
+    last = now;
+    await new Promise((r) => setTimeout(r, 80));
+  }
+}
 beforeEach(async () => {
+  await settleBackgroundSends();
   sendVideoFromDisk.mockClear();
   sendVideoByFileId.mockClear();
   sendMessage.mockClear();
+  logSpy.mockClear();
+  __resetShutdownStateForTests();
+  delete process.env.TELEGRAM_API_BASE_URL;
   sentLog.length = 0;
   resetLessonSendLimits();
   resetLessonCatalogCache();
@@ -312,5 +336,158 @@ describe("send_all_lessons", () => {
     const actor = await actorOf(agentId, "telegram-private");
     expect(await run("send_all_lessons", {}, actor)).toMatchObject({ error: "Уроки пока не загружены" });
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("метка «уже отправлен» и замок «в процессе» (правка по ревью 28.11)", () => {
+  it("сбой Telegram: после «попробуй ещё раз» урок уходит, а не «уже отправлен»", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    sendVideoFromDisk.mockRejectedValueOnce(new Error("boom"));
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ error: expect.stringContaining("Не получилось") });
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ ok: true });
+  });
+
+  it("файла нет на сервере: после появления файла повтор проходит", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    fs.rmSync(path.join(dir, "ru/urok-01-ru.mp4"));
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ error: expect.stringContaining("недоступен") });
+    fs.writeFileSync(path.join(dir, "ru/urok-01-ru.mp4"), "video");
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ ok: true });
+  });
+
+  it("пока урок уходит, повтор в тот же чат — «отправляется»; после успеха — «уже отправлен»", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    let release!: () => void;
+    sendVideoFromDisk.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ message_id: 1, video: { file_id: "F" } }); }) as never,
+    );
+    const first = run("send_lesson", { number: 1 }, actor);
+    await waitFor(async () => (sendVideoFromDisk.mock.calls.length > 0 ? true : null));
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ error: expect.stringContaining("отправляется") });
+    release();
+    expect(await first).toMatchObject({ ok: true });
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ error: expect.stringContaining("уже отправлен") });
+  });
+
+  it("слот: done(false) снимает замок и минутный счёт, done(true) ставит метку", () => {
+    const lesson = { number: 5, lang: "ru" as const };
+    const a = takeLessonSendSlot("slot-chat", lesson);
+    if (!a.ok) throw new Error("ожидали ok");
+    expect(takeLessonSendSlot("slot-chat", lesson)).toMatchObject({ ok: false, error: expect.stringContaining("отправляется") });
+    a.done(false);
+    const b = takeLessonSendSlot("slot-chat", lesson);
+    if (!b.ok) throw new Error("ожидали ok");
+    b.done(true);
+    expect(takeLessonSendSlot("slot-chat", lesson)).toMatchObject({ ok: false, error: expect.stringContaining("уже отправлен") });
+  });
+
+  it("слот «все уроки»: done(false) час не блокирует, done(true) блокирует", () => {
+    const a = takeLessonBroadcastSlot("bc-chat");
+    if (!a.ok) throw new Error("ожидали ok");
+    expect(takeLessonBroadcastSlot("bc-chat")).toMatchObject({ ok: false, error: expect.stringContaining("уже отправляются") });
+    a.done(false);
+    const b = takeLessonBroadcastSlot("bc-chat");
+    if (!b.ok) throw new Error("ожидали ok");
+    b.done(true);
+    expect(takeLessonBroadcastSlot("bc-chat")).toMatchObject({ ok: false, error: expect.stringContaining("Повторить можно через") });
+  });
+
+  it("«все уроки»: провал на первом сообщении (оглавлении) час не блокирует", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    sendMessage.mockRejectedValueOnce(new Error("net down"));
+    expect(await run("send_all_lessons", {}, actor)).toMatchObject({ ok: true, started: true });
+    await waitFor(async () => (logSpy.mock.calls.length >= 1 ? true : null));
+    // слот снят: повтор разрешён
+    expect(await run("send_all_lessons", {}, actor)).toMatchObject({ ok: true, started: true });
+  });
+});
+
+describe("отказ чата 400/403", () => {
+  it("403 при отправке файлом: понятная фраза, в журнал не пишем, метка не ставится", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    sendVideoFromDisk.mockRejectedValueOnce(new TelegramApiError(403, "sendVideo (с диска)", "Forbidden: bot was blocked by the user"));
+    const res = await run("send_lesson", { number: 1 }, actor);
+    expect(res).toMatchObject({ error: expect.stringContaining("Старт") });
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ ok: true });
+  });
+
+  it("400 «нет права слать видео в группе»: своя фраза", async () => {
+    const actor = await actorOf(agentId, "telegram-group");
+    sendVideoFromDisk.mockRejectedValueOnce(new TelegramApiError(400, "sendVideo (с диска)", "Bad Request: not enough rights to send videos to the chat"));
+    expect(await run("send_lesson", { number: 1 }, actor)).toMatchObject({ error: expect.stringContaining("нет права отправлять видео") });
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("403 по file_id: с диска повторно не грузим; «файл не тот» (400) — грузим", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    await run("send_lesson", { number: 2 }, actor);
+    resetLessonSendLimits();
+    sendVideoFromDisk.mockClear();
+    logSpy.mockClear();
+    sendVideoByFileId.mockRejectedValueOnce(new TelegramApiError(403, "sendVideo", "Forbidden: bot was blocked by the user"));
+    expect(await run("send_lesson", { number: 2 }, actor)).toMatchObject({ error: expect.stringContaining("Старт") });
+    expect(sendVideoFromDisk).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    resetLessonSendLimits();
+    sendVideoByFileId.mockRejectedValueOnce(new TelegramApiError(400, "sendVideo", "Bad Request: wrong file identifier/HTTP URL specified"));
+    expect(await run("send_lesson", { number: 2 }, actor)).toMatchObject({ ok: true });
+    expect(sendVideoFromDisk).toHaveBeenCalledTimes(1);
+  });
+
+  it("«все уроки»: после 403 на уроке рассылка останавливается, «Это все» не шлём, в журнал не пишем", async () => {
+    const actor = await actorOf(agentId, "telegram-group");
+    sendVideoFromDisk.mockRejectedValueOnce(new TelegramApiError(403, "sendVideo (с диска)", "Forbidden: bot was kicked from the supergroup chat"));
+    expect(await run("send_all_lessons", {}, actor)).toMatchObject({ ok: true, started: true });
+    await waitFor(async () => (sendVideoFromDisk.mock.calls.length >= 1 ? true : null));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(sendVideoFromDisk).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1); // только оглавление
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("остановка сервера прерывает «все уроки»: дальше уроки не шлются", async () => {
+    const actor = await actorOf(agentId, "telegram-group");
+    beginShutdown();
+    expect(await run("send_all_lessons", {}, actor)).toMatchObject({ ok: true, started: true });
+    await waitFor(async () => (sendMessage.mock.calls.length >= 1 ? true : null));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(sendVideoFromDisk).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("размеры видео и предел 50 МБ", () => {
+  it("width/height — из манифеста; без них в Telegram не передаются", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    await run("send_lesson", { number: 1 }, actor);
+    expect(sendVideoFromDisk.mock.calls[0]![5]).toMatchObject({ width: 1080, height: 1920 });
+    await run("send_lesson", { number: 3 }, actor);
+    const meta = sendVideoFromDisk.mock.calls[1]![5] as Record<string, unknown>;
+    expect(meta).not.toHaveProperty("width");
+    expect(meta).not.toHaveProperty("height");
+  });
+
+  it("файл больше 50 МБ без своего Bot API — отказ без загрузки; со своим сервером — шлём", async () => {
+    const actor = await actorOf(agentId, "telegram-private");
+    fs.truncateSync(path.join(dir, "ru/urok-02-ru.mp4"), 51 * 1024 * 1024);
+    expect(await run("send_lesson", { number: 2 }, actor)).toMatchObject({ error: expect.stringContaining("больше 50 МБ") });
+    expect(sendVideoFromDisk).not.toHaveBeenCalled();
+    process.env.TELEGRAM_API_BASE_URL = "http://telegram-bot-api:8081";
+    expect(await run("send_lesson", { number: 2 }, actor)).toMatchObject({ ok: true });
+    expect(sendVideoFromDisk).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("блок промпта про уроки", () => {
+  it("нет send_lesson среди объявленных (режим просмотра) или каталога нет — блока нет", async () => {
+    const viewer = await actorOf(shareholderId, "telegram-private");
+    expect(await lessonsGuideFor(pluginDeclarations(viewer, true, "telegram", true))).toBe("");
+    const staff = await actorOf(agentId, "telegram-private");
+    const staffDecl = pluginDeclarations(staff, true, "telegram");
+    expect(await lessonsGuideFor(staffDecl)).toBe(ASSISTANT_LESSONS_GUIDE);
+    fs.rmSync(path.join(dir, "manifest.json"));
+    resetLessonCatalogCache();
+    expect(await lessonsGuideFor(staffDecl)).toBe("");
   });
 });

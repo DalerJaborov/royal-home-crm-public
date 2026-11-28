@@ -191,9 +191,20 @@ export const sendLessonTool: AssistantReadToolPlugin = {
     if ("error" in target) return target;
     const slot = takeLessonSendSlot(target.chatId, lesson);
     if (!slot.ok) return { error: slot.error };
-    if (ctx.signal?.aborted) return { error: "Не успела отправить урок, попросите ещё раз", code: "ABORTED" };
+    if (ctx.signal?.aborted) {
+      slot.done(false);
+      return { error: "Не успела отправить урок, попросите ещё раз", code: "ABORTED" };
+    }
 
-    const result = await sendLessonVideo(target.chatId, lesson, { protect: target.isPrivate });
+    // Метка «уже отправлен» ставится только после успеха (slot.done(true)); любой сбой снимает замок.
+    let result: Awaited<ReturnType<typeof sendLessonVideo>>;
+    try {
+      result = await sendLessonVideo(target.chatId, lesson, { protect: target.isPrivate });
+    } catch (err) {
+      slot.done(false);
+      throw err;
+    }
+    slot.done(result.ok);
     if (!result.ok) return { error: result.error };
     return { ok: true, done: true, sent: lessonCaption(lesson), to: target.isPrivate ? "личка" : "эта группа" };
   },
@@ -239,9 +250,11 @@ export const sendAllLessonsTool: AssistantReadToolPlugin = {
     if (!slot.ok) return { error: slot.error };
 
     // Рассылка идёт дольше срока ответа помощницы: запускаем в фоне, человеку отвечаем сразу.
-    void broadcastLessons(target.chatId, lessons, { protect: target.isPrivate }).catch((err) =>
-      logSystemError("api", `Рассылка всех уроков не дошла до конца: ${describeError(err)}`),
-    );
+    // slot отмечается успешным внутри, когда дошло первое сообщение; провал на нём час не блокирует.
+    void broadcastLessons(target.chatId, lessons, { protect: target.isPrivate, slot }).catch((err) => {
+      slot.done(false);
+      return logSystemError("api", `Рассылка всех уроков не дошла до конца: ${describeError(err)}`);
+    });
     return { ok: true, done: true, started: true, count: lessons.length, to: target.isPrivate ? "личка" : "эта группа" };
   },
 };

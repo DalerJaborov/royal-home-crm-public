@@ -46,6 +46,7 @@ import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clien
 import { logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import { findTurnWrite, recordTurnWrite } from "../lib/assistantTurnWrites.js";
 import { isShuttingDown } from "../lib/shutdownState.js";
+import { loadLessonCatalog } from "../lib/lessons/catalog.js";
 import { ASSISTANT_DEADLINE_SEC, ASSISTANT_MAX_ROUNDS, type AssistantTurnOutcome } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
@@ -1227,6 +1228,16 @@ function toolStatusPhrase(name: string): string {
 /** Имена встроенных инструментов (не плагинов) — для сверки реестра: имя у модели одно на всё. */
 export const BUILTIN_ASSISTANT_TOOL_NAMES: readonly string[] = [...TOOLS.map((t) => t.name), WEB_REFERENCE_TOOL];
 
+/** Блок промпта про видеоуроки: пустая строка, пока send_lesson не объявлен актору или каталог не загружен. */
+export async function lessonsGuideFor(declarations: GeminiToolDefinition[]): Promise<string> {
+  if (!declarations.some((d) => d.name === "send_lesson")) return "";
+  try {
+    return (await loadLessonCatalog()).status === "ok" ? ASSISTANT_LESSONS_GUIDE : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Объявления инструментов-плагинов для этого актора. Запись (B, C) — только если
  * клиент умеет показать подтверждение (`confirmUi`): иначе модель просила бы нажать
@@ -1742,12 +1753,17 @@ export async function runAssistantDetailed(
     const glossary = tajikTurn ? tajikGlossaryFor(userQuestion) : "";
     // Реестр строек: раздел есть, пока включён рубильник (25.11.2026). Неизменный текст — префикс промта не дрожит.
     const registryGuide = registryPromptGuide(settings.registryEnabled);
+    // Блок про уроки — только если актору объявлен send_lesson (группа без права, режим просмотра, скрытые
+    // инструменты — нет) и каталог уроков загружен: иначе модель обещала бы то, чего сделать не может.
+    const lessonsGuide = await lessonsGuideFor(
+      pluginDeclarations(actor, options.confirmUi === true && !options.readOnly, options.channel ?? "crm", options.readOnly === true),
+    );
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
       .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor))
       .replace("{{CHANNEL}}", () => assistantChannelGuide(actor))
       .replace(OFF_TOPIC_RULE, () => (options.liveGroupChat ? LIVE_GROUP_CHAT_RULE : OFF_TOPIC_RULE))
-      + registryGuide + ASSISTANT_LESSONS_GUIDE + assistantStyle(options.channel ?? "crm", { group: options.liveGroupChat === true }) + languagePolicy.instruction + glossary + sharedKnowledge;
+      + registryGuide + lessonsGuide + assistantStyle(options.channel ?? "crm", { group: options.liveGroupChat === true }) + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);

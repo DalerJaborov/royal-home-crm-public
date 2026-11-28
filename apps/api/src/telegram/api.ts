@@ -621,7 +621,9 @@ export async function sendVideoFromDisk(
       return form;
     },
     timeoutMs,
-    "sendVideo (с диска)"
+    "sendVideo (с диска)",
+    false,
+    true
   );
   return result as TelegramSentVideo;
 }
@@ -689,6 +691,8 @@ async function postMultipartWithRetry(
   timeoutMs: number,
   label: string,
   singleAttempt = false,
+  /** Бросать TelegramApiError с кодом (400/403…) и без singleAttempt: повтор после 429 остаётся. */
+  typedErrors = false,
 ): Promise<unknown> {
   let sentChatId: unknown;
   for (let attempt = 0; ; attempt++) {
@@ -709,7 +713,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
-    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
+    if (singleAttempt || typedErrors) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
