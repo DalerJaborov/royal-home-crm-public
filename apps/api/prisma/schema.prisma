@@ -6243,6 +6243,18 @@ model GeminiCache {
   @@index([expiresAt])
 }
 
+/// Telegram file_id видеоурока по CRM (lib/lessons/sender.ts): после первой отправки с диска
+/// дальше шлём по file_id. fileSig = размер:mtime файла — сменился файл, кэш недействителен.
+model LessonVideoCache {
+  lang       String
+  number     Int
+  fileSig    String
+  fileId     String
+  updatedAt  DateTime @updatedAt
+
+  @@id([lang, number])
+}
+
 /// Кто/когда/что удалил или изменил в чувствительных разделах (финансы, сотрудники,
 /// публикация объектов) — история не редактируется приложением, только читается в Настройках.
 /// agentName снят как снапшот на момент действия: агент мог быть переименован/удалён позже.

@@ -583,6 +583,13 @@ export interface SendVideoMeta {
   durationSec?: number | null;
   /** JPEG не больше 320 по стороне. */
   thumbnailPath?: string | null;
+  /** protect_content: запрет пересылки и сохранения (видеоуроки в личке). */
+  protectContent?: boolean;
+}
+
+/** Ответ sendVideo с диска: кроме номера сообщения — file_id видео, чтобы слать дальше по нему. */
+export interface TelegramSentVideo extends TelegramSentMessage {
+  video?: { file_id?: string };
 }
 
 export async function sendVideoFromDisk(
@@ -592,7 +599,7 @@ export async function sendVideoFromDisk(
   timeoutMs = 300_000,
   buttons?: TelegramInlineButton[][],
   meta?: SendVideoMeta
-): Promise<TelegramSentMessage> {
+): Promise<TelegramSentVideo> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
   const blob = await openAsBlob(filePath);
@@ -604,6 +611,7 @@ export async function sendVideoFromDisk(
       form.append("chat_id", chatId);
       if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
       form.append("supports_streaming", "true");
+      if (meta?.protectContent) form.append("protect_content", "true");
       if (meta?.width) form.append("width", String(meta.width));
       if (meta?.height) form.append("height", String(meta.height));
       if (meta?.durationSec && meta.durationSec > 0) form.append("duration", String(Math.round(meta.durationSec)));
@@ -613,9 +621,31 @@ export async function sendVideoFromDisk(
       return form;
     },
     timeoutMs,
-    "sendVideo (с диска)"
+    "sendVideo (с диска)",
+    false,
+    true
   );
-  return result as TelegramSentMessage;
+  return result as TelegramSentVideo;
+}
+
+/** Повторная отправка уже загруженного видео по Telegram file_id (без загрузки файла). */
+export async function sendVideoByFileId(
+  chatId: string,
+  fileId: string,
+  caption?: string,
+  options?: { protectContent?: boolean; timeoutMs?: number }
+): Promise<TelegramSentMessage> {
+  return call<TelegramSentMessage>(
+    "sendVideo",
+    {
+      chat_id: chatId,
+      video: fileId,
+      supports_streaming: true,
+      ...(options?.protectContent ? { protect_content: true } : {}),
+      ...fitCaption(caption),
+    },
+    options?.timeoutMs ?? 60_000
+  );
 }
 
 /**
@@ -661,6 +691,8 @@ async function postMultipartWithRetry(
   timeoutMs: number,
   label: string,
   singleAttempt = false,
+  /** Бросать TelegramApiError с кодом (400/403…) и без singleAttempt: повтор после 429 остаётся. */
+  typedErrors = false,
 ): Promise<unknown> {
   let sentChatId: unknown;
   for (let attempt = 0; ; attempt++) {
@@ -681,7 +713,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
-    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
+    if (singleAttempt || typedErrors) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
