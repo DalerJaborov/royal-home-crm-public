@@ -689,10 +689,11 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "messages.view",
     "team.viewFull",
     "vacancies.view",
-    "archive.view",
     "siteChanges.view",
-    "auditLog.view",
     "clients.viewOrigin",
+    // 28.11.2026, владелец: «Резервные копии, Интеграции, Что не доехало и похожее —
+    // только мне, админу». auditLog.view и archive.view у акционера сняты; технические
+    // права ниже ещё и режутся границей роли (TECHNICAL_ROLE_ONLY_PERMISSIONS).
   ],
   /**
    * РОП (10.10.2026): весь пресет агента плюс управление продажами. Без денег
@@ -816,6 +817,18 @@ export function canViewInvestigations(role: string | null | undefined): boolean 
   return role === "ADMIN" || role === "DIRECTOR";
 }
 
+/**
+ * Технические разделы (резервные копии, интеграции и каналы, «Что не доехало»,
+ * «Здоровье системы», журнал ошибок, журнал помощницы) — только директор и
+ * администратор (владелец 28.11.2026). Это граница роли: личной надстройкой
+ * (granted) её не расширить, как и clients.securityReview выше.
+ */
+export const TECHNICAL_ROLE_ONLY_PERMISSIONS: readonly PermissionId[] = ["auditLog.view"];
+
+export function canViewTechnical(role: string | null | undefined): boolean {
+  return role === "ADMIN" || role === "DIRECTOR";
+}
+
 export function resolvePermissions(role: Role, overrides?: PermissionOverrides | null): Set<PermissionId> {
   if (role === "DIRECTOR") {
     return new Set<PermissionId>(PERMISSION_IDS);
@@ -826,6 +839,7 @@ export function resolvePermissions(role: Role, overrides?: PermissionOverrides |
   for (const id of overrides?.revoked ?? []) effective.delete(id);
   for (const id of DIRECTOR_ONLY_PERMISSIONS) effective.delete(id);
   if (!canViewInvestigations(role)) effective.delete("clients.securityReview");
+  if (!canViewTechnical(role)) for (const id of TECHNICAL_ROLE_ONLY_PERMISSIONS) effective.delete(id);
   return effective;
 }
 
@@ -841,7 +855,8 @@ export function normalizeOverrides(role: Role, overrides: PermissionOverrides): 
   const revoked = overrides.revoked.filter((id) => assignable.has(id) && preset.has(id));
   const revokedSet = new Set(revoked);
   const granted = overrides.granted.filter((id) => assignable.has(id) && !preset.has(id) && !revokedSet.has(id)
-    && (id !== "clients.securityReview" || canViewInvestigations(role)));
+    && (id !== "clients.securityReview" || canViewInvestigations(role))
+    && (!TECHNICAL_ROLE_ONLY_PERMISSIONS.includes(id) || canViewTechnical(role)));
   return { granted: [...new Set(granted)], revoked: [...new Set(revoked)] };
 }
 
@@ -850,7 +865,8 @@ export function describePermissions(role: Role, overrides?: PermissionOverrides 
   const effective = resolvePermissions(role, overrides);
   const preset = new Set<PermissionId>(role === "DIRECTOR" ? PERMISSION_IDS : (ROLE_PRESETS[role] ?? []));
   return PERMISSIONS.filter((p) => !("directorOnly" in p) && !("deprecated" in p)
-    && (p.id !== "clients.securityReview" || canViewInvestigations(role))).map((p) => ({
+    && (p.id !== "clients.securityReview" || canViewInvestigations(role))
+    && (!TECHNICAL_ROLE_ONLY_PERMISSIONS.includes(p.id) || canViewTechnical(role))).map((p) => ({
     ...p,
     enabled: effective.has(p.id),
     /** true — значение отличается от того, что даёт роль по умолчанию. */

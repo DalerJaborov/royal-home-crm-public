@@ -369,7 +369,7 @@ const TOOLS: AssistantTool[] = [
       type: "object",
       properties: {
         q: { type: "string", description: "Подстрока имени или телефона" },
-        source: { type: "string", enum: ["WEBSITE", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "TELEGRAM", "REFERRAL", "PHONE_CALL", "WALK_IN"] },
+        source: { type: "string", enum: ["WEBSITE", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "TELEGRAM", "REFERRAL", "PHONE_CALL", "WALK_IN", "OWN_CLIENT"] },
       },
     },
   },

@@ -43,6 +43,7 @@ import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
 import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
+import { checkRateFreshness } from "./lib/exchangeRateWatch.js";
 import { logSystemError, type SystemErrorSource } from "./lib/systemError.js";
 import { somonCrawlSchedule } from "./lib/market/somonCrawlSchedule.js";
 import { dushanbeWallClock, DUSHANBE_OFFSET_MS } from "./lib/dushanbeTime.js";
@@ -3158,7 +3159,9 @@ export function startCronJobs() {
       // unhandledRejection мимо журнала, и курс молча оставался вчерашним.
       try {
         const result = await refreshUsdToTjsRateFromAlif();
-        if (result.ok) {
+        if (result.ok && result.held) {
+          console.log(`[cron] Курс USD→TJS с alif.tj (${result.pendingRate}) отличается больше чем на 5 % от ${result.rate} — не применён, ждёт руководителя`);
+        } else if (result.ok) {
           console.log(`[cron] Курс USD→TJS обновлён с alif.tj: ${result.rate}`);
         } else {
           // Курс молча остаётся вчерашним, а по нему считаются комиссия и Финансы —
@@ -3169,6 +3172,21 @@ export function startCronJobs() {
       } catch (err) {
         const reason = markCronTickFailed("Курс USD→TJS", err);
         void logSystemError("exchange-rate", `Курс USD→TJS не обновлён: ${reason}`);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /** Сторож свежести курса (28.11.2026): курс не обновлялся больше 36 часов — одно сообщение директору и админу в сутки.
+   *  Раз в 3 часа днём по Душанбе; сам ничего не меняет, только зовёт. */
+  scheduleTracked(
+    "exchange-rate-watch",
+    "40 7,10,13,16,19 * * *",
+    async () => {
+      try {
+        await checkRateFreshness();
+      } catch (err) {
+        reportCronTickError("Сторож курса доллара", err);
       }
     },
     { timezone: "Asia/Dushanbe" }

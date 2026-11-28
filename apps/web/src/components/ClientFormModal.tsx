@@ -6,6 +6,7 @@ import { useRetryKey } from "../hooks/useRetryKey";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AGENT_CLIENT_SOURCE_CHOICES,
   CLIENT_SOURCES,
   PROPERTY_TYPES,
   PROPERTY_TYPE_LABELS,
@@ -79,7 +80,7 @@ function PlaceRadiusInput({ id, value, onCommit }: { id: string; value: number; 
  *  которого привёл сам, а не рекламные каналы (их лиды заводит бот автоматически).
  *  Полный список остаётся у руководства — там ручное занесение бывает и для
  *  каналов (перенос из другой системы, коррекция после ошибки бота). */
-const AGENT_SOURCES: readonly (typeof CLIENT_SOURCES)[number][] = ["REFERRAL", "PHONE_CALL", "WALK_IN"];
+const AGENT_SOURCES: readonly (typeof CLIENT_SOURCES)[number][] = AGENT_CLIENT_SOURCE_CHOICES.map((c) => c.value);
 
 /**
  * Карточка клиента или продавца — пошагово.
@@ -116,7 +117,8 @@ const EMPTY_FORM = {
   phone: "",
   /** Запасные номера — с них клиент тоже может позвонить, см. Client.extraPhones. */
   extraPhones: [] as string[],
-  source: "PHONE_CALL" as (typeof CLIENT_SOURCES)[number],
+  /** Новый клиент, которого завёл человек руками, — «Свой клиент» (28.11.2026, владелец). */
+  source: "OWN_CLIENT" as (typeof CLIENT_SOURCES)[number],
   desiredType: "" as PropertyType | "",
   budgetMin: "",
   budgetMax: "",
@@ -277,9 +279,9 @@ export function ClientFormModal({
   // канале (Instagram и т.п. — завёл бот или руководитель), значение остаётся
   // видимым и выбранным, просто не предлагается заново при создании.
   const sourceOptions = useMemo(() => {
-    const base = role === "AGENT" ? AGENT_SOURCES : CLIENT_SOURCES;
+    const base = role === "AGENT" ? AGENT_SOURCES : [...CLIENT_SOURCES].sort((a, b) => Number(b === "OWN_CLIENT") - Number(a === "OWN_CLIENT"));
     const withCurrent = base.includes(initialForm.source) ? base : [...base, initialForm.source];
-    return withCurrent.map((s) => ({ value: s, label: CLIENT_SOURCE_LABELS[s] }));
+    return withCurrent.map((s) => ({ value: s, label: AGENT_CLIENT_SOURCE_CHOICES.find((c) => c.value === s)?.label ?? CLIENT_SOURCE_LABELS[s] }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
@@ -732,7 +734,7 @@ export function ClientFormModal({
             )}
 
             <div style={{ marginTop: "var(--s3)" }}>
-              <Fld label="Откуда пришёл">
+              <Fld label="Откуда клиент">
                 {({ id }) => (
                   <select
                     id={id}

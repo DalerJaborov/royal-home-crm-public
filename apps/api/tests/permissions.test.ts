@@ -562,7 +562,7 @@ describe("роли SHAREHOLDER и HEAD_OF_SALES — пресеты и конст
       [
         "dashboard.analytics", "finance.view", "reports.view", "insights.view", "clients.viewAll",
         "deals.viewAll", "otherInquiries.view", "messages.view", "team.viewFull", "vacancies.view",
-        "archive.view", "siteChanges.view", "auditLog.view", "clients.viewOrigin",
+        "siteChanges.view", "clients.viewOrigin",
       ].sort(),
     );
   });
