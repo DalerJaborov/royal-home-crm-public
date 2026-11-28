@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 794,
-  "forks": 4407,
+  "endpoints": 796,
+  "forks": 4413,
   "mounts": 88,
   "cron": 150,
   "jobs": 37,
@@ -36646,6 +36646,203 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/cleanup",
+   "mount": "/api/v1/landmarks",
+   "full": "/api/v1/landmarks/cleanup",
+   "file": "apps/api/src/routes/landmarks.ts",
+   "router": "landmarksRouter",
+   "top": "apps/api/src/routes/landmarks.ts::landmarksRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: landmarks.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "mode !== \"junk\" && mode !== \"duplicates\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"mode: junk или duplicates\" });",
+       "a": [
+        "ответ 400 — «mode: junk или duplicates»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "mode === \"junk\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "hideIds = junkIds(rows);",
+       "a": [
+        "зовёт junkIds()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "hideIds.length > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.landmark.updateMany({ where: { id: { in: hideIds }, source: \"import\" }, data: { enabled: false, …",
+         "a": [
+          "меняет в базе: landmark"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const groups = findDuplicateGroups(rows);",
+       "a": [
+        "зовёт findDuplicateGroups()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await prisma.$transaction( async (tx)",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "читает в базе: geoAlias",
+        "меняет в базе: geoAlias",
+        "меняет в базе: landmark"
+       ],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const g of groups",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const keeperAliases = await tx.geoAlias.findMany({ where: { targetType: \"landmark\", targetId: g.keepId }, sel…",
+           "a": [
+            "читает в базе: geoAlias"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const moving = await tx.geoAlias.findMany({ where: { targetType: \"landmark\", targetId: { in: g.hideIds } }, s…",
+           "a": [
+            "читает в базе: geoAlias"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "movable.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tx.geoAlias.updateMany({ where: { id: { in: movable } }, data: { targetId: g.keepId } });",
+             "a": [
+              "меняет в базе: geoAlias"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await tx.landmark.updateMany({ where: { id: { in: g.hideIds }, source: \"import\" }, data: { enabled: false, up…",
+           "a": [
+            "меняет в базе: landmark"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"LANDMARK_CLEANUP\", \"Landmark\", \"bulk\", { mode, hidden: hideIds.length });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ mode, hidden: hideIds.length });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/summary",
+   "mount": "/api/v1/landmarks",
+   "full": "/api/v1/landmarks/summary",
+   "file": "apps/api/src/routes/landmarks.ts",
+   "router": "landmarksRouter",
+   "top": "apps/api/src/routes/landmarks.ts::landmarksRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [own, importTotal, importHidden, rows] = await Promise.all([ prisma.landmark.count({ where: { source: \"…",
+     "a": [
+      "считает в базе: landmark"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const dupGroups = findDuplicateGroups(rows);",
+     "a": [
+      "зовёт findDuplicateGroups()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ own, importTotal, importHidden, junk: junkIds(rows).length, duplicateGroups: dupGroups.length, dup…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/",
    "mount": "/api/v1/landmarks",
@@ -36693,6 +36890,36 @@
       {
        "k": "do",
        "t": "where.enabled = true;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "layer === \"own\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.source = \"agent\";",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "layer === \"import\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.source = \"import\";",
        "a": [
         "дословно из кода"
        ],

@@ -963,7 +963,7 @@
       "mount": "/api/v1/landmarks",
       "router": "landmarksRouter",
       "file": "apps/api/src/routes/landmarks.ts",
-      "endpoints": 8,
+      "endpoints": 10,
       "label": "Народные ориентиры, которые ведут агенты",
       "usedBy": 1
     },

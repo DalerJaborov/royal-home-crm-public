@@ -25,8 +25,8 @@
   --rh-ui-text: #0e0f12;
   --rh-ui-hint: #4f5565;
   --rh-ui-hint-rgb: 79 85 101;
-  --rh-ui-sep: rgba(14, 15, 18, .08);
-  --rh-ui-ring: rgba(14, 15, 18, .06);
+  --rh-ui-sep: rgba(14, 15, 18, .13);
+  --rh-ui-ring: rgba(14, 15, 18, .22);
   --rh-ui-press: rgba(90, 96, 112, .13);
   --rh-ui-hover: rgba(90, 96, 112, .06);
   --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
@@ -125,8 +125,8 @@
   --rh-ui-text: #eceef3;
   --rh-ui-hint: #b2b9c8;
   --rh-ui-hint-rgb: 178 185 200;
-  --rh-ui-sep: rgba(255, 255, 255, .08);
-  --rh-ui-ring: rgba(255, 255, 255, .07);
+  --rh-ui-sep: rgba(255, 255, 255, .13);
+  --rh-ui-ring: rgba(255, 255, 255, .22);
   --rh-ui-press: rgba(255, 255, 255, .08);
   --rh-ui-hover: rgba(255, 255, 255, .04);
   --rh-ui-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), 0 10px 24px -16px rgba(0, 0, 0, .7);
@@ -1248,3 +1248,15 @@
 :root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option-hint { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-sm); font-weight: 500; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-check { flex: none; width: 22px; height: 22px; }
+
+/* ======================= ГРАНИЦЫ И РАМКИ ВИДНЫ (28.11.2026) =======================
+ * Владелец: «в настройках и в левом меню границ и кнопок не видно, в макете было ровно».
+ * Причина класса: рамки карточек, кнопок и полей берут `--rh-ui-ring`/`--rh-ui-sep` (через
+ * `--line-strong`/`--line` в файлах разделов), а они были 6–8 % чёрного: 1,1:1 к фону, и «сильная»
+ * линия (ring .06) была слабее обычной (sep .08). Токены подняты выше (ring .22, sep .13, ring > sep),
+ * а у полей рамка — `--rh-ui-field-line` (≥ 3:1, WCAG 1.4.11). Сторож — royalBorderContrast.test.ts. */
+:root[data-ui-look="royal"] .rh2 :is(.fld input, .fld select, .fld textarea, input.inp, select.inp, textarea.inp) { border-color: var(--rh-ui-field-line); }
+/* Левое меню ПК: граница колонки и видимая «Ещё»/подпункты (владелец 28.11: «в левом меню не видны границы и кнопки»). */
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-header { border-right: 1px solid var(--rh-ui-sep); }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .ry-nav-more > summary { border-radius: var(--rh-r-md); box-shadow: inset 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab:hover:not([aria-current="page"]) { background: var(--rh-ui-hover); box-shadow: inset 0 0 0 1px var(--rh-ui-sep); }

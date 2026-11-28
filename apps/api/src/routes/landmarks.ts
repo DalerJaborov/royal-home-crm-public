@@ -4,12 +4,14 @@ import {
   landmarkUpdateSchema,
   landmarkAliasCreateSchema,
   landmarkQuerySchema,
+  landmarkCleanupSchema,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { normalizeGeoText } from "../lib/geoNormalize.js";
 import { landmarkCategorySpellings } from "../lib/landmarkCategory.js";
 import { logAudit } from "../lib/audit.js";
+import { findDuplicateGroups, junkIds, type CleanupRow } from "../lib/landmarkCleanup.js";
 
 /**
  * СПРАВОЧНИК ОРИЕНТИРОВ — ВЕДУТ АГЕНТЫ (12.09.2026, docs/geo-match-plan-12-09.md,
@@ -73,6 +75,85 @@ function serializeLandmark(
   };
 }
 
+
+async function loadCleanupRows(): Promise<CleanupRow[]> {
+  const rows = await prisma.landmark.findMany({
+    where: { source: "import" },
+    select: { id: true, name: true, source: true, enabled: true, lat: true, lng: true, mentions: true, weight: true, districtId: true, isCityCenter: true },
+  });
+  const aliasCounts = await prisma.geoAlias.groupBy({ by: ["targetId"], where: { targetType: "landmark", source: "agent" }, _count: { _all: true } });
+  // Считаем только синонимы людей: у каждой купленной записи есть «свои» синонимы от импорта (import-geo), это не след человека.
+  const byId = new Map(aliasCounts.map((a) => [a.targetId, a._count._all]));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    source: r.source,
+    enabled: r.enabled,
+    lat: Number(r.lat),
+    lng: Number(r.lng),
+    mentions: r.mentions,
+    weight: r.weight,
+    aliasCount: byId.get(r.id) ?? 0,
+    hasDistrict: r.districtId != null,
+    isCityCenter: r.isCityCenter,
+  }));
+}
+
+/** GET /summary — сколько народных, сколько купленных, сколько мусора и дублей (для экрана Настроек). */
+landmarksRouter.get("/summary", async (_req, res) => {
+  const [own, importTotal, importHidden, rows] = await Promise.all([
+    prisma.landmark.count({ where: { source: "agent", enabled: true } }),
+    prisma.landmark.count({ where: { source: "import", enabled: true } }),
+    prisma.landmark.count({ where: { source: "import", enabled: false } }),
+    loadCleanupRows(),
+  ]);
+  const dupGroups = findDuplicateGroups(rows);
+  res.json({
+    own,
+    importTotal,
+    importHidden,
+    junk: junkIds(rows).length,
+    duplicateGroups: dupGroups.length,
+    duplicateExtra: dupGroups.reduce((n, g) => n + g.hideIds.length, 0),
+  });
+});
+
+/** POST /cleanup {mode: "junk" | "duplicates"} — скрыть мусор / лишние дубли купленного слоя (enabled=false, ничего не удаляется).
+ *  Только руководитель (`landmarks.manage`). Синонимы скрытых дублей переезжают на оставленную запись. */
+landmarksRouter.post("/cleanup", requirePermission("landmarks.manage"), async (req, res) => {
+  const parsedBody = landmarkCleanupSchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ error: "mode: junk или duplicates" });
+  const { mode } = parsedBody.data;
+  const rows = await loadCleanupRows();
+  const agentId = req.agent!.id;
+  let hideIds: string[] = [];
+  if (mode === "junk") {
+    hideIds = junkIds(rows);
+    if (hideIds.length > 0) {
+      await prisma.landmark.updateMany({ where: { id: { in: hideIds }, source: "import", enabled: true, isCityCenter: false }, data: { enabled: false, updatedById: agentId } });
+    }
+  } else {
+    const groups = findDuplicateGroups(rows);
+    hideIds = groups.flatMap((g) => g.hideIds);
+    await prisma.$transaction(
+      async (tx) => {
+        for (const g of groups) {
+          const keeperAliases = await tx.geoAlias.findMany({ where: { targetType: "landmark", targetId: g.keepId }, select: { normalized: true } });
+          const taken = new Set(keeperAliases.map((a) => a.normalized));
+          const moving = await tx.geoAlias.findMany({ where: { targetType: "landmark", source: "agent", targetId: { in: g.hideIds } }, select: { id: true, normalized: true } });
+          const movable = moving.filter((a) => (taken.has(a.normalized) ? false : (taken.add(a.normalized), true))).map((a) => a.id);
+          if (movable.length > 0) await tx.geoAlias.updateMany({ where: { id: { in: movable } }, data: { targetId: g.keepId } });
+          await tx.landmark.updateMany({ where: { id: { in: g.hideIds }, source: "import", enabled: true, isCityCenter: false }, data: { enabled: false, updatedById: agentId } });
+        }
+      },
+      { timeout: 60_000 },
+    );
+  }
+  // Список id — чтобы скрытое чисткой можно было отличить от скрытого руками и вернуть.
+  logAudit(req, "LANDMARK_CLEANUP", "Landmark", "bulk", { mode, hidden: hideIds.length, hideIds: hideIds.slice(0, 2000) });
+  res.json({ mode, hidden: hideIds.length });
+});
+
 /**
  * GET / — поиск по названию И по синонимам, фильтр по категории и по
  * enabled, с пределом выборки и страницами (пагинация обязательна — справочник
@@ -83,10 +164,13 @@ landmarksRouter.get("/", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
   }
-  const { q, category, showHidden, page, pageSize } = parsed.data;
+  const { q, category, showHidden, layer, page, pageSize } = parsed.data;
 
   const where: Record<string, unknown> = {};
   if (!showHidden) where.enabled = true;
+  // Слой: «own» — народные названия, заведённые сотрудниками; «import» — купленный слой. Без параметра — все (мастер объекта).
+  if (layer === "own") where.source = "agent";
+  if (layer === "import") where.source = "import";
   // insensitive: категория — свободная строка источника (без enum, как у
   // Street.kind), а форма фильтра не обязана повторить регистр один в один.
   // Все написания той же категории («ТЦ» и «Торговый центр») — landmarkCategory.ts.

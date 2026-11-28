@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **794**. Развилок в самих путях: **2531**; вместе с задачами по расписанию и фоновыми заданиями — **4407**. Модулей: **88**.
+Путей: **796**. Развилок в самих путях: **2537**; вместе с задачами по расписанию и фоновыми заданиями — **4413**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8129,6 +8129,53 @@
 - res.json(serializeLandmark(lm, []));
   · ответ 200
 
+### POST /api/v1/landmarks/cleanup
+
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
+
+- если mode !== "junk" && mode !== "duplicates"
+  - return res.status(400).json({ error: "mode: junk или duplicates" });
+    · ответ 400 — «mode: junk или duplicates»
+- если mode === "junk"
+  - hideIds = junkIds(rows);
+    · зовёт junkIds()
+  - если hideIds.length > 0
+    - await prisma.landmark.updateMany({ where: { id: { in: hideIds }, source: "import" }, data: { enabled: false, …
+      · меняет в базе: landmark
+- иначе
+  - const groups = findDuplicateGroups(rows);
+    · зовёт findDuplicateGroups()
+  - await prisma.$transaction( async (tx)
+    · всё внутри — одной транзакцией
+    · читает в базе: geoAlias
+    · меняет в базе: geoAlias
+    · меняет в базе: landmark
+    - для каждого: const g of groups
+      - const keeperAliases = await tx.geoAlias.findMany({ where: { targetType: "landmark", targetId: g.keepId }, sel…
+        · читает в базе: geoAlias
+      - const moving = await tx.geoAlias.findMany({ where: { targetType: "landmark", targetId: { in: g.hideIds } }, s…
+        · читает в базе: geoAlias
+      - если movable.length > 0
+        - await tx.geoAlias.updateMany({ where: { id: { in: movable } }, data: { targetId: g.keepId } });
+          · меняет в базе: geoAlias
+      - await tx.landmark.updateMany({ where: { id: { in: g.hideIds }, source: "import" }, data: { enabled: false, up…
+        · меняет в базе: landmark
+- logAudit(req, "LANDMARK_CLEANUP", "Landmark", "bulk", { mode, hidden: hideIds.length });
+  · зовёт logAudit()
+- res.json({ mode, hidden: hideIds.length });
+  · ответ 200
+
+### GET /api/v1/landmarks/summary
+
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const [own, importTotal, importHidden, rows] = await Promise.all([ prisma.landmark.count({ where: { source: "…
+  · считает в базе: landmark
+- const dupGroups = findDuplicateGroups(rows);
+  · зовёт findDuplicateGroups()
+- res.json({ own, importTotal, importHidden, junk: junkIds(rows).length, duplicateGroups: dupGroups.length, dup…
+  · ответ 200
+
 ### GET /api/v1/landmarks
 
 `apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8140,6 +8187,12 @@
     · ответ 400 — «Неверные параметры»
 - если !showHidden
   - where.enabled = true;
+    · дословно из кода
+- если layer === "own"
+  - where.source = "agent";
+    · дословно из кода
+- если layer === "import"
+  - where.source = "import";
     · дословно из кода
 - если category
   - where.AND = [{ OR: landmarkCategorySpellings(category).map((c)
