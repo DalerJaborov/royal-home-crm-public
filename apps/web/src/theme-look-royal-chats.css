@@ -18,7 +18,7 @@
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] {
   --ry-chat-list-w: 340px;
-  --ry-chat-h: max(480px, calc(var(--clean-viewport-height, 100dvh) - 200px - var(--clean-notice-space, 0px) - env(safe-area-inset-top, 0px)));
+  --ry-chat-h: max(480px, calc(var(--clean-viewport-height, 100dvh) - 200px - var(--clean-notice-space, 0px) - var(--clean-safe-top, env(safe-area-inset-top, 0px))));
   color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr { display: grid; gap: 16px; min-width: 0; }
@@ -631,7 +631,7 @@
   }
   /* Клавиатура открыта: полоски жеста «домой» нет — запас под неё не нужен, поле стоит вплотную к клавиатуре. */
   :root[data-ui-look="royal"][data-clean-keyboard] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding-bottom: 8px !important; }
-  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; min-height: 64px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-head { gap: 4px; padding: calc(8px + var(--clean-safe-top, env(safe-area-inset-top, 0px))) 8px 8px 4px; min-height: 64px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who { gap: 10px; padding: 2px 4px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { font-size: var(--rh-fs-lg); }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx small { font-size: var(--rh-fs-sm); }
