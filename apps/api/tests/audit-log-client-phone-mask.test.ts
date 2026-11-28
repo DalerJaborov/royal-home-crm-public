@@ -47,7 +47,7 @@ beforeAll(async () => {
   const blind = await mk("Читатель Журнала Без Номеров", `+992991${runId}`, {
     granted: ["auditLog.view"],
     revoked: ["clients.viewPhone"],
-  });
+  }, "ADMIN"); // 28.11.2026: auditLog.view только у ADMIN/DIRECTOR; номера у ADMIN и так закрыты (directorOnly)
   // 16.11.2026 номера только директору: «видящий» — DIRECTOR (clients.viewPhone стало directorOnly).
   const seeing = await mk(
     "Читатель Журнала С Номерами",
