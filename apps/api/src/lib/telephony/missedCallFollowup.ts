@@ -103,6 +103,11 @@ function companyTails(text: string, forwardPhone: string | null): Set<string> {
   return tails;
 }
 
+/** Номер самой компании (контакт агентства, WhatsApp, номер переадресации): ему не пишем и не звоним. */
+export function isCompanyPhone(phone: string, forwardPhone: string | null): boolean {
+  return companyTails("", forwardPhone).has(phoneTail(phone));
+}
+
 /** Рубильник Б: пропущенный с незнакомого номера заводит карточку и общую задачу «Перезвонить». */
 /**
  * ПРОПУЩЕННЫЙ ЗВОНОК ИЗ WHATSAPP — БЕЗ СМС (решение владельца 18.11.2026).

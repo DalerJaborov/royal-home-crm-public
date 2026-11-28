@@ -19,6 +19,7 @@ import {
 import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
 import { isMissedCallTaskEnabled, sendMissedCallSms } from "./missedCallFollowup.js";
+import { scheduleMissedCallRedial } from "./missedCallRedial.js";
 import { loadIncomingSettings, incomingHoursOpen } from "./incomingSettings.js";
 import { maskClientPhone } from "../clientPhone.js";
 import { INCOMING_INBOUND_CONTEXTS } from "../settingsConstants.js";
@@ -1830,6 +1831,14 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
     // Не ждём и не падаем: решение и защиты внутри, отказ уходит в журнал ошибок.
     // Звонок из WhatsApp СМС не получает — решение в missedCallFollowup.ts (missedCallSmsSkipForSource).
     void sendMissedCallSms({ phone: entry.phone, clientId: client?.id ?? null, callSource: incomingCallSourceFromChannel(entry.channelName) });
+    // Автоперезвон (рубильник Settings.missedCallRedialEnabled, ВЫКЛ): ставит номер в очередь, звонит тик
+    // раз в минуту. Один номер = одна очередь; защиты и повторы внутри (missedCallRedial.ts). Не ждём и не падаем.
+    void scheduleMissedCallRedial({
+      phone: entry.phone,
+      incomingCallId: entry.recordId ?? null,
+      clientId: client?.id ?? null,
+      callSource: incomingCallSourceFromChannel(entry.channelName),
+    });
     await notifyMissed(entry, client, callbackAgentId, assignedAgentUnavailable);
   }
 

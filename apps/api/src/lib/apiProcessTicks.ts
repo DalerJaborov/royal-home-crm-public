@@ -22,6 +22,7 @@ export const API_PROCESS_TICKS = {
   // lib/telephony/callMemoryTicks.ts; выражения там же строкой, сверка — тестом.
   "stuck-call-stubs": "*/5 * * * *",
   "callback-connect": "*/10 * * * *",
+  "missed-call-redial": "* * * * *",
   "seller-probe-call": "25 * * * *",
   "post-showing-call": "*/5 * * * *",
   "interview-invite-call": "*/5 * * * *",

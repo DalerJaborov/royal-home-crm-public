@@ -15,7 +15,7 @@ import { API_PROCESS_TICKS } from "../src/lib/apiProcessTicks.js";
  */
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
-const NAMES = ["stuck-call-stubs", "callback-connect"] as const;
+const NAMES = ["stuck-call-stubs", "callback-connect", "missed-call-redial"] as const;
 
 describe("тики карты живых звонков — только в процессе api", () => {
   it("cron.ts (worker) их не ставит", () => {

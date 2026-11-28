@@ -8373,6 +8373,14 @@ model Settings {
   /// Б. Пропущенный с незнакомого номера заводит карточку и общую задачу «Перезвонить»
   /// (тот же механизм, что у молчавшего после робота: inbound_missed_callback).
   missedCallCallbackTaskEnabled Boolean @default(false)
+  /// АВТОПЕРЕЗВОН ПРОПУЩЕННЫМ (28.11.2026, lib/telephony/missedCallRedial.ts). ВЫКЛ по умолчанию.
+  /// Дежурный оператор (callbackOperatorAgentId) сам получает звонок на трубку, затем станция
+  /// набирает клиента. Попытки через missedCallRedialDelays минут, только в рабочие часы.
+  missedCallRedialEnabled      Boolean  @default(false)
+  /// Паузы между попытками в минутах через запятую: «5,30,120». Не больше 5 значений.
+  missedCallRedialDelays       String   @default("5,30,120")
+  /// После трёх неудач и 7 дней тишины закрыть открытую автозадачу «перезвонить» (карточки не трогаем).
+  missedCallRedialJunkEnabled  Boolean  @default(false)
   /// РЕЖИМ МАРШРУТИЗАЦИИ НЕЗНАКОМЫХ ЗВОНКОВ (владелец 20.08.2026) — заготовка на
   /// будущее, а не переключатель поведения станции. Сейчас на линии реально
   /// действует только "assigned_then_forward" (клиента с ответственным уводит
@@ -12430,4 +12438,33 @@ model BotSilenceIncident {
   recoveredAt DateTime?
 
   @@index([recoveredAt])
+}
+
+/// ОЧЕРЕДЬ АВТОПЕРЕЗВОНА ПРОПУЩЕННЫМ (28.11.2026, lib/telephony/missedCallRedial.ts).
+/// Одна живая (status = pending) строка на номер: уникальность держит частичный индекс
+/// MissedCallRedial_phone_pending_key из миграции (Prisma частичные индексы не описывает).
+/// status: pending | done | gave_up | skipped | junk (строка: список ещё будет расти).
+model MissedCallRedial {
+  id               String    @id @default(uuid())
+  phone            String
+  incomingCallId   String?
+  clientId         String?
+  /// "phone" | "whatsapp" (IncomingCall.source)
+  source           String    @default("phone")
+  attempts         Int       @default(0)
+  /// Сколько раз не снял трубку сам дежурный: это не попытка клиента, попытку не тратим.
+  operatorNoPickups Int      @default(0)
+  status           String    @default("pending")
+  nextAttemptAt    DateTime
+  lastAttemptAt    DateTime?
+  lastInteractionId String?
+  /// answered | no_answer | failed | unknown; null - попытка набрана, итог ещё не известен.
+  lastOutcome      String?
+  /// Почему закрыта без звонка или после него: voicemail, self_answered, foreign, ...
+  closedReason     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([phone])
 }

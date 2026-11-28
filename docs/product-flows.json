@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 800,
-  "forks": 4417,
+  "forks": 4431,
   "mounts": 89,
-  "cron": 151,
+  "cron": 152,
   "jobs": 37,
   "hidden": 0
  },
@@ -108012,6 +108012,490 @@
     }
    ],
    "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "missed-call-redial",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "isRedialRunning",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runMissedCallRedialTick();",
+       "a": [
+        "зовёт runMissedCallRedialTick()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!settings.enabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"disabled\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const awaiting = await prisma.missedCallRedial.findMany({ where: { status: \"pending\", lastAttemptAt: { not: n…",
+         "a": [
+          "читает в базе: missedCallRedial"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of awaiting",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telephony\", `Автоперезвон: итог попытки не разобран: ${describeError(err)}`, { dedupKey:…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "settings.junkEnabled",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telephony\", `Автоперезвон: чистка не прошла: ${describeError(err)}`, { dedupKey: \"missed…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const [phone, until] of dialGuard",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (until <= now.getTime()) dialGuard.delete(phone);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const row = await prisma.missedCallRedial.findFirst({ where: { status: \"pending\", nextAttemptAt: { lte: now }…",
+         "a": [
+          "читает в базе: missedCallRedial"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!row",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"idle\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "closedBy",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await closeRow(row.id, closedBy.status, closedBy.reason);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return \"closed\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isWithinDushanbeWindow(settings.workStart, settings.workEnd, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: dushanbeNextOccurrence(s…",
+           "a": [
+            "меняет в базе: missedCallRedial"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const operator = await loadDutyOperator();",
+         "a": [
+          "зовёт loadDutyOperator()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!operator",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…",
+           "a": [
+            "меняет в базе: missedCallRedial"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "hasLiveCall(operator.id) || !beginOrigination(operator.id)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…",
+           "a": [
+            "меняет в базе: missedCallRedial"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const cardId = row.clientId ?? (row.incomingCallId ? (await prisma.incomingCall.findUnique({ where: { id: row…",
+           "a": [
+            "читает в базе: incomingCall"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const client = cardId ? await prisma.client.findFirst({ where: { id: cardId, deletedAt: null }, select: { id:…",
+           "a": [
+            "читает в базе: client"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "cardId && !client",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await closeRow(row.id, \"skipped\", \"client_deleted\");",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return \"closed\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const dialed = await dialOperatorThenClient({ operator, phone: row.phone, client, topic: \"пропущенный звонок,…",
+           "a": [
+            "зовёт dialOperatorThenClient()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "dialed.outcome === \"not_dialable\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await closeRow(row.id, \"skipped\", \"not_dialable\");",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "dialGuard.delete(row.phone);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "dialed.outcome === \"failed\"",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "attempts >= settings.delays.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await closeRow(row.id, \"gave_up\", \"station_failed\", { ...base, lastOutcome: \"failed\" });",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "else",
+             "t": "иначе",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.missedCallRedial.update({ where: { id: row.id }, data: { ...base, lastOutcome: \"failed\", nextAtt…",
+               "a": [
+                "меняет в базе: missedCallRedial"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!client",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await closeRow(row.id, \"gave_up\", \"outcome_unseen\", { ...base, lastOutcome: \"unknown\" });",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "else",
+           "t": "иначе",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.missedCallRedial.update({ where: { id: row.id }, data: { ...base, lastOutcome: null, lastInterac…",
+             "a": [
+              "меняет в базе: missedCallRedial"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"telephony\", `Автоперезвон пропущенному: сбой попытки: ${describeError(err)}`, { dedupKey…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "dialPlaced",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.missedCallRedial .update({ where: { id: row.id }, data: { attempts: { increment: 1 }, lastAttemp…",
+             "a": [
+              "меняет в базе: missedCallRedial"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "else",
+           "t": "иначе",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "dialGuard.delete(row.phone);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "endOrigination(operator.id);",
+           "a": [
+            "зовёт endOrigination()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runMissedCallRedialTick() — apps/api/src/lib/telephony/missedCallRedial.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Автоперезвон пропущенным: сбой тика\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    },
+    {
+     "k": "finally",
+     "t": "в любом случае",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "isRedialRunning = false;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/lib/telephony/callMemoryTicks.ts"
   },
   {
    "id": "missed-call-task-whatsapp-close",

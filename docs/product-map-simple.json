@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 800,
-  "cron": 151,
+  "cron": 152,
   "jobs": 37,
-  "conditions": 4378,
-  "untranslatedUnique": 503,
-  "untranslatedTotal": 646,
-  "partialUnique": 1166,
+  "conditions": 4392,
+  "untranslatedUnique": 504,
+  "untranslatedTotal": 647,
+  "partialUnique": 1171,
   "translatedShare": 85
  },
  "untranslated": [
@@ -357,6 +357,7 @@
   "found !== wanted.length",
   "found.length !== propertyIds.length",
   "from.id === actor.id",
+  "hasLiveCall(operator.id) || !beginOrigination(operator.id)",
   "hasLiveCall(req.agent!.id) || !beginOrigination(req.agent!.id)",
   "held.answered + held.expired > 0",
   "history[history.length - 1]?.role === \"user\"",
@@ -74511,6 +74512,226 @@
        "k": "if",
        "a": [],
        "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "missed-call-redial",
+   "when": "* * * * *",
+   "label": "missed-call-redial",
+   "tree": [
+    {
+     "t": "если есть is redial идёт сейчас",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: включено (настройки)",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если есть junk включено",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: строка",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть закрыт по",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если это не внутри dushanbe окно",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: missed звонок redial",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если нет: operator",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: missed звонок redial",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если hasLiveCall(operator.id) || !beginOrigination(operator.id)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: missed звонок redial",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "hasLiveCall(operator.id) || !beginOrigination(operator.id)"
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть карточка и нет: клиент",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если ответ — «not_dialable»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если ответ — «failed»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: клиент",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе",
+           "k": "else",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если есть dial placed",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе",
+           "k": "else",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
       }
      ]
     },

@@ -28,6 +28,7 @@ vi.mock("../src/lib/telephony/ariClient.js", async (importOriginal) => ({
 }));
 
 const { handleAriEvent } = await import("../src/lib/telephony/ariEvents.js");
+const { secondsUntilRedialAllowed } = await import("../src/lib/telephony/agentNoPickupGuard.js");
 const { activeCallFor, getCall, hasLiveCall, markCallCancelled, resetCalls, talkSeconds, trackCall, callOutcomeRetry, finishCall } = await import(
   "../src/lib/telephony/callTracker.js"
 );
@@ -83,8 +84,9 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-function startCall(channelId: string, interactionId?: string) {
+function startCall(channelId: string, interactionId?: string, extra: { redial?: boolean } = {}) {
   return trackCall({
+    ...extra,
     channelId,
     agentId,
     clientId,
@@ -420,6 +422,35 @@ describe("Состояние звонка по событиям АТС", () => {
       const saved = await prisma.interaction.findUnique({ where: { id: interaction.id } });
       expect(saved?.outcome).toBe("NO_ANSWER");
       expect(saved?.callAttempt).toBe("NO_ANSWER");
+    });
+
+    it("недозвон автоперезвона пропущенному не запускает цепочку «перезвонить» и не ставит NO_ANSWER", async () => {
+      // Решение 20.09 «по пропущенным ни напоминаний, ни эскалаций» в силе: исход читает очередь автоперезвона по callAttempt.
+      const interaction = await startedInteraction();
+      startCall("ch-redial-1", interaction.id, { redial: true });
+      await handleAriEvent({ type: "ChannelStateChange", channel: { id: "ch-redial-1", name: "", state: "Up", caller: {} } });
+      await handleAriEvent({
+        type: "Dial",
+        dialstatus: "NOANSWER",
+        channel: { id: "ch-redial-1", name: "", state: "Up", caller: {} },
+        peer: { id: "ch-redial-1-leg", name: "", state: "Ring", caller: {} },
+      });
+      stationVariables = { DIALSTATUS: "NOANSWER" };
+      await handleAriEvent({ type: "ChannelDestroyed", channel: { id: "ch-redial-1", name: "", state: "Down", caller: {} } });
+      stationVariables = {};
+      const saved = await prisma.interaction.findUnique({ where: { id: interaction.id } });
+      expect(saved?.callAttempt).toBe("NO_ANSWER");
+      expect(saved?.outcome).toBeNull();
+      expect(saved?.autoTaskKind).toBeNull();
+    });
+
+    it("дежурный не снял трубку на звонке автоперезвона: в серию недозвонов агента и в троттлинг это не идёт", async () => {
+      const interaction = await startedInteraction();
+      startCall("ch-redial-2", interaction.id, { redial: true });
+      await handleAriEvent({ type: "ChannelDestroyed", channel: { id: "ch-redial-2", name: "", state: "Down", caller: {} } });
+      const saved = await prisma.interaction.findUnique({ where: { id: interaction.id } });
+      expect(saved?.callAttempt).toBe("AGENT_NO_PICKUP");
+      expect(secondsUntilRedialAllowed(clientId, agentId)).toBe(0);
     });
 
     it("чужой канал, никак не связанный с нашим звонком, исход не подменяет", async () => {

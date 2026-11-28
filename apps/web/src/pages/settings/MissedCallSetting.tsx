@@ -63,11 +63,34 @@ function SmsTextField({ value, pending, onSave }: { value: string; pending: bool
   );
 }
 
+/** «5,30,120» → «Через 5 минут, 30 минут и 2 часа»: подпись берётся из настройки, а не зашита. */
+export function redialDelaysText(raw: string | null | undefined): string {
+  const nums = String(raw ?? "")
+    .split(",")
+    .map((x) => Number(x.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1);
+  const list = nums.length > 0 ? nums : [5, 30, 120];
+  const part = (m: number) => {
+    if (m % 60 === 0) {
+      const h = m / 60;
+      return `${h} ${h === 1 ? "час" : h < 5 ? "часа" : "часов"}`;
+    }
+    const last = m % 10;
+    const word = m % 100 >= 11 && m % 100 <= 14 ? "минут" : last === 1 ? "минуту" : last >= 2 && last <= 4 ? "минуты" : "минут";
+    return `${m} ${word}`;
+  };
+  const parts = list.map(part);
+  const joined = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} и ${parts[parts.length - 1]}`;
+  return `Через ${joined}`;
+}
+
 export function MissedCallSetting() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const smsOn = settings?.missedCallSmsEnabled ?? false;
   const taskOn = settings?.missedCallCallbackTaskEnabled ?? false;
+  const redialOn = settings?.missedCallRedialEnabled ?? false;
+  const junkOn = settings?.missedCallRedialJunkEnabled ?? false;
 
   return (
     <>
@@ -98,6 +121,28 @@ export function MissedCallSetting() {
         }
         onToggle={() => updateSettings.mutate({ missedCallCallbackTaskEnabled: !taskOn })}
       />
+      <SwitchRow
+        title="Пропущенный звонок: перезвонить самим"
+        on={redialOn}
+        hint={
+          redialOn
+            ? `${redialDelaysText(settings?.missedCallRedialDelays)} станция сначала звонит тому, кто принимает звонки (пункт «Кто принимает звонки, когда никто не взял»), и соединяет его с клиентом. Только в рабочие часы. Кто оставил сообщение на автоответчике или уже ждёт ответа от агента, не получает перезвон. Если не дозвонились, в карточке остаётся запись «не дозвонились», больше ничего не происходит.`
+            : "Пропущенному клиенту никто не перезванивает сам."
+        }
+        onToggle={() => updateSettings.mutate({ missedCallRedialEnabled: !redialOn })}
+      />
+      {redialOn && (
+        <SwitchRow
+          title="Не дозвонились совсем: убрать задачу «перезвонить»"
+          on={junkOn}
+          hint={
+            junkOn
+              ? "Если после всех неудачных попыток прошла неделя и клиент не звонил, задача «перезвонить» закрывается сама. Карточка остаётся."
+              : "Задача «перезвонить» остаётся, пока её не закроют вручную."
+          }
+          onToggle={() => updateSettings.mutate({ missedCallRedialJunkEnabled: !junkOn })}
+        />
+      )}
     </>
   );
 }

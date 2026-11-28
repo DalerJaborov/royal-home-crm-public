@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **800**. Развилок в самих путях: **2535**; вместе с задачами по расписанию и фоновыми заданиями — **4417**. Модулей: **89**.
+Путей: **800**. Развилок в самих путях: **2535**; вместе с задачами по расписанию и фоновыми заданиями — **4431**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23994,6 +23994,106 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### missed-call-redial — * * * * *
+
+- если isRedialRunning
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runMissedCallRedialTick();
+    · зовёт runMissedCallRedialTick()
+    - если !settings.enabled
+      - return "disabled";
+        · дословно из кода
+    - const awaiting = await prisma.missedCallRedial.findMany({ where: { status: "pending", lastAttemptAt: { not: n…
+      · читает в базе: missedCallRedial
+    - для каждого: const row of awaiting
+      - пробует
+      - если сорвалось
+        - void logSystemError("telephony", `Автоперезвон: итог попытки не разобран: ${describeError(err)}`, { dedupKey:…
+          · запись в журнал ошибок
+    - если settings.junkEnabled
+      - пробует
+      - если сорвалось
+        - void logSystemError("telephony", `Автоперезвон: чистка не прошла: ${describeError(err)}`, { dedupKey: "missed…
+          · запись в журнал ошибок
+    - для каждого: const [phone, until] of dialGuard
+      - if (until <= now.getTime()) dialGuard.delete(phone);
+        · дословно из кода
+    - const row = await prisma.missedCallRedial.findFirst({ where: { status: "pending", nextAttemptAt: { lte: now }…
+      · читает в базе: missedCallRedial
+    - если !row
+      - return "idle";
+        · дословно из кода
+    - если closedBy
+      - await closeRow(row.id, closedBy.status, closedBy.reason);
+        · дословно из кода
+      - return "closed";
+        · дословно из кода
+    - если !isWithinDushanbeWindow(settings.workStart, settings.workEnd, now)
+      - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: dushanbeNextOccurrence(s…
+        · меняет в базе: missedCallRedial
+    - const operator = await loadDutyOperator();
+      · зовёт loadDutyOperator()
+    - если !operator
+      - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…
+        · меняет в базе: missedCallRedial
+    - если hasLiveCall(operator.id) || !beginOrigination(operator.id)
+      - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(now.getTime() +…
+        · меняет в базе: missedCallRedial
+    - пробует
+      - const cardId = row.clientId ?? (row.incomingCallId ? (await prisma.incomingCall.findUnique({ where: { id: row…
+        · читает в базе: incomingCall
+      - const client = cardId ? await prisma.client.findFirst({ where: { id: cardId, deletedAt: null }, select: { id:…
+        · читает в базе: client
+      - если cardId && !client
+        - await closeRow(row.id, "skipped", "client_deleted");
+          · дословно из кода
+        - return "closed";
+          · дословно из кода
+      - const dialed = await dialOperatorThenClient({ operator, phone: row.phone, client, topic: "пропущенный звонок,…
+        · зовёт dialOperatorThenClient()
+      - если dialed.outcome === "not_dialable"
+        - await closeRow(row.id, "skipped", "not_dialable");
+          · дословно из кода
+        - dialGuard.delete(row.phone);
+          · дословно из кода
+      - если dialed.outcome === "failed"
+        - если attempts >= settings.delays.length
+          - await closeRow(row.id, "gave_up", "station_failed", { ...base, lastOutcome: "failed" });
+            · дословно из кода
+        - иначе
+          - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { ...base, lastOutcome: "failed", nextAtt…
+            · меняет в базе: missedCallRedial
+      - если !client
+        - await closeRow(row.id, "gave_up", "outcome_unseen", { ...base, lastOutcome: "unknown" });
+          · дословно из кода
+      - иначе
+        - await prisma.missedCallRedial.update({ where: { id: row.id }, data: { ...base, lastOutcome: null, lastInterac…
+          · меняет в базе: missedCallRedial
+    - если сорвалось
+      - void logSystemError("telephony", `Автоперезвон пропущенному: сбой попытки: ${describeError(err)}`, { dedupKey…
+        · запись в журнал ошибок
+      - если dialPlaced
+        - await prisma.missedCallRedial .update({ where: { id: row.id }, data: { attempts: { increment: 1 }, lastAttemp…
+          · меняет в базе: missedCallRedial
+      - иначе
+        - dialGuard.delete(row.phone);
+          · дословно из кода
+    - в любом случае
+      - endOrigination(operator.id);
+        · зовёт endOrigination()
+- если сорвалось
+  - reportCronTickError("Автоперезвон пропущенным: сбой тика", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- в любом случае
+  - isRedialRunning = false;
+    · дословно из кода
 
 ### missed-call-task-whatsapp-close — */2 * * * *
 

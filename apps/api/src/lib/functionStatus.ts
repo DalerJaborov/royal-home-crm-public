@@ -28,6 +28,7 @@ import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
 import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
 import { countMissedCallSmsSent } from "./telephony/missedCallFollowup.js";
+import { countMissedCallRedialDialed } from "./telephony/missedCallRedial.js";
 import { listMetaSendBlocksForStatus } from "./metaSendBlock.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
 
@@ -74,6 +75,10 @@ export interface FunctionStatusSettings {
   missedCallSmsSent7d: number;
   /** Рубильник Б: карточка и задача по пропущенному с незнакомого номера. */
   missedCallCallbackTaskEnabled: boolean;
+  /** Автоперезвон пропущенным включён (lib/telephony/missedCallRedial.ts, 28.11.2026). */
+  missedCallRedialEnabled: boolean;
+  /** Сколько попыток автоперезвона набрано за 7 дней. */
+  missedCallRedialDialed7d: number;
 }
 
 export interface FunctionStatusSpend {
@@ -310,6 +315,11 @@ const EVALUATORS: Record<string, Evaluator> = {
       ? { state: "working", reason: "Включено: пропущенный с незнакомого номера получает карточку и общую задачу «перезвонить»." }
       : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: по незнакомому пропущенному задачи нет, руководство получает только пуш." },
 
+  "missed-call-redial": ({ settings }) =>
+    settings.missedCallRedialEnabled
+      ? { state: "working", reason: `Включено: пропущенному клиенту перезванивает дежурный через станцию, несколько попыток в рабочие часы. Набрано за 7 дней: ${settings.missedCallRedialDialed7d}.` }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: пропущенному клиенту никто не перезванивает сам." },
+
   openai: ({ settings }) =>
     settings.openaiEnabled
       ? { state: "working", reason: "Включено: обложки может рисовать ChatGPT, если он выбран в Настройках." }
@@ -505,7 +515,7 @@ const ERRORS_TAKE = 300;
 
 export async function loadFunctionStatus(viewerRole: string | undefined, now: Date = new Date()): Promise<FunctionStatusResponse> {
   const errorSources = [...new Set(FUNCTION_REGISTRY.flatMap((f) => f.errorSources ?? []))];
-  const [row, missedCallSmsSent7d, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
+  const [row, missedCallSmsSent7d, missedCallRedialDialed7d, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
     prisma.settings.findUnique({
       where: { id: "singleton" },
       select: {
@@ -528,10 +538,12 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         openaiEnabled: true,
         missedCallSmsEnabled: true,
         missedCallCallbackTaskEnabled: true,
+        missedCallRedialEnabled: true,
         objectInterestPullsQueueLeadEnabled: true,
       },
     }),
     countMissedCallSmsSent(7, now).catch(() => 0),
+    countMissedCallRedialDialed(7, now).catch(() => 0),
     prisma.cronHeartbeat.findMany({
       where: visibleCronWhere(viewerRole),
       orderBy: { name: "asc" },
@@ -572,6 +584,8 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     objectInterestPullsQueueLeadEnabled: row?.objectInterestPullsQueueLeadEnabled ?? true,
     missedCallSmsSent7d,
     missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
+    missedCallRedialEnabled: row?.missedCallRedialEnabled ?? false,
+    missedCallRedialDialed7d,
   };
 
   return evaluateFunctions({

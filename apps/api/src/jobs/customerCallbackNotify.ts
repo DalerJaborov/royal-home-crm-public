@@ -2,6 +2,7 @@ import { z } from "zod";
 import { customerActionIntentsSchema, isReadOnlyRole, parsePermissionOverrides, resolvePermissions, type Role } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
+import { loadDutyAgentId } from "../lib/telephony/dutyOperator.js";
 import { logSystemError } from "../lib/systemError.js";
 import { sendPushToAgents } from "../push.js";
 import { ownBotConversationWhere } from "../lib/ownBotConversationScope.js";
@@ -20,9 +21,9 @@ async function humanRecipients(conversationId: string | null): Promise<string[]>
     id: true, client: { select: { assignedAgentId: true, deletedAt: true } },
   } });
   if (!native) return [];
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { callbackOperatorAgentId: true } });
+  const dutyId = await loadDutyAgentId();
   const candidates = [...new Set([native.client?.deletedAt ? null : native.client?.assignedAgentId,
-    settings?.callbackOperatorAgentId].filter((id): id is string => !!id))];
+    dutyId].filter((id): id is string => !!id))];
   // Existing HUMAN policy: assigned agent, else duty. No management FYI and
   // no access created merely by assigning this task to a recipient.
   for (const id of candidates) {

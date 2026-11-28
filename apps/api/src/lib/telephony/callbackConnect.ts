@@ -64,21 +64,76 @@ export function isOperatorCallbackChannel(channel: string | null | undefined): b
   return !!channel && OPERATOR_CALLBACK_CHANNELS.includes(channel);
 }
 
-/** Дежурный оператор из Настроек — с проверкой, что он вообще может звонить. */
-async function loadDutyOperator(): Promise<{ id: string; fullName: string; sipExtension: string; phone: string | null } | null> {
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { callbackOperatorAgentId: true },
+import { loadDutyOperator } from "./dutyOperator.js";
+export { loadDutyOperator, type DutyOperator } from "./dutyOperator.js";
+
+/**
+ * ОБЩЕЕ ЯДРО «СНАЧАЛА ТРУБКА СОТРУДНИКА, ПОТОМ КЛИЕНТ». Им пользуются просьба клиента
+ * «перезвоните» (connectCallbackToOperator) и автоперезвон пропущенным
+ * (missedCallRedial.ts): один путь звонка, один конвейер записи и итога. Вызывающий
+ * сам держит бронь оператора (beginOrigination) и проверяет рабочее время.
+ */
+export async function dialOperatorThenClient(input: {
+  operator: { id: string; sipExtension: string; phone: string | null };
+  phone: string;
+  client: { id: string; shortId: number; fullName: string } | null;
+  topic: string;
+  /** Что видит сотрудник на трубке: имя клиента или пометка вроде «Пропущенный: …». */
+  callerName: string;
+  /** Подпись в хронологии клиента вместо стандартной. */
+  notePrefix?: string;
+  /** Звонок автоперезвона: недозвон не запускает цепочку «перезвонить» и не зовёт руководителя. */
+  redial?: boolean;
+}): Promise<{ outcome: "connected" | "failed" | "not_dialable"; interactionId: string | null }> {
+  const { operator, phone, client, topic, callerName } = input;
+  // Иностранный номер станция не наберёт: не звоним дежурному ради гудков в никуда (17.11.2026).
+  if (isForeignPhone(phone)) return { outcome: "not_dialable", interactionId: null };
+
+  const creds = await loadAriCredentials();
+  if (!creds) return { outcome: "failed", interactionId: null };
+
+  const mode = await loadAgentDialMode();
+  const { agentMobile } = await resolveAgentDialTarget(creds, operator.sipExtension, operator.phone, mode);
+
+  const result = await originateCall(creds, operator.sipExtension, phone, { callerName, agentMobile });
+  if (!result.ok) {
+    void logSystemError("telephony", `Обратный звонок не соединился: ${result.error ?? "originate failed"}`);
+    return { outcome: "failed", interactionId: null };
+  }
+
+  let interactionId: string | null = null;
+  // След в хронологии — ЕДИНСТВЕННАЯ запись на разговор: исход и запись допишет
+  // обработчик событий АТС (callTracker), ровно как у звонка из карточки.
+  if (client) {
+    const interaction = await logTimeline({
+      clientId: client.id,
+      actor: { kind: "agent", agentId: operator.id },
+      type: "CALL",
+      notes: `${input.notePrefix ?? CALLBACK_CALL_NOTE_PREFIX}: ${topic}`,
+    });
+    interactionId = interaction.id;
+    if (result.channelId) {
+      trackCall({
+        channelId: result.channelId,
+        agentId: operator.id,
+        clientId: client.id,
+        clientShortId: client.shortId,
+        clientName: client.fullName,
+        dialingTo: agentMobile ?? operator.sipExtension,
+        interactionId: interaction.id,
+        agentExtension: operator.sipExtension,
+        clientPhone: phone,
+        ...(input.redial ? { redial: true } : {}),
+      });
+    }
+  }
+
+  void sendPushToAgent(operator.id, {
+    title: "📞 Соединяю с клиентом",
+    body: `${callerName}: ${topic}`,
+    url: client ? `/clients/${client.id}` : "/messages",
   });
-  if (!settings?.callbackOperatorAgentId) return null;
-  const agent = await prisma.agent.findUnique({
-    where: { id: settings.callbackOperatorAgentId },
-    select: { id: true, fullName: true, sipExtension: true, phone: true, isActive: true },
-  });
-  // Выключенный (уволенный) или оставшийся без внутреннего номера дежурный — это
-  // «дежурного нет», а не падение: очередь продолжает работать через баннер.
-  if (!agent || !agent.isActive || !agent.sipExtension) return null;
-  return { id: agent.id, fullName: agent.fullName, sipExtension: agent.sipExtension, phone: agent.phone };
+  return { outcome: "connected", interactionId };
 }
 
 /**
@@ -140,60 +195,20 @@ export async function connectCallbackToOperator(requestId: string): Promise<Call
       // открытой в баннере — человек свяжется с клиентом перепиской.
       if (isForeignPhone(phone)) return "not_dialable";
 
-      const creds = await loadAriCredentials();
-      if (!creds) return "failed";
-
-      const mode = await loadAgentDialMode();
-      const { agentMobile } = await resolveAgentDialTarget(creds, operator.sipExtension, operator.phone, mode);
-
-      // Имя клиента и тема — на трубке и в push: оператор снимает, уже зная, с кем
-      // и о чём говорит, а не выясняет по ходу.
-      const callerName = client?.fullName ?? "Клиент из переписки";
-      const result = await originateCall(creds, operator.sipExtension, phone, {
-        callerName,
-        agentMobile,
+      const dialed = await dialOperatorThenClient({
+        operator,
+        phone,
+        client,
+        topic: request.topic,
+        callerName: client?.fullName ?? "Клиент из переписки",
       });
-      if (!result.ok) {
-        void logSystemError("telephony", `Обратный звонок не соединился: ${result.error ?? "originate failed"}`);
-        return "failed";
-      }
-
-      // След в хронологии — ЕДИНСТВЕННАЯ запись на разговор: исход и запись допишет
-      // обработчик событий АТС (callTracker), ровно как у звонка из карточки.
-      if (client) {
-        // Оператор реально набирает номер сам — legitimate agent-автор (П-10).
-        const interaction = await logTimeline({
-          clientId: client.id,
-          actor: { kind: "agent", agentId: operator.id },
-          type: "CALL",
-          notes: `${CALLBACK_CALL_NOTE_PREFIX}: ${request.topic}`,
-        });
-        if (result.channelId) {
-          trackCall({
-            channelId: result.channelId,
-            agentId: operator.id,
-            clientId: client.id,
-            clientShortId: client.shortId,
-            clientName: client.fullName,
-            dialingTo: agentMobile ?? operator.sipExtension,
-            interactionId: interaction.id,
-            agentExtension: operator.sipExtension,
-            clientPhone: phone,
-          });
-        }
-      }
+      if (dialed.outcome !== "connected") return dialed.outcome;
 
       // Запрос закрывается фактом соединения: разговор уже идёт, и его след — в
       // хронологии звонков, а не в очереди просьб.
       await prisma.callbackRequest.updateMany({
         where: { id: request.id, doneAt: null },
         data: { doneAt: new Date(), doneById: operator.id },
-      });
-
-      void sendPushToAgent(operator.id, {
-        title: "📞 Соединяю с клиентом",
-        body: `${callerName}: ${request.topic}`,
-        url: client ? `/clients/${client.id}` : "/messages",
       });
 
       return "connected";

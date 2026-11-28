@@ -3,6 +3,7 @@ import { closeSettledCallbackRequests } from "../callbackRequests.js";
 import { loadBotCapabilities } from "../../messengers/botCapabilities.js";
 import { checkStuckCallStubs } from "./callTracker.js";
 import { autoConnectDueCallback } from "./callbackConnect.js";
+import { runMissedCallRedialTick } from "./missedCallRedial.js";
 
 /**
  * ТИКИ, КОТОРЫМ НУЖНА КАРТА ЖИВЫХ ЗВОНКОВ — В ПРОЦЕССЕ API (E2, E3 глубокой
@@ -27,7 +28,7 @@ import { autoConnectDueCallback } from "./callbackConnect.js";
  * написано строкой, чтобы карта продукта (scripts/product-map.mjs) их видела;
  * совпадение со списком проверяет tests/call-memory-ticks-process.test.ts.
  */
-export const CALL_MEMORY_TICKS = ["stuck-call-stubs", "callback-connect"] as const;
+export const CALL_MEMORY_TICKS = ["stuck-call-stubs", "callback-connect", "missed-call-redial"] as const;
 
 export function startCallMemoryTicks(): void {
   /**
@@ -86,6 +87,29 @@ export function startCallMemoryTicks(): void {
         if (outcome === "connected") console.log("[cron] Обратный звонок: клиент соединён с дежурным оператором");
       } catch (err) {
         reportCronTickError("Обратный звонок: сбой автопрозвона", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * Автоперезвон пропущенным (28.11.2026, missedCallRedial.ts): раз в минуту разбирает итоги набранных
+   * попыток и звонит одному по очереди. Звонок идёт через trackCall, поэтому тик живёт здесь, в процессе
+   * api, рядом с событиями станции. Рубильник выключен: тик выходит после одного чтения настроек.
+   */
+  let isRedialRunning = false;
+  scheduleTracked(
+    "missed-call-redial",
+    "* * * * *",
+    async () => {
+      if (isRedialRunning) return;
+      isRedialRunning = true;
+      try {
+        await runMissedCallRedialTick();
+      } catch (err) {
+        reportCronTickError("Автоперезвон пропущенным: сбой тика", err);
+      } finally {
+        isRedialRunning = false;
       }
     },
     { timezone: "Asia/Dushanbe" }
