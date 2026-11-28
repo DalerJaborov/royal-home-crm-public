@@ -244,6 +244,8 @@ enum ClientSource {
   REFERRAL
   PHONE_CALL
   WALK_IN
+  /// «Свой клиент» (28.11.2026): агент нашёл сам; старые записи не трогаем.
+  OWN_CLIENT
 }
 
 enum InteractionType {
@@ -7977,6 +7979,21 @@ model Settings {
   usdToTjsRate                      Decimal?
   usdToTjsRateUpdatedAt             DateTime?
   usdToTjsRateSource                String?
+  /// Страж курса (владелец 28.11.2026, lib/exchangeRateWatch.ts). Курс с alif.tj, который отличается от
+  /// текущего больше чем на 5 %, НЕ применяется сам: ждёт подтверждения руководителя здесь.
+  usdRatePendingValue               Decimal?
+  usdRatePendingAt                  DateTime?
+  /// Скачок, который руководитель отклонил («Оставить прежний»): тот же курс повторно не ждёт решения и не будит.
+  usdRateDismissedValue             Decimal?
+  /// Курс, по которому цены на сайте и подписи были выровнены в последний раз (порог считается от него).
+  usdRateSyncedRate                 Decimal?
+  /// Когда в последний раз сказали «курс не обновлялся больше 36 часов» (одно напоминание в сутки).
+  usdRateStaleAlertedAt             DateTime?
+  /// Порог, %: курс сдвинулся больше этого — пересчитать цены на сайте и предупредить про подписи в соцсетях.
+  usdRateAlertPct                   Float   @default(1)
+  /// Рубильники (реестр — automationSwitches.ts): оба ВКЛ по умолчанию. Автопереписывания подписей в соцсетях нет вовсе — только кнопка.
+  usdRateSiteResyncEnabled          Boolean @default(true)
+  usdRateAlertsEnabled              Boolean @default(true)
   /// Личный чат директора с ботом. Заполнялся автоматически при подключении Telegram
   /// Business; после удаления той функции (12.08.2026) значение только читается —
   /// клиентский бот по нему понимает, что пишет владелец, и не квалифицирует его как

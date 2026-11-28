@@ -1,6 +1,6 @@
 import { isNumberBlocked } from "./telephony/stationBlacklist.js";
 import { ownerVerificationSourceBlock, newOwnerProbeMode } from "./ownerVerificationSources.js";
-import { isDialableTajikNumber } from "@royal-home/shared";
+import { isAgentCreatedClientSource, isDialableTajikNumber } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { recordInvestigationSignal } from "./investigationCases.js";
 import { buildSellerProbeCallPrompt, SELLER_PROBE_CALL_GREETING_TRIGGER, SELLER_PROBE_CALL_TOOLS } from "../ai/sellerProbeCallPersona.js";
@@ -661,7 +661,7 @@ async function raiseDeadNumberAlertIfManualCard(id: string): Promise<void> {
     },
   });
   if (!probe) return;
-  if (probe.seller.source !== "WALK_IN") return;
+  if (!isAgentCreatedClientSource(probe.seller.source)) return;
   if (probe.sourceKind !== "POST_SHOWING") {
     await recordInvestigationSignal({ clientId: probe.sellerClientId, propertyId: probe.propertyId, subjectAgentId: probe.agentId,
       assignmentAt: probe.assignmentAt ?? probe.createdAt, sourceType: "manual-owner-verification", sourceId: probe.id,
