@@ -1,10 +1,20 @@
 /* The Clean phone uses the same route registry, actions, profile and data as
    desktop. Only the responsive surface changes; legacy AGENT has no clean shell.
    data-mobile-ux also covers a touch tablet below the existing 1180 breakpoint. */
+html[data-shell="clean"] {
+  /* ВЫРЕЗ — ОДНА ПЕРЕМЕННАЯ (28.11.2026). Всё, что в чистой оболочке на телефоне
+     учитывает вырез/остров (шапка оболочки, отступ экрана без шапки, полоса под
+     часами, `.mh > .top`, высота «Чатов»), берёт его ОТСЮДА, а не пишет
+     `env(safe-area-inset-top)` само: иначе два правила считают вырез по-разному и
+     складывают его дважды (или не складывают вовсе). Сторож —
+     lib/__tests__/cleanMobileTopSafeArea.test.ts. */
+  --clean-safe-top: env(safe-area-inset-top, 0px);
+}
+
 html[data-shell="clean"][data-mobile-ux] {
   --clean-mobile-gutter: 16px;
   --clean-mobile-bottom-space: calc(88px + env(safe-area-inset-bottom, 0px));
-  scroll-padding-block: calc(68px + env(safe-area-inset-top, 0px)) var(--clean-mobile-bottom-space);
+  scroll-padding-block: calc(68px + var(--clean-safe-top)) var(--clean-mobile-bottom-space);
 }
 
 html[data-shell="clean"][data-mobile-ux] .clean-shell {
@@ -30,7 +40,7 @@ html[data-shell="clean"][data-mobile-ux] .clean-header {
   position: sticky;
   top: 0;
   margin: 0;
-  padding: calc(4px + env(safe-area-inset-top, 0px)) var(--clean-mobile-gutter) 4px;
+  padding: calc(4px + var(--clean-safe-top)) var(--clean-mobile-gutter) 4px;
   border: 0;
   border-radius: 0;
   background: var(--c-page);
@@ -116,7 +126,7 @@ html[data-shell="clean"][data-mobile-ux] .app-main-col {
    рассчитано на оболочку с `pt-[env(safe-area-inset-top)]` и вычитает вырез
    отрицательным отступом, поэтому поле возвращаем здесь, а не в нём. */
 html[data-shell="clean"][data-mobile-ux] .clean-header-own ~ .app-main-col {
-  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  padding-top: calc(10px + var(--clean-safe-top));
 }
 
 /* Полоса под часами при прокрутке: содержимое не должно проезжать под строкой
@@ -130,7 +140,7 @@ html[data-shell="clean"][data-mobile-ux] .clean-frame:has(> .clean-header-own)::
   top: 0;
   left: 0;
   right: 0;
-  height: env(safe-area-inset-top, 0px);
+  height: var(--clean-safe-top);
   background: var(--rh-ui-bg, var(--c-page));
   z-index: 19;
   pointer-events: none;
@@ -211,4 +221,21 @@ html[data-shell="clean"][data-mobile-ux][data-clean-keyboard] nav[data-bottomnav
   html[data-shell="clean"][data-mobile-ux] .clean-shell :is(.sh-tab, .sh-fab, .clean-tab) {
     transition: none;
   }
+}
+
+/* `.mh > .top` (theme-2026-mobile-shell.css, 7.4) в старой оболочке вычитает вырез
+   отрицательным отступом: оболочка там сама сдвинута на вырез. В чистой оболочке
+   вырез платит шапка оболочки или (экран без шапки) верхнее поле `.app-main-col`
+   выше, поэтому: по умолчанию `.top` ничего не вычитает, а вычитает ровно там, где
+   поле выреза у `.app-main-col` есть, то есть после скрытой шапки оболочки. Вид
+   экранов с собственной шапкой не меняется, противоречие двух схем уходит
+   (на «Календаре» `.top` скрыт, но нёс -47px). */
+html[data-shell="clean"][data-mobile-ux] .rh2 .mh > .top {
+  margin-top: 0;
+  padding-top: 14px;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-header-own ~ .app-main-col .rh2 .mh > .top {
+  margin-top: calc(-1 * var(--clean-safe-top));
+  padding-top: calc(14px + var(--clean-safe-top));
 }

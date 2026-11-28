@@ -141,7 +141,6 @@ html[data-shell="clean"][data-theme="royal-home-2026-night"] .rh2 .scr .card.rh-
   .clean-shell .clean-more { order: 6; }
 }
 @media (max-width: 819px) {
-  html[data-shell="clean"] .app-shell.clean-shell { padding: 8px 0 0; padding-top: max(8px,env(safe-area-inset-top)); }
   .clean-shell .clean-frame { border-radius: 28px 28px 0 0; border-inline: 0; padding: 8px 0 0; box-shadow: none; }
   .clean-shell .app-main-col { padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
   .clean-shell .clean-header { margin-inline: 8px; padding: 12px; gap: 8px; display: grid; grid-template-columns: minmax(0,1fr) auto; }
@@ -157,7 +156,7 @@ html[data-shell="clean"][data-theme="royal-home-2026-night"] .rh2 .scr .card.rh-
   .clean-shell .clean-more { grid-column: 2; grid-row: 2; justify-self: end; }
   .clean-shell .clean-more summary { min-height: 44px; }
   .clean-shell .clean-more summary span { max-width: 64px; }
-  .clean-shell .clean-more-panel { position: fixed; top: calc(140px + env(safe-area-inset-top)); right: 16px; width: calc(100vw - 32px); }
+  .clean-shell .clean-more-panel { position: fixed; top: calc(140px + var(--clean-safe-top, env(safe-area-inset-top, 0px))); right: 16px; width: calc(100vw - 32px); }
   .clean-shell .clean-header-context { display: block; }
   .clean-shell .clean-header-own { display: none; }
   .clean-shell .clean-header-context .clean-brand,.clean-shell .clean-header-context .clean-tabs,.clean-shell .clean-header-context .clean-more { display: none; }
@@ -483,7 +482,7 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
 @media (max-width: 819px) {
   html[data-shell="clean"] .app-shell.clean-shell { padding: 0; background: var(--c-page); }
   .clean-shell .clean-frame { border: 0; border-radius: 0; padding: 0; background: var(--c-page); }
-  .clean-shell .clean-header { margin: 0; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-radius: 0; border: 0; background: var(--c-card); }
+  .clean-shell .clean-header { margin: 0; padding: calc(10px + var(--clean-safe-top, env(safe-area-inset-top, 0px))) 16px 10px; border-radius: 0; border: 0; background: var(--c-card); }
   .clean-shell .clean-header .clean-tabs,.clean-shell .clean-header .clean-more { display: none; }
   .clean-shell .clean-brand-mobile { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
   .clean-shell .app-main-col { padding: 16px 12px calc(96px + env(safe-area-inset-bottom)); }
@@ -506,7 +505,7 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
   html[data-shell="clean"] .finance-workspace-nav button { flex: 0 0 auto; min-height: 48px; }
   html[data-shell="clean"] .clean-client-detail .card { padding: 16px!important; }
   html[data-shell="clean"] .clean-messages .two { display: flex; flex-direction: column; gap: 0!important; }
-  html[data-shell="clean"] .clean-messages .two>section { width: 100%; min-width: 0; height: max(320px,calc(var(--clean-viewport-height,100dvh) - 200px - var(--clean-notice-space,0px) - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom))); min-height: 0!important; border-radius: 20px; }
+  html[data-shell="clean"] .clean-messages .two>section { width: 100%; min-width: 0; height: max(320px,calc(var(--clean-viewport-height,100dvh) - 200px - var(--clean-notice-space,0px) - var(--clean-safe-top, env(safe-area-inset-top, 0px)) - env(safe-area-inset-bottom))); min-height: 0!important; border-radius: 20px; }
   html[data-shell="clean"] .clean-messages .two[data-conversation-selected]>section[aria-label="Диалоги"] { display: none; }
   html[data-shell="clean"] .clean-messages[data-chat-active="thread"] .pg-h { display: none; }
   html[data-shell="clean"] .clean-messages[data-chat-active="thread"] :is(.clean-inbox-workspaces,.clean-inbox-alerts) { display: none; }
