@@ -506,7 +506,7 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
   html[data-shell="clean"] .finance-workspace-nav button { flex: 0 0 auto; min-height: 48px; }
   html[data-shell="clean"] .clean-client-detail .card { padding: 16px!important; }
   html[data-shell="clean"] .clean-messages .two { display: flex; flex-direction: column; gap: 0!important; }
-  html[data-shell="clean"] .clean-messages .two>section { width: 100%; min-width: 0; height: max(320px,calc(var(--clean-viewport-height,100dvh) - 200px - var(--clean-notice-space,0px) - env(safe-area-inset-bottom))); min-height: 0!important; border-radius: 20px; }
+  html[data-shell="clean"] .clean-messages .two>section { width: 100%; min-width: 0; height: max(320px,calc(var(--clean-viewport-height,100dvh) - 200px - var(--clean-notice-space,0px) - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom))); min-height: 0!important; border-radius: 20px; }
   html[data-shell="clean"] .clean-messages .two[data-conversation-selected]>section[aria-label="Диалоги"] { display: none; }
   html[data-shell="clean"] .clean-messages[data-chat-active="thread"] .pg-h { display: none; }
   html[data-shell="clean"] .clean-messages[data-chat-active="thread"] :is(.clean-inbox-workspaces,.clean-inbox-alerts) { display: none; }
