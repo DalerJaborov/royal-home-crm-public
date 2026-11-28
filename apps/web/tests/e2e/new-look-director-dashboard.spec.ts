@@ -53,6 +53,13 @@ for (const size of SIZES) {
     await expect(page.locator('[data-kpi="noContact"] .dd-delta')).toHaveAttribute("data-tone", "bad");
     await expect(money(page).first()).toBeVisible();
     await expect(page.locator("#dd-plan")).toContainText("80");
+    // «Откуда приходят» (28.11.2026): группы вместо каналов, «Свой клиент» отдельно, пустых строк нет.
+    const sources = page.locator("#dd-sources");
+    await expect(sources).toContainText("Переписки");
+    await expect(sources).toContainText("Свои клиенты");
+    await expect(sources).not.toContainText("Telegram 0");
+    await expect(sources.getByText(/^0 с\./)).toHaveCount(0);
+    if (process.env.SHOTS_DIR) await sources.screenshot({ path: `${process.env.SHOTS_DIR}/sources-${size.name}.png` });
     await expect(root.getByText(/обновлено в \d\d:\d\d/)).toBeVisible();
     // У директора план идёт выше плиток.
     const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
