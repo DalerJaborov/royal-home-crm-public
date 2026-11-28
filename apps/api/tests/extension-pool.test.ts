@@ -192,3 +192,30 @@ describe("Пул внутренних номеров", () => {
     }
   });
 });
+
+describe("офисный аппарат приёма (2020) — никому не выдаётся", () => {
+  it("автовыдача пропускает 2020, даже когда он свободен в CRM и есть на станции", async () => {
+    fetchMock.mockResolvedValue(endpointsResponse(["2020", String(runId)]));
+    vi.stubGlobal("fetch", fetchMock);
+    const picked = await pickFreeExtension();
+    expect(picked.extension).toBe(String(runId));
+  });
+
+  it("если на станции кроме 2020 ничего нет — «свободных номеров нет», а не 2020", async () => {
+    fetchMock.mockResolvedValue(endpointsResponse(["2020"]));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await pickFreeExtension()).toEqual({ extension: null, reason: "свободных номеров нет" });
+  });
+
+  it("ручной ввод 2020 отклоняется, а у нынешнего держателя правка не ломается", async () => {
+    const { checkManualExtension, OFFICE_EXTENSIONS } = await import("../src/lib/telephony/extensionPool.js");
+    expect(OFFICE_EXTENSIONS.has("2020")).toBe(true);
+    const stranger = await checkManualExtension("2020");
+    expect(stranger.ok).toBe(false);
+    const other = await prisma.agent.create({
+      data: { fullName: "Чужой", phone: `+99290${runId}77`, role: "AGENT", passwordHash: "x" },
+    });
+    createdAgentIds.push(other.id);
+    expect((await checkManualExtension("2020", other.id)).ok).toBe(false);
+  });
+});
