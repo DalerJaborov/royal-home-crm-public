@@ -51,7 +51,7 @@ const { resetLessonSendLimits, takeLessonSendSlot, takeLessonBroadcastSlot, LESS
 const { TelegramApiError } = await import("../src/telegram/api.js");
 const { __resetShutdownStateForTests, beginShutdown } = await import("../src/lib/shutdownState.js");
 const { lessonsGuideFor } = await import("../src/ai/assistant.js");
-const { ASSISTANT_LESSON_TOPIC_TOOLS, ASSISTANT_LESSONS_GUIDE } = await import("../src/ai/assistant/promptSections.js");
+const { ASSISTANT_LESSON_TOPIC_MAP, ASSISTANT_LESSONS_GUIDE } = await import("../src/ai/assistant/promptSections.js");
 const { BUILTIN_ASSISTANT_TOOL_NAMES } = await import("../src/ai/assistant.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
 const { waitFor } = await import("./helpers/waitFor.js");
@@ -173,7 +173,7 @@ describe("реестр и права", () => {
 
   it("карта «тема → инструменты» в промпте называет только существующие инструменты", () => {
     const real = new Set([...listAssistantToolPlugins().map((p) => p.name), ...BUILTIN_ASSISTANT_TOOL_NAMES]);
-    for (const { tools } of ASSISTANT_LESSON_TOPIC_TOOLS) for (const t of tools) expect(real.has(t), t).toBe(true);
+    for (const { tools } of ASSISTANT_LESSON_TOPIC_MAP) for (const t of tools) expect(real.has(t), t).toBe(true);
     expect(ASSISTANT_LESSONS_GUIDE).toContain("create_task");
     expect(ASSISTANT_LESSONS_GUIDE).toContain("не выдумывай");
   });

@@ -90,7 +90,7 @@ export const ASSISTANT_REGISTRY_GUIDE =
  * чтобы карта не обещала несуществующее. Инструмента нет у человека или в этом чате (группа, режим просмотра) — модель
  * его просто не видит: тогда она объясняет по уроку, а не обещает сделать.
  */
-export const ASSISTANT_LESSON_TOPIC_TOOLS: readonly { topic: string; tools: readonly string[] }[] = [
+export const ASSISTANT_LESSON_TOPIC_MAP: readonly { topic: string; tools: readonly string[] }[] = [
   { topic: "задачи", tools: ["create_task", "list_my_tasks", "find_open_tasks", "complete_task"] },
   { topic: "заметка в карточке клиента", tools: ["add_client_note"] },
   { topic: "клиенты и заявки", tools: ["create_client", "find_clients", "get_client_card", "change_client_agent"] },
@@ -108,7 +108,7 @@ export const ASSISTANT_LESSONS_GUIDE =
 ` +
   `1) Если X ты умеешь сама своим инструментом: предложи сделать за человека («могу поставить вам задачу, назовите дату») ` +
   `и отдельно, коротко, предложи урок, если хочет научиться делать сам. Что ты умеешь сама: ` +
-  ASSISTANT_LESSON_TOPIC_TOOLS.map((t) => `${t.topic} (${t.tools.join(", ")})`).join("; ") +
+  ASSISTANT_LESSON_TOPIC_MAP.map((t) => `${t.topic} (${t.tools.join(", ")})`).join("; ") +
   `. Если нужного инструмента нет в твоём списке в этом чате, считай, что сама не умеешь.
 ` +
   `2) Не умеешь сама: сначала вызови find_lessons, ответь коротко по сути из answerFromLesson и предложи прислать урок по его названию.

@@ -24,6 +24,7 @@ const KNOWN_OUTSIDE: Record<string, string> = {
   CONTACT_AVATAR_IN_TESTS: "test-only switch: turns the avatar fetch back on in the hot path under Vitest (lib/contactAvatar.ts)",
   UPLOAD_DISK_CHECK: "test-only switch (tests/setup.ts); the production check is always on",
   UPLOAD_DISK_RESERVE_BYTES: "optional tuning of the upload disk reserve; the code default (5% of disk, 2-5 GB) is right for production",
+  LESSONS_SEND_PAUSE_MS: "optional tuning of the pause between lessons in «send all lessons» (lib/lessons/sender.ts); the code default is right for production",
   UPLOAD_PART_RATE_LIMIT: "optional tuning of the upload-part limit; the code default (4800 per 5 min) is right for production",
 };
 /**
