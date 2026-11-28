@@ -246,7 +246,7 @@ describe("находки ревью 28.11", () => {
     const p = await makeUsdProperty("x", { site: true });
     await setRate(9.35, 1, { usdRateSyncedRate: null });
     await onUsdRateApplied(9.3, 9.35, "alif-auto"); // +0,5 %: порог не пройден, но база запомнена как 9,30
-    expect((await prisma.settings.findUnique({ where: { id: "singleton" } }))?.usdRateSyncedRate?.toString()).toBe("9.3");
+    expect(Number((await prisma.settings.findUnique({ where: { id: "singleton" } }))?.usdRateSyncedRate)).toBeCloseTo(9.3, 6);
     expect(await prisma.backgroundJob.count({ where: { type: "site-resync", dedupeKey: `site-resync:${p.id}` } })).toBe(0);
     await setRate(9.4, 1, { usdRateSyncedRate: 9.3 });
     await onUsdRateApplied(9.35, 9.4, "alif-auto"); // от 9,30 уже +1,07 %
