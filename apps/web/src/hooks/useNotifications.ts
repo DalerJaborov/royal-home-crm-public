@@ -136,6 +136,26 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+/** «Скрыть» (28.11.2026): запись остаётся в базе, но пропадает из ленты этого сотрудника. */
+export function useHideNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/me/notifications/${id}/hide`, { method: "POST" }),
+    meta: { silent: true },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+/** «Скрыть всё прочитанное» одной кнопкой; непрочитанное остаётся. */
+export function useHideReadNotifications() {
+  const queryClient = useQueryClient();
+  return useMutation<{ ok: boolean; count: number }>({
+    mutationFn: () => api("/me/notifications/hide-read", { method: "POST" }),
+    meta: { silent: true },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
 /** Отметить прочитанными только перечисленные записи (автопрочтение, см. ниже). */
 export function useMarkNotificationsReadMany() {
   const queryClient = useQueryClient();

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **790**. Развилок в самих путях: **2528**; вместе с задачами по расписанию и фоновыми заданиями — **4401**. Модулей: **87**.
+Путей: **794**. Развилок в самих путях: **2532**; вместе с задачами по расписанию и фоновыми заданиями — **4408**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2340,6 +2340,38 @@
 - const clientLabels = await loadClientDisplayLabels(items.map((i)
   · зовёт loadClientDisplayLabels()
 - res.json({ ownOnly: !seesEveryone, items: items.map((i)
+  · ответ 200
+
+## /api/v1/cleanup
+
+### GET /api/v1/cleanup/preview
+
+`apps/api/src/routes/dataCleanup.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const parsed = cleanupRequestSchema.safeParse(req.query);
+  · проверяет данные схемой cleanupRequestSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры очистки", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры очистки»
+- const count = await countCleanup(target, mode, scope, actorOf(req));
+  · зовёт countCleanup()
+- res.json({ count });
+  · ответ 200
+
+### POST /api/v1/cleanup/run
+
+`apps/api/src/routes/dataCleanup.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const parsed = cleanupRequestSchema.safeParse(req.body);
+  · проверяет данные схемой cleanupRequestSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры очистки", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры очистки»
+- const count = await runManualCleanup(target, mode, scope, actorOf(req));
+  · зовёт runManualCleanup()
+- logAudit(req, "CLEANUP", CLEANUP_TARGET_LABELS[target], null, { target, mode, scope: target === "notification…
+  · зовёт logAudit()
+- res.json({ ok: true, count });
   · ответ 200
 
 ## /api/v1/clients
@@ -9849,6 +9881,23 @@
 
 ## /api/v1/me/notifications
 
+### POST /api/v1/me/notifications/:id/hide
+
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = idParamSchema.safeParse(req.params);
+  · проверяет данные схемой idParamSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный идентификатор" });
+    · ответ 400 — «Неверный идентификатор»
+- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, read: true, ...await loadV…
+  · меняет в базе: notification
+- если result.count === 0
+  - return res.status(404).json({ error: "Скрыть можно только прочитанное уведомление" });
+    · ответ 404 — «Скрыть можно только прочитанное уведомление»
+- res.json({ ok: true });
+  · ответ 200
+
 ### POST /api/v1/me/notifications/:id/read
 
 `apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -9864,6 +9913,15 @@
   - return res.status(404).json({ error: "Уведомление не найдено" });
     · ответ 404 — «Уведомление не найдено»
 - res.json({ ok: true });
+  · ответ 200
+
+### POST /api/v1/me/notifications/hide-read
+
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…
+  · меняет в базе: notification
+- res.json({ ok: true, count: result.count });
   · ответ 200
 
 ### POST /api/v1/me/notifications/read-all
@@ -9912,7 +9970,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
     · ответ 400 — «Неверный номер страницы»
-- const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
+- const where: Prisma.NotificationWhereInput = { ...await loadVisibleNotificationsWhere(req.agent!.id, investig…
   · зовёт loadVisibleNotificationsWhere()
 - const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…
   · читает в базе: notification
@@ -21438,6 +21496,39 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка ежедневной подборки сторис", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### data-cleanup — 30 3 * * *
+
+- пробует
+  - const r = await runAutoCleanup();
+    · зовёт runAutoCleanup()
+    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      · читает в базе: settings
+    - если !settings?.autoCleanupEnabled
+      - return result;
+        · дословно из кода
+    - const days = autoCleanupDays(settings);
+      · зовёт autoCleanupDays()
+    - для каждого: const step of steps
+      - пробует
+        - result[step.name] += await deleteInBatches(delegateFor(step.target), step.where, AUTO_MAX_BATCHES_PER_TARGET);
+          · зовёт deleteInBatches()
+      - если сорвалось
+        - void logSystemError("cron", `Автоочистка «${step.target}» не удалась: ${message}`, { dedupKey: `data-cleanup:…
+          · запись в журнал ошибок
+    - если total > 0
+      - logSystemAudit("CLEANUP", "AutoCleanup", null, { notifications: result.notifications, errorLog: result.errorL…
+        · зовёт logSystemAudit()
+  - если r.ran
+    - console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автоочистки", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

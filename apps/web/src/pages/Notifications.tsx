@@ -12,11 +12,14 @@ import {
   useAutoReadNotifications,
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
+  useHideNotification,
+  useHideReadNotifications,
   useNotifications,
   useSeenSnapshot,
   useSeenOnShow,
 } from "../hooks/useNotifications";
 import { api } from "../lib/api";
+import { CleanupButton } from "../components/CleanupButton";
 import { dushanbeDate, dushanbeDayKey, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { groupNotifications, notificationLevel as levelOf, PINNED_NOTIFICATION_LEVELS as PINNED } from "../lib/notificationGroups";
 import type { AppNotification } from "../types";
@@ -288,6 +291,9 @@ export function Notifications() {
   const { data, isLoading, isError, refetch } = useNotifications();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
+  // «Скрыть» (28.11.2026): запись остаётся в базе, но пропадает из ленты этого сотрудника.
+  const hide = useHideNotification();
+  const hideRead = useHideReadNotifications();
   /**
    * «Показать ещё» (шаблон tpl-notifications, `.pager`) — первая страница идёт
    * из `useNotifications()` (дропдаун и бейдж колокольчика её же кешируют,
@@ -340,6 +346,15 @@ export function Notifications() {
     return out;
   }, [data?.items, extraItems]);
   const hasMore = moreHasMore ?? data?.hasMore ?? false;
+  const hasReadItems = items.some((n) => n.read);
+  // Догруженные («Показать ещё») страницы — локальное состояние: после «Скрыть»/«Очистить» их тоже надо обновить.
+  const hideOne = (id: string) => hide.mutate(id, { onSuccess: () => setExtraItems((prev) => prev.filter((x) => x.id !== id)) });
+  const hideAllRead = () => hideRead.mutate(undefined, { onSuccess: () => setExtraItems((prev) => prev.filter((x) => !x.read)) });
+  const afterCleanup = () => {
+    setExtraItems([]);
+    setMoreHasMore(undefined);
+    setNextPage(2);
+  };
   const unreadCount = data?.unreadCount ?? 0;
   /**
    * ЛЕНТА ОТКРЫТА — ЗНАЧИТ ПРОСМОТРЕНА (владелец 27.08.2026: «если кто-то что-то
@@ -455,6 +470,11 @@ export function Notifications() {
                 <button className="pill ghost sm" type="button" onClick={() => open(n)}>
                   Открыть
                 </button>
+                {n.read && (
+                  <button className="pill ghost sm" type="button" disabled={hide.isPending} onClick={() => hideOne(n.id)}>
+                    Скрыть
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -505,6 +525,19 @@ export function Notifications() {
                 )}
                 {/* На телефоне ответ — своей строкой под текстом, иначе кнопки съедают ширину текста. */}
                 {n.offer && <OfferAnswerAction offer={n.offer} className="btn pill sm" line />}
+                {n.read && (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={hide.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      hideOne(n.id);
+                    }}
+                  >
+                    Скрыть
+                  </button>
+                )}
               </div>
             );
           })}
@@ -559,6 +592,11 @@ export function Notifications() {
                 <button className="pill ghost sm" type="button" onClick={() => open(n)}>
                   Открыть
                 </button>
+                {n.read && (
+                  <button className="pill ghost sm" type="button" disabled={hide.isPending} onClick={() => hideOne(n.id)}>
+                    Скрыть
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -582,6 +620,10 @@ export function Notifications() {
             <RhButton variant="secondary" onClick={() => markAllRead.mutate()} disabled={unreadCount === 0 || markAllRead.isPending}>
               Прочитать всё
             </RhButton>
+            <RhButton variant="secondary" onClick={() => hideAllRead()} disabled={!hasReadItems || hideRead.isPending}>
+              Скрыть прочитанное
+            </RhButton>
+            <CleanupButton target="notifications" scope="mine" className="pill ghost" onDone={afterCleanup} />
           </div>
         </div>
 
@@ -650,8 +692,15 @@ export function Notifications() {
             <button type="button" className="btn ghost sm" disabled={unreadCount === 0 || markAllRead.isPending} onClick={() => markAllRead.mutate()}>
               Прочитать всё
             </button>
+
           </div>
           <div className="body">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 8px 8px" }}>
+              <button type="button" className="btn ghost sm" disabled={!hasReadItems || hideRead.isPending} onClick={() => hideAllRead()}>
+                Скрыть прочитанное
+              </button>
+              <CleanupButton target="notifications" scope="mine" className="btn ghost sm" onDone={afterCleanup} />
+            </div>
             {isLoading && <MhQuiet>Загружаем ленту…</MhQuiet>}
 
             {isError && (
@@ -710,6 +759,10 @@ export function Notifications() {
             >
               Прочитать всё
             </button>
+            <button className="pill ghost" type="button" onClick={() => hideAllRead()} disabled={!hasReadItems || hideRead.isPending}>
+              Скрыть прочитанное
+            </button>
+            <CleanupButton target="notifications" scope="mine" className="pill ghost" onDone={afterCleanup} />
           </div>
         </div>
 

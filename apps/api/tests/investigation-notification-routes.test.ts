@@ -51,11 +51,11 @@ describe("notification history privacy includes counters and mutations", () => {
   it("rechecks the current role on a subsequent request", async () => {
     state.role = "DIRECTOR";
     await request(app).get("/notifications");
-    expect(state.findMany.mock.calls[0][0].where).toEqual({ agentId: "staff" });
+    expect(state.findMany.mock.calls[0][0].where).toEqual({ agentId: "staff", hiddenAt: null });
     state.role = "AGENT";
     vi.clearAllMocks();
     await request(app).get("/notifications");
-    expect(state.findMany.mock.calls[0][0].where).toEqual(await loadVisibleNotificationsWhere("staff", "AGENT"));
+    expect(state.findMany.mock.calls[0][0].where).toEqual({ ...await loadVisibleNotificationsWhere("staff", "AGENT"), hiddenAt: null });
   });
 
   it("does not reveal a private notification by direct read id", async () => {

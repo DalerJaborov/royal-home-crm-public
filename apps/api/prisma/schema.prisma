@@ -1788,6 +1788,10 @@ model Notification {
   /// не трогаем), пока по ней не сделано действие. Новое событие с тем же tag
   /// (upsertByTag) сбрасывает отметку обратно в null и метка загорается снова.
   seenAt        DateTime?
+  /// «СКРЫТО» (владелец 28.11.2026, чистка шума): строка остаётся в базе, но пропадает из ленты
+  /// ЭТОГО сотрудника (уведомление у каждого своё — agentId). Новое событие с тем же tag
+  /// (upsertByTag) возвращает строку в ленту. null — видна.
+  hiddenAt      DateTime?
 
   @@index([agentId, read])
   @@index([agentId, createdAt])
@@ -7557,6 +7561,14 @@ model Settings {
   /// Строки «Звонок роботом» и «Не звонить роботом» в меню «Ещё» карточки клиента (владелец 27.11.2026: «удали это»).
   /// ВЫКЛ — строк нет; отметки RobotCallStop и звонки робота по политике работают как прежде. Реестр — automationSwitches.ts.
   clientCardRobotRowsEnabled            Boolean @default(false)
+  /// Автоочистка мусора (владелец 28.11.2026, lib/dataCleanup.ts, крон «data-cleanup»). ВЫКЛ по умолчанию:
+  /// удаление безвозвратное, включает владелец сам. Сроки — в днях; непрочитанное и неразобранное не трогается.
+  autoCleanupEnabled                    Boolean @default(false)
+  autoCleanupNotificationsReadDays      Int     @default(35)
+  autoCleanupErrorsResolvedDays         Int     @default(35)
+  autoCleanupDirectorAlertsDays         Int     @default(35)
+  autoCleanupBotCountersDays            Int     @default(30)
+  autoCleanupOneTimeDays                Int     @default(7)
   /// «Звонок по объекту: узнавать объект по приметам и отдавать хозяину» (владелец 26.11.2026, ПК-001086 → №230).
   /// ВКЛ: узнавание по приметам (lib/propertyMatch.ts) отдаёт заявку хозяину объекта, сверяет названное имя с
   /// хозяином, при похожих — подсказка руководству. ВЫКЛ — объект только номером/адресом/ссылкой/объявлением.

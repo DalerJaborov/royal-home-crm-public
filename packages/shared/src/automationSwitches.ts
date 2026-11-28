@@ -46,6 +46,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
   "clientCardRobotRowsEnabled",
+  "autoCleanupEnabled",
   "shabnamGroupLiveEnabled",
   "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
@@ -102,6 +103,8 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "botPauseOnStaffReplyEnabled",
   // Владелец 27.11.2026: «удали это» — строки робота в карточке клиента спрятаны. Колонка `DEFAULT false`.
   "clientCardRobotRowsEnabled",
+  // Владелец 28.11.2026: автоочистка удаляет безвозвратно, включает он сам. Колонка `DEFAULT false`.
+  "autoCleanupEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -347,6 +350,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "В меню «Ещё» карточки клиента есть «Звонок роботом» (робот сам набирает клиента, только руководителю) и переключатель «Не звонить роботом». Видны, только когда живой голос включён.",
     off: "Этих строк в карточке нет. Отметки «не звонить», уже поставленные клиентам, продолжают действовать; опрос после показа, проверка продавца и приглашения звонят по своим правилам.",
   },
+  // Владелец 28.11.2026: «кнопки очистить, автоочистку и скрыть». Сроки — в Настройках → Система → «Очистка данных».
+  autoCleanupEnabled: {
+    title: "Автоочистка старого мусора",
+    on: "Раз в сутки ночью удаляются без возврата старые прочитанные уведомления, разобранные ошибки, обработанные оповещения директору и служебные счётчики и метки (сроки меняются в «Очистка данных»; для уведомлений, ошибок и оповещений не меньше 35 дней). Непрочитанное и неразобранное не трогается.",
+    off: "Старое само не удаляется (кроме общей уборки журналов старше 90 дней). Почистить можно вручную кнопкой «Очистить».",
+  },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
@@ -408,7 +417,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
+    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled", "autoCleanupEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
