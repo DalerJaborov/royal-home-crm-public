@@ -540,6 +540,10 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   missedCallSmsText: string;
   /** Незнакомый пропущенный: карточка и общая задача «Перезвонить». */
   missedCallCallbackTaskEnabled: boolean;
+  /** Автоперезвон пропущенным (28.11.2026). */
+  missedCallRedialEnabled: boolean;
+  missedCallRedialDelays: string;
+  missedCallRedialJunkEnabled: boolean;
   /** Сколько секунд станция звонит агенту, прежде чем вернуть звонок в очередь. */
   incomingRouteRingSeconds: number;
   /** ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ: станция играет её агенту в ухо перед соединением,

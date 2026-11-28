@@ -71,6 +71,12 @@ export interface ActiveCall {
    * ни статус, ни светофор неактивных, ни задачи, ни счётчик тишины, ни Royal Score.
    */
   archiveReview?: boolean;
+  /**
+   * Автоперезвон пропущенному (28.11.2026, missedCallRedial.ts). Недозвон такого звонка не заводит
+   * цепочку «перезвонить, клиент не ответил» и не зовёт руководителя: очередь автоперезвона ведёт свой счёт,
+   * а решение владельца 20.09 «по пропущенным ни напоминаний, ни эскалаций» остаётся в силе.
+   */
+  redial?: boolean;
   state: CallState;
   startedAt: Date;
   /**
@@ -417,7 +423,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
      * После обновления запись сама вошла бы в серию и попытки сдвинулись бы на одну
      * (см. тот же порядок в routes/me.ts и комментарий в planNoAnswerStep).
      */
-    const noAnswerStep = clientDidNotAnswer && !call.archiveReview ? await planNoAnswerStep(call.clientId, call.endedAt) : null;
+    const noAnswerStep = clientDidNotAnswer && !call.archiveReview && !call.redial ? await planNoAnswerStep(call.clientId, call.endedAt) : null;
     // Дедуп «Перезвонить — клиент не ответил (попытка N из M)» (21.09.2026,
     // lib/autoTasks.ts): если у клиента уже открыта такая задача с предыдущей
     // попытки, эта запись её не получает — claimAutoTaskSlot обновит текст/срок
@@ -567,7 +573,9 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
       // (24.09.2026, agentNoPickupGuard.ts) — состояние в памяти процесса, не
       // ждём и не проверяем результат здесь по той же причине, что и весь
       // остальной finishCall: обработчик событий АТС не должен стоять.
-      recordAgentCallAttempt(call.agentId, call.clientId, callAttempt, call.endedAt);
+      // Звонок автоперезвона в серию недозвонов агента не входит: тревога руководству «у сотрудника не звонит
+      // телефон» по автоматике противоречит решению владельца 20.09 (очередь автоперезвона сама сдвигает попытку).
+      if (!call.redial) recordAgentCallAttempt(call.agentId, call.clientId, callAttempt, call.endedAt);
 
       /**
        * ПОПЫТКА АГЕНТА СВЯЗАТЬСЯ — ЗАСЧИТАНА (владелец 08.09.2026, фундамент

@@ -1971,6 +1971,11 @@
       "label": null
     },
     {
+      "id": "missed-call-redial",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "missed-call-task-whatsapp-close",
       "expr": "*/2 * * * *",
       "label": null

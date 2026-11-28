@@ -169,6 +169,15 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["sms"],
   },
   {
+    key: "missed-call-redial",
+    title: "Автоперезвон пропущенному клиенту",
+    what: "Пропущенному клиенту перезванивает дежурный через станцию, с паузами из настроек и только в рабочие часы.",
+    group: "voice",
+    settingsTab: "channels",
+    cron: ["missed-call-redial"],
+    errorSources: ["telephony"],
+  },
+  {
     key: "missed-call-callback-task",
     title: "Задача «перезвонить» по пропущенному с незнакомого номера",
     what: "Незнакомый номер без ответа получает карточку и общую задачу для руководителя отдела продаж.",

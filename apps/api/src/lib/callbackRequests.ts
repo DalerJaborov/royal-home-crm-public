@@ -30,6 +30,7 @@ import {
   connectCallbackToOperator,
   isOperatorCallbackChannel,
 } from "./telephony/callbackConnect.js";
+import { loadDutyAgentId } from "./telephony/dutyOperator.js";
 
 /**
  * ПРОСЬБА О ЗВОНКЕ ИЗ ПЕРЕПИСКИ — КУДА ЕЙ ИДТИ (владелец 22.09.2026).
@@ -109,16 +110,14 @@ export async function notifyHumanAsk(input: {
     });
     if (recent) return "duplicate";
 
-    const [client, settings] = await Promise.all([
-      input.clientId
-        ? prisma.client.findFirst({
-            where: { id: input.clientId, deletedAt: null },
-            select: { assignedAgentId: true },
-          })
-        : null,
-      prisma.settings.findUnique({ where: { id: "singleton" }, select: { callbackOperatorAgentId: true } }),
-    ]);
-    const agentId = client?.assignedAgentId ?? settings?.callbackOperatorAgentId ?? null;
+    const client = input.clientId
+      ? await prisma.client.findFirst({
+          where: { id: input.clientId, deletedAt: null },
+          select: { assignedAgentId: true },
+        })
+      : null;
+    // Дежурный один на все пути (lib/telephony/dutyOperator.ts): уведомили того же, кому потом звонит станция.
+    const agentId = client?.assignedAgentId ?? (await loadDutyAgentId()) ?? null;
     if (!agentId) return "no_recipient";
 
     const phone = await volunteeredPhoneFromConversation(input.conversationId);
@@ -408,15 +407,11 @@ export async function recordCallbackRequest(input: {
     // никогда). Адресная просьба агенту клиента дежурного не касается вовсе.
     const operatorEligible =
       byClientRequest && isOperatorCallbackChannel(input.channel) && !input.targetAgentId;
-    const settings = operatorEligible
-      ? await prisma.settings
-          .findUnique({ where: { id: "singleton" }, select: { callbackOperatorAgentId: true } })
-          .catch(() => null)
-      : null;
+    const dutyId = operatorEligible ? await loadDutyAgentId().catch(() => null) : null;
     const agentIds = input.targetAgentId
       ? [input.targetAgentId]
-      : settings?.callbackOperatorAgentId
-        ? [settings.callbackOperatorAgentId]
+      : dutyId
+        ? [dutyId]
         : await findAgentsWithPermission("messages.view");
     const phoneNote = row.phone ? ` Телефон: ${row.phone}` : " Телефона пока нет — спросите в переписке.";
     await Promise.allSettled(
