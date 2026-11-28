@@ -296,7 +296,8 @@ export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnTyp
  * Файлы озвучки по ПРОСЬБЕ человека словами (инструмент send_narration_audio, 18.11.2026): готовая версия
  * объекта или образцы голосов в его личный чат. Тот же файл и подпись, что у карточки «прослушайте и одобрите».
  */
-export async function sendNarrationAudioToAgent(agentId: string, what: { versionId: string } | { samples: { voiceId?: string } }): Promise<{ sent: number; reason?: "NO_CHAT" | "NO_FILE" }> {
+export type SendNarrationAudioResult = { sent: number; reason?: "NO_CHAT" | "NO_FILE" | "NO_SAMPLES_LANG"; availableLangs?: Lang[] };
+export async function sendNarrationAudioToAgent(agentId: string, what: { versionId: string } | { samples: { voiceId?: string; lang?: Lang } }): Promise<SendNarrationAudioResult> {
   const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { telegramChatId: true } });
   if (!agent?.telegramChatId || !isTelegramEnabled()) return { sent: 0, reason: "NO_CHAT" };
   const chatId = agent.telegramChatId;
@@ -307,10 +308,18 @@ export async function sendNarrationAudioToAgent(agentId: string, what: { version
     await sendVersionAudioFile(chatId, path, formatPropertyCode(version.property.shortId), version.revision);
     return { sent: 1 };
   }
-  const lang = await chatLang(chatId);
+  // Язык ОБРАЗЦОВ — тот, что попросил человек («на таджикском»); без просьбы — язык чата. Другой язык молча не подставляем
+  // (28.11.2026: просили таджикские, пришли русские файлы, а на словах «таджикских нет»).
+  const asked = what.samples.lang;
+  const lang = asked ?? await chatLang(chatId);
   const { config } = await loadNarrationConfiguration();
   const sent = await sendVoiceSamples(chatId, config, lang, copy[lang].samples, what.samples.voiceId);
-  return sent ? { sent } : { sent: 0, reason: "NO_FILE" };
+  if (sent) return { sent };
+  if (asked) {
+    const availableLangs = [...new Set((await readyVoiceSamples(config)).map((s) => s.lang))] as Lang[];
+    return { sent: 0, reason: "NO_SAMPLES_LANG", availableLangs: availableLangs.filter((l) => l !== asked) };
+  }
+  return { sent: 0, reason: "NO_FILE" };
 }
 
 export type Clicker = NarrationClicker;

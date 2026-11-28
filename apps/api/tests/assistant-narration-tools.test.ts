@@ -200,6 +200,20 @@ describe("send_narration_audio", () => {
     expect((tg.sendDocumentFile.mock.calls[0] as unknown as [string, unknown, string, string])[3]).toBe("Фаррух");
     expect(await runRead("send_narration_audio", { what: "samples", voice: "Али" })).toMatchObject({ code: "NAME_AMBIGUOUS" });
   });
+  it("образцы «на таджикском» при русском чате: уходят таджикские файлы; таджикских нет — честная ошибка, русские не подменяют", async () => {
+    tg.samples = [{ voiceId: "voiceA", lang: "ru", storageKey: "s/a-ru.mp3" }, { voiceId: "voiceC", lang: "ru", storageKey: "s/c-ru.mp3" }];
+    const noTg = await runRead("send_narration_audio", { what: "samples", lang: "tg" });
+    expect(noTg).toMatchObject({ code: "NO_SAMPLES_LANG", availableLangs: ["ru"] });
+    expect(String((noTg as { error: string }).error)).toContain("таджикском");
+    expect(tg.sendDocumentFile).not.toHaveBeenCalled();
+    tg.samples = [...tg.samples, { voiceId: "voiceA", lang: "tg", storageKey: "s/a-tg.mp3" }];
+    expect(await runRead("send_narration_audio", { what: "samples", lang: "tg" })).toMatchObject({ sent: 1 });
+    const path = (tg.sendDocumentFile.mock.calls[0] as unknown as [string, { path: string }])[1].path;
+    expect(path).toBe("/stand/s/a-tg.mp3");
+    tg.sendDocumentFile.mockClear();
+    // Без lang — язык чата (русский), как раньше.
+    expect(await runRead("send_narration_audio", { what: "samples" })).toMatchObject({ sent: 2 });
+  });
 });
 
 describe("request_narration", () => {

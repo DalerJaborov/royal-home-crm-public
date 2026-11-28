@@ -121,6 +121,7 @@ const audioArgs = z.object({
   ref: refSchema.optional(),
   what: z.enum(["current", "samples"]),
   voice: z.string().trim().min(1).max(80).optional(),
+  lang: z.enum(["ru", "tg"]).optional(),
 }).refine((a) => a.what === "samples" || !!a.ref, { message: "Для готовой озвучки нужен номер объекта" });
 
 export const sendNarrationAudioPlugin: AssistantReadToolPlugin = {
@@ -129,6 +130,8 @@ export const sendNarrationAudioPlugin: AssistantReadToolPlugin = {
   description:
     "Прислать в чат ФАЙЛ: готовую озвучку объекта (what=current) или образцы голосов (what=samples, одна и та же фраза каждым голосом; voice — имя, если нужен один). " +
     "Звать: «пришли озвучку 205», «дай послушать», «как звучат голоса». Файл придёт отдельным сообщением выше твоего ответа, поэтому в ответе скажи коротко: «Прислала, послушайте». " +
+    "Язык образцов — lang: если человек просит образцы «на таджикском» / «тоҷикӣ» / таджикские — lang=tg; «на русском» — lang=ru; без просьбы не указывай (возьмётся язык чата). " +
+    "Если образцов на нужном языке нет — тебе придёт код NO_SAMPLES_LANG: скажи человеку прямо, на каком языке они есть, и не выдавай другой язык за нужный. " +
     "Только в личном чате Telegram. Если образцов ещё нет — так и скажи, их готовит руководство.",
   parameters: {
     type: "object",
@@ -136,6 +139,7 @@ export const sendNarrationAudioPlugin: AssistantReadToolPlugin = {
       what: { type: "string", enum: ["current", "samples"], description: "current — озвучка объекта; samples — образцы голосов" },
       ref: { type: "string", description: "Номер объекта: «ОБ-205» (нужен для what=current)" },
       voice: { type: "string", description: "Имя одного голоса из списка (для what=samples); без него — все готовые" },
+      lang: { type: "string", enum: ["ru", "tg"], description: "Язык образцов (what=samples): tg — таджикские, ru — русские; без него — язык чата" },
     },
     required: ["what"],
   },
@@ -154,7 +158,12 @@ export const sendNarrationAudioPlugin: AssistantReadToolPlugin = {
         if (!found.ok) throw nameError("голос", args.voice, found);
         voiceId = found.item.id;
       }
-      const sent = await sendNarrationAudioToAgent(actor.id, { samples: { voiceId } });
+      const sent = await sendNarrationAudioToAgent(actor.id, { samples: { voiceId, lang: args.lang } });
+      if (sent.reason === "NO_SAMPLES_LANG") {
+        const name = (l: string) => (l === "tg" ? "таджикском" : "русском");
+        const have = sent.availableLangs?.length ? `Есть образцы на ${sent.availableLangs.map(name).join(" и ")}.` : "Готовых образцов нет вообще.";
+        return { error: `Образцов на ${name(args.lang!)} языке пока нет: их готовит руководство. ${have} Другой язык не присылаю, чтобы не путать.`, code: "NO_SAMPLES_LANG", availableLangs: sent.availableLangs ?? [] };
+      }
       if (!sent.sent) return { error: sent.reason === "NO_CHAT" ? "Личный чат с Telegram не привязан" : "Образцы голосов ещё не подготовлены: их готовит руководство", code: sent.reason ?? "NO_SAMPLES" };
       return { sent: sent.sent, note: "Файлы уже в чате." };
     }
