@@ -915,7 +915,7 @@
       "mount": "/api/v1/me/notifications",
       "router": "notificationsRouter",
       "file": "apps/api/src/routes/notifications.ts",
-      "endpoints": 5,
+      "endpoints": 7,
       "label": "Лента уведомлений сотрудника",
       "usedBy": 12
     },
@@ -1424,6 +1424,14 @@
       "usedBy": 5
     },
     {
+      "mount": "/api/v1/cleanup",
+      "router": "dataCleanupRouter",
+      "file": "apps/api/src/routes/dataCleanup.ts",
+      "endpoints": 2,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/integrations",
       "router": "integrationsRouter",
       "file": "apps/api/src/routes/integrations.ts",
@@ -1750,6 +1758,11 @@
       "label": null
     },
     {
+      "id": "customer-turn-catch-up",
+      "expr": "1-59/2 * * * *",
+      "label": null
+    },
+    {
       "id": "customer-unrecorded-summary",
       "expr": "*/2 * * * *",
       "label": null
@@ -1762,6 +1775,11 @@
     {
       "id": "daily-stories",
       "expr": "*/15 * * * *",
+      "label": null
+    },
+    {
+      "id": "data-cleanup",
+      "expr": "30 3 * * *",
       "label": null
     },
     {

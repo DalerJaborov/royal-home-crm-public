@@ -365,6 +365,8 @@ async function upsertByTag(input: {
             read: false,
             // Новое событие по тому же поводу — снова не просмотрено: метка на колокольчике загорается.
             seenAt: null,
+            // Новое событие возвращает скрытую строку в ленту (28.11.2026).
+            hiddenAt: null,
             createdAt: new Date(),
           },
         });

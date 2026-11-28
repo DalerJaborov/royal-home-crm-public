@@ -154,12 +154,21 @@ describe("findStuckConversations — кто считается зависшим"
     expect((await findOurStuck()).map((r) => r.id)).not.toContain(conv.id);
   });
 
-  it("вчерашний диалог не подхватывается: повтор — только про сегодняшние сбои", async () => {
+  it("диалог старше суток Meta не подхватывается: ответить уже нельзя", async () => {
     const conv = await makeConversation("old", {
       lastMessageAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
     });
 
     expect((await findOurStuck()).map((r) => r.id)).not.toContain(conv.id);
+  });
+
+  /** 27.11.2026: окно — сутки Meta, а не «сегодня по Душанбе»: вечерний сбой после полуночи тоже догоняется. */
+  it("сбой 20 часов назад подхватывается, даже если это было вчера по Душанбе", async () => {
+    const conv = await makeConversation("evening", {
+      lastMessageAt: new Date(Date.now() - 20 * 60 * 60 * 1000),
+    });
+
+    expect((await findOurStuck()).map((r) => r.id)).toContain(conv.id);
   });
 
   it("диалог на паузе (оператор взял на себя) не подхватывается", async () => {
@@ -191,24 +200,21 @@ describe("findStuckConversations — кто считается зависшим"
   });
 
   /**
-   * РЕГРЕССИЯ 14.09.2026 (скриншоты владельца, лид «Сафия»): клиент с живым
-   * закреплённым агентом — бот молчит НАМЕРЕННО (conversationState.ts
-   * hasActiveAssignedAgent), это не «завис», а «ждёт человека». До правки
-   * такой диалог считался зависшим и на каждом тике health-automation заново
-   * ставил ai-reply-retry, который «успешно» завершался (no-reply) и попутно
-   * слал агенту тот же пуш с сообщением клиента — раз в 30 минут бесконечно.
+   * 27.11.2026 (прод ПК-001113/001114/001119): правило «бот молчит, если клиент у агента» отменено 18.09.2026, а повтор
+   * продолжал пропускать таких клиентов — после ручного ответа и паузы их сообщения не догонял никто. Пуш агенту на
+   * каждом повторе (причина исключения 14.09) больше не уходит: повтор помечен replay (inbound-replay-no-push тест ниже).
    */
-  it("клиент с живым закреплённым агентом не считается зависшим", async () => {
+  it("клиент с живым закреплённым агентом тоже догоняется после паузы", async () => {
     const agent = await prisma.agent.create({
       data: { fullName: `Тест агент ${runId}`, phone: `+992900${runId}`, role: "AGENT", passwordHash: "x" },
     });
     const client = await prisma.client.create({
       data: { fullName: `Тест клиент ${runId}`, phone: `+992901${runId}`, source: "PHONE_CALL", assignedAgentId: agent.id },
     });
-    const conv = await makeConversation("assigned", { clientId: client.id });
+    const conv = await makeConversation("assigned", { clientId: client.id, pausedUntil: new Date(Date.now() - 60_000) });
 
     try {
-      expect((await findOurStuck()).map((r) => r.id)).not.toContain(conv.id);
+      expect((await findOurStuck()).map((r) => r.id)).toContain(conv.id);
     } finally {
       await prisma.client.delete({ where: { id: client.id } });
       await prisma.agent.delete({ where: { id: agent.id } });

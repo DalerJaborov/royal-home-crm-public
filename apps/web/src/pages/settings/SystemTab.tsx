@@ -13,6 +13,7 @@ import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS, auditEntityLink, auditEntityN
 import { relativeTime } from "../../lib/format";
 import { SwitchRow } from "../../components/Switch";
 import { SettingsSection } from "../../components/settings/SettingsSection";
+import { CleanupButton } from "../../components/CleanupButton";
 import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../../components/rh2/Rh2EmptyState";
 import { Pagination } from "../../components/Pagination";
@@ -356,6 +357,7 @@ export function SystemHealthSection() {
             <button className="pill ghost sm" type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
               {expanded ? "Скрыть" : `Показать последние ошибки (${data.total ?? data.recent.length})`}
             </button>
+            <CleanupButton target="errorLog" label="Очистить журнал" onDone={() => load(showResolved, showOperational)} />
             {expanded && data.count7d > 0 && (
               <button className="lnk" type="button" onClick={resolveAll} disabled={busyId === "all"}>
                 {busyId === "all" ? "Отмечаем…" : "Разобрался со всеми"}

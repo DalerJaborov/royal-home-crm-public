@@ -1788,6 +1788,10 @@ model Notification {
   /// не трогаем), пока по ней не сделано действие. Новое событие с тем же tag
   /// (upsertByTag) сбрасывает отметку обратно в null и метка загорается снова.
   seenAt        DateTime?
+  /// «СКРЫТО» (владелец 28.11.2026, чистка шума): строка остаётся в базе, но пропадает из ленты
+  /// ЭТОГО сотрудника (уведомление у каждого своё — agentId). Новое событие с тем же tag
+  /// (upsertByTag) возвращает строку в ленту. null — видна.
+  hiddenAt      DateTime?
 
   @@index([agentId, read])
   @@index([agentId, createdAt])
@@ -5020,6 +5024,9 @@ model CustomerPropertyIngressTicket {
   managedOutputRecordedAt DateTime?
   /// Set atomically with scoped IN append; NULL historical tickets prove no append.
   inputRecordedAt DateTime?
+  /// Turn clock of a held input resumed ONCE by lib/customerTurnCatchUp.ts (27.11.2026). Origin identity stays
+  /// "receivedAt"; only the turn's deadline/age counts from here (lib/customerTurnClock.ts). Set once, never cleared.
+  resumedAt DateTime?
 
   @@index([conversationId, scopeKey])
   @@index([endpointScopeId])
@@ -7560,6 +7567,14 @@ model Settings {
   /// Строки «Звонок роботом» и «Не звонить роботом» в меню «Ещё» карточки клиента (владелец 27.11.2026: «удали это»).
   /// ВЫКЛ — строк нет; отметки RobotCallStop и звонки робота по политике работают как прежде. Реестр — automationSwitches.ts.
   clientCardRobotRowsEnabled            Boolean @default(false)
+  /// Автоочистка мусора (владелец 28.11.2026, lib/dataCleanup.ts, крон «data-cleanup»). ВЫКЛ по умолчанию:
+  /// удаление безвозвратное, включает владелец сам. Сроки — в днях; непрочитанное и неразобранное не трогается.
+  autoCleanupEnabled                    Boolean @default(false)
+  autoCleanupNotificationsReadDays      Int     @default(35)
+  autoCleanupErrorsResolvedDays         Int     @default(35)
+  autoCleanupDirectorAlertsDays         Int     @default(35)
+  autoCleanupBotCountersDays            Int     @default(30)
+  autoCleanupOneTimeDays                Int     @default(7)
   /// «Звонок по объекту: узнавать объект по приметам и отдавать хозяину» (владелец 26.11.2026, ПК-001086 → №230).
   /// ВКЛ: узнавание по приметам (lib/propertyMatch.ts) отдаёт заявку хозяину объекта, сверяет названное имя с
   /// хозяином, при похожих — подсказка руководству. ВЫКЛ — объект только номером/адресом/ссылкой/объявлением.
@@ -7572,6 +7587,11 @@ model Settings {
   /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
   /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
   botSilenceWatchEnabled                Boolean @default(true)
+  /// «Бот сам догоняет после паузы» (владелец 27.11.2026): сторож lib/customerTurnCatchUp.ts один раз
+  /// перезапускает последний неотвеченный ход ядра, когда пауза кончилась или ядро сорвалось. Реестр — automationSwitches.ts.
+  botCatchUpEnabled                     Boolean @default(true)
+  /// Дублировать уведомление сторожа «бот замолчал» директору и администратору в Telegram (27.11.2026), ВКЛ по умолчанию.
+  botSilenceTelegramEnabled             Boolean @default(true)
   /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
   /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
   /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).

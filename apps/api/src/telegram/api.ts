@@ -205,7 +205,8 @@ export async function sendMessage(
    * с сообщения все ограничения: живой сотрудник отвечает клиенту из CRM.
    * Умолчание — бот.
    */
-  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean; messageThreadId?: number }
+  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean; messageThreadId?: number;
+    /** Без звука и вибрации (disable_notification): ночные служебные сообщения сотрудникам. */ silent?: boolean }
 ): Promise<unknown> {
   /**
    * ЩИТ СТОРОЖИТ ТОЛЬКО КЛИЕНТСКИЕ ЧАТЫ (`onlyIfKnown`).
@@ -277,6 +278,7 @@ export async function sendMessage(
       chat_id: chatId,
       text: part,
       ...(outbound?.messageThreadId ? { message_thread_id: outbound.messageThreadId } : {}),
+      ...(outbound?.silent ? { disable_notification: true } : {}),
       ...(directMessagesTopicId ? { direct_messages_topic_id: directMessagesTopicId } : {}),
       ...(first && replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: !outbound?.requireReply } : {}),
     }, CALL_TIMEOUT_MS, outbound?.requireReply ? (data, status) => {

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **790**. Развилок в самих путях: **2527**; вместе с задачами по расписанию и фоновыми заданиями — **4392**. Модулей: **87**.
+Путей: **794**. Развилок в самих путях: **2531**; вместе с задачами по расписанию и фоновыми заданиями — **4407**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2340,6 +2340,38 @@
 - const clientLabels = await loadClientDisplayLabels(items.map((i)
   · зовёт loadClientDisplayLabels()
 - res.json({ ownOnly: !seesEveryone, items: items.map((i)
+  · ответ 200
+
+## /api/v1/cleanup
+
+### GET /api/v1/cleanup/preview
+
+`apps/api/src/routes/dataCleanup.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const parsed = cleanupRequestSchema.safeParse(req.query);
+  · проверяет данные схемой cleanupRequestSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры очистки", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры очистки»
+- const count = await countCleanup(target, mode, scope, actorOf(req));
+  · зовёт countCleanup()
+- res.json({ count });
+  · ответ 200
+
+### POST /api/v1/cleanup/run
+
+`apps/api/src/routes/dataCleanup.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- const parsed = cleanupRequestSchema.safeParse(req.body);
+  · проверяет данные схемой cleanupRequestSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры очистки", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры очистки»
+- const count = await runManualCleanup(target, mode, scope, actorOf(req));
+  · зовёт runManualCleanup()
+- logAudit(req, "CLEANUP", CLEANUP_TARGET_LABELS[target], null, { target, mode, scope: target === "notification…
+  · зовёт logAudit()
+- res.json({ ok: true, count });
   · ответ 200
 
 ## /api/v1/clients
@@ -9849,6 +9881,23 @@
 
 ## /api/v1/me/notifications
 
+### POST /api/v1/me/notifications/:id/hide
+
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = idParamSchema.safeParse(req.params);
+  · проверяет данные схемой idParamSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный идентификатор" });
+    · ответ 400 — «Неверный идентификатор»
+- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, read: true, ...await loadV…
+  · меняет в базе: notification
+- если result.count === 0
+  - return res.status(404).json({ error: "Скрыть можно только прочитанное уведомление" });
+    · ответ 404 — «Скрыть можно только прочитанное уведомление»
+- res.json({ ok: true });
+  · ответ 200
+
 ### POST /api/v1/me/notifications/:id/read
 
 `apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -9864,6 +9913,15 @@
   - return res.status(404).json({ error: "Уведомление не найдено" });
     · ответ 404 — «Уведомление не найдено»
 - res.json({ ok: true });
+  · ответ 200
+
+### POST /api/v1/me/notifications/hide-read
+
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…
+  · меняет в базе: notification
+- res.json({ ok: true, count: result.count });
   · ответ 200
 
 ### POST /api/v1/me/notifications/read-all
@@ -9912,7 +9970,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
     · ответ 400 — «Неверный номер страницы»
-- const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
+- const where: Prisma.NotificationWhereInput = { ...await loadVisibleNotificationsWhere(req.agent!.id, investig…
   · зовёт loadVisibleNotificationsWhere()
 - const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…
   · читает в базе: notification
@@ -20253,7 +20311,7 @@
         · дословно из кода
     - const snapshot = await loadSilenceSnapshot(now);
       · зовёт loadSilenceSnapshot()
-    - return prisma.$transaction(async (tx)
+    - const result = await prisma.$transaction(async (tx)
       · ошибка Error — «очередь тревог руководству недоступна»
       · всё внутри — одной транзакцией
       · обращается к базе своим SQL
@@ -20291,6 +20349,9 @@
       - если decision.kind === "close" && open
         - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
           · меняет в базе: botSilenceIncident
+    - для каждого: const text of said
+      - await sendSilenceTelegram(text, now);
+        · зовёт sendSilenceTelegram()
   - если alerted
     - console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
       · пишет строку в журнал сервера
@@ -21255,6 +21316,46 @@
     - customerBusy[lane] = false;
       · дословно из кода
 
+### customer-turn-catch-up — 1-59/2 * * * *
+
+- пробует
+  - await runCustomerTurnCatchUpTick();
+    · зовёт runCustomerTurnCatchUpTick()
+    - пробует
+      - если !(await automationSwitchOn("botCatchUpEnabled"))
+        - return result;
+          · дословно из кода
+      - const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestH…
+        · обращается к базе своим SQL
+      - для каждого: const row of resumable
+        - пробует
+          - await prisma.backgroundJob.create({ data: { type: "customer-inbox-consume", payload: { version: 1, eventKey: …
+            · создаёт в базе: backgroundJob
+        - если сорвалось
+          - если !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+            - throw error;
+              · пробрасывает ошибку дальше
+      - const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestHe…
+        · обращается к базе своим SQL
+      - для каждого: const row of forHuman
+        - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
+          · зовёт reportUnansweredCustomerTurn()
+        - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
+          · обращается к базе своим SQL
+    - если сорвалось
+      - void logSystemError("ai", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…
+        · запись в журнал ошибок
+    - если result.queued > 0
+      - console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);
+        · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «бот догоняет»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### customer-unrecorded-summary — */2 * * * *
 
 - пробует
@@ -21390,6 +21491,39 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка ежедневной подборки сторис", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### data-cleanup — 30 3 * * *
+
+- пробует
+  - const r = await runAutoCleanup();
+    · зовёт runAutoCleanup()
+    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      · читает в базе: settings
+    - если !settings?.autoCleanupEnabled
+      - return result;
+        · дословно из кода
+    - const days = autoCleanupDays(settings);
+      · зовёт autoCleanupDays()
+    - для каждого: const step of steps
+      - пробует
+        - result[step.name] += await deleteInBatches(delegateFor(step.target), step.where, AUTO_MAX_BATCHES_PER_TARGET);
+          · зовёт deleteInBatches()
+      - если сорвалось
+        - void logSystemError("cron", `Автоочистка «${step.target}» не удалась: ${message}`, { dedupKey: `data-cleanup:…
+          · запись в журнал ошибок
+    - если total > 0
+      - logSystemAudit("CLEANUP", "AutoCleanup", null, { notifications: result.notifications, errorLog: result.errorL…
+        · зовёт logSystemAudit()
+  - если r.ran
+    - console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автоочистки", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -28640,6 +28774,27 @@
 
 `apps/api/src/jobs/customerInboxConsume.ts`
 
+- если payload.resume
+  - await runCustomerCatchUpTurn(payload.eventKey);
+    · зовёт runCustomerCatchUpTurn()
+    - если !(await automationSwitchOn("botCatchUpEnabled"))
+      - return null;
+        · дословно из кода
+    - const outcome = await resumeHeldCustomerTurn(eventKey);
+      · зовёт resumeHeldCustomerTurn()
+    - если outcome === "failed"
+      - throw new Error("Догоняющий ход: сбой базы при возобновлении, задание повторит попытку");
+        · ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»
+    - если outcome === "not_eligible"
+      - const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…
+        · читает в базе: customerPropertyIngressTicket
+      - если !ticket?.resumedAt || ticket.processingState === "PLANNED"
+        - return null;
+          · дословно из кода
+    - return consumeCustomerInboxTicket(eventKey);
+      · зовёт consumeCustomerInboxTicket()
+  - return;
+    · дальше не идёт, ничего не меняя
 - await consumeCustomerInboxTicket(payload.eventKey);
   · зовёт consumeCustomerInboxTicket()
   - если !/^[a-f0-9]{64}$/.test(eventKey)

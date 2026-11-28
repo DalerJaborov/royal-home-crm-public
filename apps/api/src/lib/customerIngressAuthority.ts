@@ -16,6 +16,7 @@ import { rememberWhatsappOwnNumber } from "./whatsappOwnNumbers.js";
 import { readRecoveryInstagramCredential, readRecoveryInstagramUsername } from "./customerInstagramSenderRead.js";
 import { decryptCustomerSenderObservation, encryptCustomerSenderObservation, type CustomerSenderObservationContext } from "./customerSenderObservation.js";
 import { lockCustomerNative } from "./customerNativeLock.js";
+import { customerTicketTurnClock } from "./customerTurnClock.js";
 
 const requestProvenance = new WeakMap<object, "meta_signature" | "website_application_key">();
 const requestCapturedAt = new WeakMap<object, number>();
@@ -44,6 +45,10 @@ type InputEvidence = z.infer<typeof inputSchema> & {
   verifierCredential?: CustomerVerifierCredential | null;
 };
 const inputs = new WeakMap<object, InputEvidence>();
+/** Turn clock of a RECOVERED input whose held ticket was resumed once (customerTurnClock.ts). Absent = issuedAt.
+ *  Separate from the evidence itself: the evidence (and its persisted origin) never changes shape or identity. */
+const inputClocks = new WeakMap<object, number>();
+const pendingClocks = new WeakMap<object, number>();
 declare const inputBrand: unique symbol;
 export type AuthenticatedCustomerInput = { readonly [inputBrand]: true };
 
@@ -304,7 +309,13 @@ export function captureAuthenticatedCustomerInput(request: object, raw: z.infer<
 /** Server-only evidence. Neither a principal nor a private/client grant. */
 export function inspectAuthenticatedCustomerInput(value: unknown): Readonly<InputEvidence> | null {
   const input = value && typeof value === "object" ? inputs.get(value) : undefined;
-  return input && Date.now() >= input.issuedAt && Date.now() - input.issuedAt <= 15 * 60_000 ? structuredClone(input) : null;
+  return input && unexpired(input.issuedAt, inputClocks.get(value as object)) ? structuredClone(input) : null;
+}
+/** The clock this input's turn counts its age from: the original receipt, or the one resume of its held ticket. */
+export function customerInputTurnClock(value: unknown): number | null {
+  const input = value && typeof value === "object" ? inputs.get(value) : undefined;
+  if (!input || !unexpired(input.issuedAt, inputClocks.get(value as object))) return null;
+  return inputClocks.get(value as object) ?? input.issuedAt;
 }
 /** Server adapter marks the ACTUAL resulting accepted state. Neither a tool
  * argument nor a phone/admission reference may call this on an unbranded object. */
@@ -332,7 +343,8 @@ type OriginTicketRow = { eventKey: string; order: bigint; scopeKey: string; endp
   conversationId: string | null; originalConversationId: string | null; tombstonedAt: Date | null;
   payloadVersion: number | null; payloadCiphertext: string | null; payloadHash: string | null; receivedAt: Date;
   senderObservationVersion: number | null; senderObservationCiphertext: string | null; senderObservedAt: Date | null;
-  originVersion: number | null; originCiphertext: string | null; originCapturedAt: Date | null; inputRecordedAt: Date | null };
+  originVersion: number | null; originCiphertext: string | null; originCapturedAt: Date | null; inputRecordedAt: Date | null;
+  resumedAt?: Date | null };
 async function originTicket(db: OriginDb, eventKey: string, lock: boolean): Promise<OriginTicketRow | null> {
   // Keep the lock variant explicit: no raw interpolation of SQL identifiers.
   const rows = lock ? await db.$queryRaw<OriginTicketRow[]>`SELECT * FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${eventKey} FOR UPDATE`
@@ -349,7 +361,11 @@ function payloadForTicket(row: OriginTicketRow) {
   if (!row.conversationId || row.originalConversationId !== row.conversationId) throw new Error("Bound input unavailable");
   return pendingEnvelopeForTicket(row);
 }
-function unexpired(issuedAt: number): boolean { return Date.now() >= issuedAt && Date.now() - issuedAt <= 15 * 60_000; }
+/** A signed input lives 15 minutes from its turn clock: the receipt, or the single resume of its held ticket (customerTurnClock.ts).
+ *  The resume never moves the clock before the receipt and never past a day after it. */
+function unexpired(issuedAt: number, clockAt: number = issuedAt): boolean {
+  return Date.now() >= issuedAt && clockAt >= issuedAt && clockAt - issuedAt <= 24 * 60 * 60_000 && Date.now() - clockAt <= 15 * 60_000;
+}
 async function credentialCurrent(db: OriginDb, input: Pick<CustomerFinalOrigin["input"], "verifierCredential" | "provenance" | "accountExternalId" | "channel" | "issuerAccountId">): Promise<boolean> {
   const witness = input.verifierCredential;
   // Env/application-only provenance has no durable DB credential epoch.
@@ -405,7 +421,8 @@ export async function recoverCustomerPendingEnvelope(eventKey: string, db: Origi
       SELECT s."scopeRevision",p."policyRevision",s."messengerAccountId" AS "accountId",s."channel"
       FROM "CustomerEndpointScope" s JOIN "CustomerRuntimePolicy" p ON p."id"='singleton'
       WHERE s."id"=${row.endpointScopeId} AND s."kind"='NORMAL'`;
-    if (!unexpired(verification.issuedAt) || verification.issuedAt !== row.receivedAt.getTime() || !current ||
+    const clock = customerTicketTurnClock(row) ?? verification.issuedAt;
+    if (!unexpired(verification.issuedAt, clock) || verification.issuedAt !== row.receivedAt.getTime() || !current ||
         current.scopeRevision.toString() !== verification.scopeRevision || current.policyRevision.toString() !== verification.policyRevision ||
         current.accountId !== verification.accountId || current.channel !== payload.channel ||
         customerPropertyScopeKey(payload.channel, payload.peer, verification.accountId, row.endpointScopeId!) !== row.scopeKey ||
@@ -415,12 +432,13 @@ export async function recoverCustomerPendingEnvelope(eventKey: string, db: Origi
     }
     const envelope = Object.freeze({}) as RecoveredCustomerPendingEnvelope;
     recoveredPending.set(envelope, { payload, verification, eventKey: row.eventKey, order: row.order.toString() });
+    if (clock !== verification.issuedAt) pendingClocks.set(envelope, clock);
     return { status: "pending", envelope };
   } catch { return { status: "held", reason: "pending_binding_invalid" }; }
 }
 export function inspectRecoveredCustomerPendingEnvelope(value: unknown) {
   const evidence = value && typeof value === "object" ? recoveredPending.get(value) : undefined;
-  return evidence && unexpired(evidence.verification.issuedAt) ? structuredClone(evidence) : null;
+  return evidence && unexpired(evidence.verification.issuedAt, pendingClocks.get(value as object)) ? structuredClone(evidence) : null;
 }
 
 type PendingEvidence = NonNullable<ReturnType<typeof inspectRecoveredCustomerPendingEnvelope>>;
@@ -581,7 +599,8 @@ export async function readVerifiedCustomerFinalOrigin(db: OriginDb, eventKey: st
     const input = origin.input, payload = envelope.payload, pending = envelope.verification;
     if (origin.eventKey !== row.eventKey || origin.order !== row.order.toString() || origin.scopeKey !== row.scopeKey ||
         origin.payloadHash !== row.payloadHash || origin.originalConversationId !== row.originalConversationId ||
-        input.issuedAt !== row.originCapturedAt.getTime() || input.issuedAt !== row.receivedAt.getTime() || !unexpired(input.issuedAt) ||
+        input.issuedAt !== row.originCapturedAt.getTime() || input.issuedAt !== row.receivedAt.getTime() ||
+        !unexpired(input.issuedAt, customerTicketTurnClock(row) ?? input.issuedAt) ||
         input.channel !== payload.channel || input.peer !== payload.peer || input.eventId !== payload.eventId || input.eventKind !== payload.eventKind ||
         input.inputText !== payload.inputText || input.accountExternalId !== payload.accountExternalId ||
         input.issuerEndpointScopeId !== pending.endpointScopeId || input.issuerAccountId !== pending.accountId ||
@@ -637,6 +656,9 @@ export async function recoverAuthenticatedCustomerInput(eventKey: string, db: Or
   try { evidence = payloadForTicket(row).payload.propertyEvidence; } catch { return { status: "held", reason: "origin_payload_unavailable" }; }
   const input = Object.freeze({}) as AuthenticatedCustomerInput;
   inputs.set(input, structuredClone(origin.input));
+  // A resumed held turn (customerTurnCatchUp.ts) counts its age from the resume; identity stays the original receipt.
+  const clock = customerTicketTurnClock(row);
+  if (clock !== null && clock !== origin.input.issuedAt) inputClocks.set(input, clock);
   return { status: "recovered", input, ticket: { eventKey: origin.eventKey, order: origin.order, scopeKey: origin.scopeKey,
     conversationId: origin.originalConversationId, channel: origin.input.channel, accountId: origin.input.issuerAccountId,
     endpointScopeId: origin.input.acceptedFence.endpoint.endpointScopeId,

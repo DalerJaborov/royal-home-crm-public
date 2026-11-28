@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 790,
-  "forks": 4392,
-  "mounts": 87,
-  "cron": 148,
+  "endpoints": 794,
+  "forks": 4407,
+  "mounts": 88,
+  "cron": 150,
   "jobs": 37,
   "hidden": 0
  },
@@ -10334,6 +10334,132 @@
     {
      "k": "do",
      "t": "res.json({ ownOnly: !seesEveryone, items: items.map((i)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/preview",
+   "mount": "/api/v1/cleanup",
+   "full": "/api/v1/cleanup/preview",
+   "file": "apps/api/src/routes/dataCleanup.ts",
+   "router": "dataCleanupRouter",
+   "top": "apps/api/src/routes/dataCleanup.ts::dataCleanupRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = cleanupRequestSchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой cleanupRequestSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры очистки\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры очистки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const count = await countCleanup(target, mode, scope, actorOf(req));",
+     "a": [
+      "зовёт countCleanup()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/run",
+   "mount": "/api/v1/cleanup",
+   "full": "/api/v1/cleanup/run",
+   "file": "apps/api/src/routes/dataCleanup.ts",
+   "router": "dataCleanupRouter",
+   "top": "apps/api/src/routes/dataCleanup.ts::dataCleanupRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = cleanupRequestSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой cleanupRequestSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры очистки\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры очистки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const count = await runManualCleanup(target, mode, scope, actorOf(req));",
+     "a": [
+      "зовёт runManualCleanup()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"CLEANUP\", CLEANUP_TARGET_LABELS[target], null, { target, mode, scope: target === \"notification…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, count });",
      "a": [
       "ответ 200"
      ],
@@ -42603,6 +42729,79 @@
   },
   {
    "method": "POST",
+   "path": "/:id/hide",
+   "mount": "/api/v1/me/notifications",
+   "full": "/api/v1/me/notifications/:id/hide",
+   "file": "apps/api/src/routes/notifications.ts",
+   "router": "notificationsRouter",
+   "top": "apps/api/src/routes/notifications.ts::notificationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = idParamSchema.safeParse(req.params);",
+     "a": [
+      "проверяет данные схемой idParamSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, read: true, ...await loadV…",
+     "a": [
+      "меняет в базе: notification"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "result.count === 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Скрыть можно только прочитанное уведомление\" });",
+       "a": [
+        "ответ 404 — «Скрыть можно только прочитанное уведомление»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/read",
    "mount": "/api/v1/me/notifications",
    "full": "/api/v1/me/notifications/:id/read",
@@ -42667,6 +42866,41 @@
     {
      "k": "do",
      "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/hide-read",
+   "mount": "/api/v1/me/notifications",
+   "full": "/api/v1/me/notifications/hide-read",
+   "file": "apps/api/src/routes/notifications.ts",
+   "router": "notificationsRouter",
+   "top": "apps/api/src/routes/notifications.ts::notificationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…",
+     "a": [
+      "меняет в базе: notification"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, count: result.count });",
      "a": [
       "ответ 200"
      ],
@@ -42867,7 +43101,7 @@
     },
     {
      "k": "do",
-     "t": "const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));",
+     "t": "const where: Prisma.NotificationWhereInput = { ...await loadVisibleNotificationsWhere(req.agent!.id, investig…",
      "a": [
       "зовёт loadVisibleNotificationsWhere()"
      ],
@@ -90537,7 +90771,7 @@
         },
         {
          "k": "do",
-         "t": "return prisma.$transaction(async (tx)",
+         "t": "const result = await prisma.$transaction(async (tx)",
          "a": [
           "ошибка Error — «очередь тревог руководству недоступна»",
           "всё внутри — одной транзакцией",
@@ -90692,6 +90926,21 @@
              "c": []
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const text of said",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendSilenceTelegram(text, now);",
+           "a": [
+            "зовёт sendSilenceTelegram()"
+           ],
+           "c": []
           }
          ]
         }
@@ -95227,6 +95476,198 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "customer-turn-catch-up",
+   "when": "1-59/2 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runCustomerTurnCatchUpTick();",
+       "a": [
+        "зовёт runCustomerTurnCatchUpTick()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return result;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestH…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const row of resumable",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.backgroundJob.create({ data: { type: \"customer-inbox-consume\", payload: { version: 1, eventKey: …",
+               "a": [
+                "создаёт в базе: backgroundJob"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === \"P2002\")",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "throw error;",
+                 "a": [
+                  "пробрасывает ошибку дальше"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestHe…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const row of forHuman",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);",
+             "a": [
+              "зовёт reportUnansweredCustomerTurn()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "result.queued > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runCustomerTurnCatchUpTick() — apps/api/src/lib/customerTurnCatchUp.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «бот догоняет»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "customer-unrecorded-summary",
    "when": "*/2 * * * *",
    "tree": [
@@ -95848,6 +96289,161 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка ежедневной подборки сторис\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "data-cleanup",
+   "when": "30 3 * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const r = await runAutoCleanup();",
+       "a": [
+        "зовёт runAutoCleanup()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!settings?.autoCleanupEnabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return result;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const days = autoCleanupDays(settings);",
+         "a": [
+          "зовёт autoCleanupDays()"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const step of steps",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "result[step.name] += await deleteInBatches(delegateFor(step.target), step.where, AUTO_MAX_BATCHES_PER_TARGET);",
+             "a": [
+              "зовёт deleteInBatches()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"cron\", `Автоочистка «${step.target}» не удалась: ${message}`, { dedupKey: `data-cleanup:…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "total > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logSystemAudit(\"CLEANUP\", \"AutoCleanup\", null, { notifications: result.notifications, errorLog: result.errorL…",
+           "a": [
+            "зовёт logSystemAudit()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runAutoCleanup() — apps/api/src/lib/dataCleanup.ts"
+      },
+      {
+       "k": "if",
+       "t": "r.ran",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка автоочистки\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -129845,6 +130441,107 @@
    "kind": "customer-inbox-consume",
    "file": "apps/api/src/jobs/customerInboxConsume.ts",
    "tree": [
+    {
+     "k": "if",
+     "t": "payload.resume",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runCustomerCatchUpTurn(payload.eventKey);",
+       "a": [
+        "зовёт runCustomerCatchUpTurn()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const outcome = await resumeHeldCustomerTurn(eventKey);",
+         "a": [
+          "зовёт resumeHeldCustomerTurn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "outcome === \"failed\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new Error(\"Догоняющий ход: сбой базы при возобновлении, задание повторит попытку\");",
+           "a": [
+            "ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "outcome === \"not_eligible\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…",
+           "a": [
+            "читает в базе: customerPropertyIngressTicket"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!ticket?.resumedAt || ticket.processingState === \"PLANNED\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return consumeCustomerInboxTicket(eventKey);",
+         "a": [
+          "зовёт consumeCustomerInboxTicket()"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runCustomerCatchUpTurn() — apps/api/src/lib/customerTurnCatchUp.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "await consumeCustomerInboxTicket(payload.eventKey);",

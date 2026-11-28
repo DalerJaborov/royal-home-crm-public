@@ -28,6 +28,7 @@ import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runChannelVolumeWatchTick } from "./lib/channelVolumeWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runBotSilenceWatchTick } from "./lib/botSilenceWatch.js";
+import { runCustomerTurnCatchUpTick } from "./lib/customerTurnCatchUp.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
@@ -1281,6 +1282,25 @@ export function startCronJobs() {
         if (directorAlerts.count) console.log(`[cron] Уборка алармов директору: -${directorAlerts.count}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки журналов", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /** Автоочистка мусора с короткими сроками (владелец 28.11.2026): прочитанные уведомления, разобранные
+   *  ошибки, технический лог ИИ, обработанные оповещения директору. Рубильник Settings.autoCleanupEnabled,
+   *  ВЫКЛ по умолчанию; вся логика и тест — lib/dataCleanup.ts (здесь только расписание). Через полчаса после
+   *  общей уборки журналов: та работает по 90 дням, эта — по срокам из Настроек. */
+  scheduleTracked(
+    "data-cleanup",
+    "30 3 * * *",
+    async () => {
+      try {
+        const { runAutoCleanup } = await import("./lib/dataCleanup.js");
+        const r = await runAutoCleanup();
+        if (r.ran) console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору -${r.directorAlerts}, счётчики щитов -${r.botCounters}, одноразовые -${r.oneTime}`);
+      } catch (err) {
+        reportCronTickError("Ошибка автоочистки", err);
       }
     },
     { timezone: "Asia/Dushanbe" }
@@ -2757,6 +2777,19 @@ export function startCronJobs() {
       if (alerted) console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «бот замолчал»", err);
+    }
+  });
+
+  /**
+   * «БОТ САМ ДОГОНЯЕТ» (владелец 27.11.2026, lib/customerTurnCatchUp.ts). Раз в две минуты, круглые сутки: сообщение
+   * клиента, удержанное ядром на паузе сотрудника или на сбое, после паузы получает ОДИН ответ обычным ходом ядра.
+   * Сам тик не бросает и пишет сбой в журнал; рубильник botCatchUpEnabled.
+   */
+  scheduleTracked("customer-turn-catch-up", "1-59/2 * * * *", async () => {
+    try {
+      await runCustomerTurnCatchUpTick();
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «бот догоняет»", err);
     }
   });
 

@@ -6,7 +6,7 @@ import { customerAgentVerifiedContextSchema, customerAgentRevisionSchema, custom
   type CustomerAgentRevision, type CustomerAgentVerifiedContext, type CustomerFence } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isCustomerPrincipal, revalidateCustomerPrincipal, customerPrincipalAuthenticatedInput, type CustomerPrincipal } from "./customerPrincipal.js";
-import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
+import { customerInputTurnClock, inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
 import { decryptCustomerIngressEnvelope } from "./customerIngressPayload.js";
 import { decodeCustomerAgentRevision, customerAgentTurnDeadline } from "./customerAgentRevision.js";
@@ -210,7 +210,8 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
   if (!currentInput) return { status: "held", reason: "original_context_changed" };
   const requestedRevision = customerAgentRevisionSchema.safeParse(input.revision);
   if (!requestedRevision.success) return { status: "held", reason: "revision_mismatch" };
-  const originalDeadline = customerAgentTurnDeadline(currentInput.issuedAt, requestedRevision.data.limits.deadlineMs);
+  // The turn clock: the receipt, or the single resume of this held input (customerTurnClock.ts) — the same clock as the pin.
+  const originalDeadline = customerAgentTurnDeadline(customerInputTurnClock(authenticated) ?? currentInput.issuedAt, requestedRevision.data.limits.deadlineMs);
   const deadlineAt = Math.min(input.wait?.deadlineAt ?? Infinity, originalDeadline);
   const alive = () => !input.wait?.signal?.aborted && Date.now() < deadlineAt;
   let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
