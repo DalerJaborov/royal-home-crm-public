@@ -28535,7 +28535,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: settings.manage"
+    "есть право: settings.manage",
+    "requireElevation"
    ],
    "handlerRef": null,
    "tree": [
@@ -28684,7 +28685,15 @@
    "tree": [
     {
      "k": "do",
-     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { usdRatePendingValue: null, usdRatePendingA…",
+     "t": "const cur = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdRatePendingValue: tru…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { usdRateDismissedValue: cur?.usdRatePending…",
      "a": [
       "меняет в базе: settings"
      ],

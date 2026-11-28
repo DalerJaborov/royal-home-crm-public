@@ -6466,7 +6466,7 @@
 
 ### PATCH /api/v1/exchange-rate/config
 
-`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = configSchema.safeParse(req.body);
   · проверяет данные схемой configSchema
@@ -6502,7 +6502,9 @@
 
 `apps/api/src/routes/exchangeRate.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
-- await prisma.settings.update({ where: { id: "singleton" }, data: { usdRatePendingValue: null, usdRatePendingA…
+- const cur = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdRatePendingValue: tru…
+  · читает в базе: settings
+- await prisma.settings.update({ where: { id: "singleton" }, data: { usdRateDismissedValue: cur?.usdRatePending…
   · меняет в базе: settings
 - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { usdRatePendingDismissed: true });
   · зовёт logAudit()

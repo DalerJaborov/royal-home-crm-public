@@ -26850,7 +26850,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: settings.manage"
+    "есть право: settings.manage",
+    "requireElevation"
    ],
    "screens": [],
    "tree": [
