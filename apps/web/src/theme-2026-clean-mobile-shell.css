@@ -239,3 +239,13 @@ html[data-shell="clean"][data-mobile-ux] .clean-header-own ~ .app-main-col .rh2 
   margin-top: calc(-1 * var(--clean-safe-top));
   padding-top: calc(14px + var(--clean-safe-top));
 }
+
+/* Шапка меняет высоту на границе прокрутки (крупное название → мини), а выше
+   `CleanShell` возвращает убавку полем под ней. Chrome (Android, и эмуляция в
+   проверках) в этот момент «якорит» прокрутку и сдвигает её на убавку: у верха это
+   упирается в 0 и страница не даёт зависнуть на 13-26 px. Safari на iPhone
+   якорение не умеет вовсе, так что единственная цена — Chrome-подобные браузеры не
+   удерживают позицию при росте содержимого ВЫШЕ экрана; у наших списков рост идёт вниз. */
+html[data-shell="clean"][data-mobile-ux] .app-main-col {
+  overflow-anchor: none;
+}
