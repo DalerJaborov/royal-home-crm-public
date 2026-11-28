@@ -47,4 +47,10 @@ describe("репорт загрузки: ASSEMBLING", () => {
     reportUploadIssue({ ...base, status: 409, final: true, error: UPLOAD_ERROR_SPECS.PARTS_MISSING.message });
     expect(apiMock).toHaveBeenCalledTimes(1);
   });
+
+  it("список технических текстов совпадает с источником правды в shared", async () => {
+    const { UPLOAD_TECHNICAL_MESSAGES } = await import("../errorReporter");
+    const shared = Object.values(UPLOAD_ERROR_SPECS).map((s) => s.message);
+    for (const m of shared) expect(UPLOAD_TECHNICAL_MESSAGES, m).toContain(m);
+  });
 });

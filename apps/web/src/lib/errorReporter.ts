@@ -1,4 +1,3 @@
-import { UPLOAD_ERROR_SPECS } from "@royal-home/shared";
 import { api } from "./api";
 import { useAuthStore } from "../store/auth";
 import { formatUploadIssueMessage, type UploadIssueInfo } from "./uploadFormat";
@@ -10,6 +9,30 @@ import { connectionSnapshot } from "./upload/network";
  * не ждём, пока о поломке расскажет агент. Дедуп: одна и та же ошибка шлётся не
  * чаще раза в 5 минут, максимум 20 репортов за сессию (защита от циклов).
  */
+/**
+ * Тексты технических отказов загрузки (packages/shared/src/uploadErrors.ts, UPLOAD_ERROR_SPECS) продублированы здесь
+ * нарочно: общий пакет тянет за собой весь барель и замедляет первый импорт очереди загрузок. Совпадение с источником
+ * держит тест uploadAssemblingNoise.test.ts.
+ */
+export const UPLOAD_ASSEMBLING_MESSAGE = "Файл уже собирается — подождите";
+export const UPLOAD_TECHNICAL_MESSAGES: readonly string[] = [
+  "На сервере закончилось место для файлов — загрузка остановлена. Мы уже получили сигнал, попробуйте позже.",
+  "Сервер не смог сохранить файл — попробуем ещё раз",
+  "Не все части файла дошли — дошлём недостающие",
+  UPLOAD_ASSEMBLING_MESSAGE,
+  "Размер части не совпадает с планом загрузки",
+  "Неверный номер части",
+  "Пустая часть",
+  "Часть оборвалась по дороге — отправим её ещё раз",
+  "Загрузка не найдена — выберите файл ещё раз",
+  "Файл уже собран",
+  "Сейчас идёт слишком много ваших загрузок — дождитесь, пока закончится одна из них",
+  "Файл больше допустимого предела",
+  "Неверный размер части",
+  "Файл не читается как видео — выберите другой ролик",
+  "Ролик длиннее допустимого",
+  "Слишком много запросов, подождите немного",
+];
 const sentAt = new Map<string, number>();
 let totalSent = 0;
 const DEDUPE_MS = 5 * 60 * 1000;
@@ -86,7 +109,7 @@ export function reportUploadIssue(info: UploadIssueInfo): void {
    * журнал — значит будить директора ожидаемым ходом событий. Окончательный отказ
    * («final») по-прежнему пишется всегда.
    */
-  if (info.final !== true && info.error === UPLOAD_ERROR_SPECS.ASSEMBLING.message) return;
+  if (info.final !== true && info.error === UPLOAD_ASSEMBLING_MESSAGE) return;
   /**
    * ОСОЗНАННЫЙ ОТКАЗ СЕРВЕРА ПО СУТИ ФАЙЛА — не поломка (журнал 28.11.2026, объект №236:
    * «Это исходник объекта (121382.mp4), а не смонтированный ролик», 409). Сотрудник
@@ -95,7 +118,7 @@ export function reportUploadIssue(info: UploadIssueInfo): void {
    * (UPLOAD_ERROR_SPECS), в журнал для директора не пишем.
    */
   if ((info.status === 409 || info.status === 422) && info.error
-    && !Object.values(UPLOAD_ERROR_SPECS).some((spec) => spec.message === info.error)) return;
+    && !UPLOAD_TECHNICAL_MESSAGES.includes(info.error)) return;
   void send(formatUploadIssueMessage(withUploadEnv(info)), undefined, { final: info.final === true, upload: true });
 }
 
