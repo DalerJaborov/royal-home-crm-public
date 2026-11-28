@@ -13,6 +13,8 @@ export interface LandmarkFilters {
   q?: string;
   category?: string;
   showHidden?: boolean;
+  /** «own» — народные названия сотрудников, «import» — купленный слой, пусто — все. */
+  layer?: "own" | "import";
   page?: number;
   pageSize?: number;
 }
@@ -22,6 +24,7 @@ function toQuery(filters: LandmarkFilters) {
   if (filters.q) params.set("q", filters.q);
   if (filters.category) params.set("category", filters.category);
   if (filters.showHidden) params.set("showHidden", "1");
+  if (filters.layer) params.set("layer", filters.layer);
   if (filters.page) params.set("page", String(filters.page));
   if (filters.pageSize) params.set("pageSize", String(filters.pageSize));
   const qs = params.toString();
@@ -113,6 +116,33 @@ export function useRemoveLandmarkAlias() {
   return useMutation({
     mutationFn: ({ landmarkId, aliasId }: { landmarkId: string; aliasId: string }) =>
       api<void>(`/landmarks/${landmarkId}/aliases/${aliasId}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+  });
+}
+
+export interface LandmarkSummary {
+  own: number;
+  importTotal: number;
+  importHidden: number;
+  junk: number;
+  duplicateGroups: number;
+  duplicateExtra: number;
+}
+
+/** Сколько народных, купленных, мусора и дублей — для шапки справочника в Настройках. */
+export function useLandmarkSummary() {
+  return useQuery({
+    queryKey: ["landmarks", "summary"],
+    queryFn: () => api<LandmarkSummary>("/landmarks/summary"),
+  });
+}
+
+/** Скрыть мусор / лишние дубли купленного слоя (скрытие флагом, ничего не удаляется). */
+export function useLandmarkCleanup() {
+  const invalidate = useInvalidateLandmarks();
+  return useMutation({
+    mutationFn: (mode: "junk" | "duplicates") =>
+      api<{ mode: string; hidden: number }>("/landmarks/cleanup", { method: "POST", body: { mode } }),
     onSuccess: invalidate,
   });
 }

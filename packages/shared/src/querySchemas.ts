@@ -392,12 +392,17 @@ export const landmarkQuerySchema = z.object({
   /** «1» — включить скрытые (enabled=false) в выдачу; без параметра видны
    *  только включённые. Не boolean-коэрция намеренно, как и у `hot` в clientQuerySchema. */
   showHidden: z.enum(["1"]).optional(),
+  /** Слой: «own» — заведено сотрудниками, «import» — купленный слой; без параметра — все. */
+  layer: z.enum(["own", "import"]).optional(),
   page,
   /** Справочник может разрастись за счёт агентов — тот же потолок, что у
    *  инстаграм-ленты, для одной страницы списка в Настройках. */
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
 export type LandmarkQuery = z.infer<typeof landmarkQuerySchema>;
+
+/** Чистка купленного слоя ориентиров: скрыть мусор или лишние дубли (ничего не удаляется). */
+export const landmarkCleanupSchema = z.object({ mode: z.enum(["junk", "duplicates"]) });
 
 export const securityListQuerySchema = z.object({
   page,

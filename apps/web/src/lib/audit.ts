@@ -283,6 +283,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   LANDMARK_CREATE: "Ориентир добавлен",
   LANDMARK_UPDATE: "Ориентир изменён",
   LANDMARK_HIDE: "Ориентир скрыт",
+  LANDMARK_CLEANUP: "Чистка ориентиров (скрыт мусор или дубли)",
   LANDMARK_SHOW: "Ориентир возвращён из скрытых",
   LANDMARK_DELETE: "Ориентир удалён",
   LANDMARK_ALIAS_ADD: "Синоним ориентира добавлен",
