@@ -908,7 +908,8 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
     if (!grant.ok) return say("page_not_shared", SHARE_HINT(`Страницы → ${base.pageId}`));
     const named = { ...row, pageName: grant.pageName };
     if (igId && grant.igId !== igId) return { ...named, state: "mismatch", hint: "К этой Странице привязан другой Instagram. Нажмите «Найти Страницу» ещё раз." };
-    const subscribed = await pageSubscribed(base.pageId, grant.token, appId);
+    const subscribed = await pageSubscribed(base.pageId, grant.token, appId,
+      base.channel === "INSTAGRAM" ? ["messages"] : MESSENGER_REQUIRED_PAGE_FIELDS);
     const withSub = { ...named, subscribed };
     if (base.channel === "INSTAGRAM") {
       // 21.11.2026: Instagram решает свой рубильник реестра «Автоматика», App Review не ждём.
@@ -923,7 +924,9 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
       state: "ready",
       hint:
         subscribed === false
-          ? "«Подписать Страницу» — только если входящие перестанут приходить: при двух подписках сообщение может прийти дважды."
+          ? base.channel === "INSTAGRAM"
+            ? "«Подписать Страницу» — только если входящие перестанут приходить: при двух подписках сообщение может прийти дважды."
+            : "Страница не присылает CRM ответы сотрудников из Meta Business Suite: бот их не видит и отвечает поверх человека. Нажмите «Подписать Страницу»."
           : "",
     };
   };
@@ -1001,14 +1004,20 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
   return { preferred: s.preferred, appReviewApproved: s.appReviewApproved, systemUser, rows };
 }
 
-async function pageSubscribed(pageId: string, pageToken: string, appId: string | undefined): Promise<boolean | null> {
+/**
+ * Подписана ли Страница на нужные поля. Messenger (28.11.2026, прод: за 7 дней ни одного эха FACEBOOK против 245 в
+ * Instagram): одного `messages` мало — без `message_echoes` ответ сотрудника из Meta Business Suite до CRM не доходит, и
+ * бот отвечает поверх человека. Поэтому для Страницы Messenger «подписана» = есть и `messages`, и `message_echoes`.
+ */
+export const MESSENGER_REQUIRED_PAGE_FIELDS: readonly string[] = ["messages", "message_echoes"];
+async function pageSubscribed(pageId: string, pageToken: string, appId: string | undefined, required: readonly string[] = ["messages"]): Promise<boolean | null> {
   if (!appId) return null;
   try {
     const r = await graphJson(`${GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, pageToken);
     if (!r.ok) return null;
     const apps = (r.data?.data ?? []) as Array<{ id?: string; subscribed_fields?: string[] }>;
     const ours = apps.find((x) => x.id === appId);
-    return Boolean(ours?.subscribed_fields?.includes("messages"));
+    return required.every((field) => Boolean(ours?.subscribed_fields?.includes(field)));
   } catch {
     return null;
   }
@@ -1249,7 +1258,10 @@ export async function facebookPageForConnect(
   return { ok: true, token: grant.token, pageName: grant.pageName ?? page.name, igId: grant.igId ?? page.igId };
 }
 
-/** Подписано ли наше приложение на сообщения Страницы (null — не удалось проверить). */
+/**
+ * Подписано ли наше приложение на сообщения Страницы И на эхо ответов сотрудников (null — не удалось проверить). Без
+ * `message_echoes` ответ из Meta Business Suite до CRM не доходит (28.11.2026, MESSENGER_REQUIRED_PAGE_FIELDS).
+ */
 export async function pageMessagingSubscribed(pageId: string): Promise<boolean | null> {
   try {
     const s = await loadSnapshot();
@@ -1258,7 +1270,7 @@ export async function pageMessagingSubscribed(pageId: string): Promise<boolean |
     if (!grant.ok) return null;
     const app = await graphJson(`${GRAPH}/app?fields=id`, s.systemToken);
     const appId = app.ok && typeof app.data?.id === "string" ? app.data.id : undefined;
-    return await pageSubscribed(pageId, grant.token, appId);
+    return await pageSubscribed(pageId, grant.token, appId, MESSENGER_REQUIRED_PAGE_FIELDS);
   } catch {
     return null;
   }

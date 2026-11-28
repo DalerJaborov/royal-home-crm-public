@@ -235,7 +235,7 @@ describe("оператор приёма заявок на настоящем п�
   it("случай 3, WhatsApp: заявка в этот же ход и вопрос о деталях; ответ — заметка; модель ядра не звалась; память v2 переживает приём", async () => {
     const f = await coreFixture("Хочу продать квартиру, 2 комнаты", "WHATSAPP");
     // 24.11.2026: роль и суть (комнаты) есть — заявка сразу; срок звонка не называем (владелец 22.11.2026).
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он с вами свяжется, " +
+    expect(await plannedText(f.eventKey)).toBe("Поможем с продажей, комиссия агентства 2%. Спасибо, передаю агенту, он с вами свяжется, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const lead = await intakeJob(f.eventKey);
     expect(lead?.payload).toMatchObject({ scenario: "seller", propertyId: null });
@@ -402,7 +402,7 @@ describe("ревью 19.11: недостающие тесты подключен
 
   it("Т2: Instagram — условия и один вопрос по делу (номер не первым ответом, SPEC п. 8), номер следующим ходом, заявка продавца", async () => {
     const f = await coreFixture("Хочу продать квартиру", "INSTAGRAM");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
+    expect(await plannedText(f.eventKey)).toBe("Поможем с продажей, комиссия агентства 2%. Напишите, что продаёте и в каком районе, всё расскажем.");
     expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");
@@ -432,7 +432,7 @@ describe("ревью 19.11: недостающие тесты подключен
       await prisma.botConversation.update({ where: { id: ticket.conversationId! }, data: { leadOnlyPending: serializeOperatorState(initialOperatorState()) as object } });
       return null;
     });
-    expect(await plannedText(f.eventKey)).toContain("Поможем продать");
+    expect(await plannedText(f.eventKey)).toContain("Поможем с продажей");
     expect(understandModel).toHaveBeenCalledTimes(2);
     expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(1);
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(1);

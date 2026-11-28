@@ -491,6 +491,16 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     return finish();
   }
 
+  // ── вне Душанбе, рубильник «отказ» ВКЛ (28.11.2026, жалоба директора: Messenger «у нас дом в Худжанде») ───────────────
+  // Умолчание (ВЫКЛ) — решение владельца 19.11: не отказываем, заявка с пометкой (ниже, `out_of_area_accepted`). ВКЛ — один раз
+  // существующая фраза `where_work`, номер не просим, заявку не заводим; повтор — тишина без сигнала людям. Номер в словах
+  // клиента — заявка всегда (владелец 20.11.2026), вакансия — путь рекрутёра: оба мимо этой ветки.
+  if (ctx.outOfAreaRefusal && s.outOfArea && !u.phone && u.role !== "job" && s.role !== "job" && u.role !== "rent") {
+    answers.length = 0; flow.length = 0;
+    if (!said("where_work")) answers.push(draft("where_work"));
+    return finish();
+  }
+
   // ── не по теме: одна фраза, второй раз молчим (случай 24) ─────────────────
   if (u.offTopic && !u.role && !u.phone) {
     if (!said("off_topic")) answers.push(draft("off_topic"));

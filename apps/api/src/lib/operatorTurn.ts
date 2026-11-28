@@ -123,6 +123,8 @@ export async function loadOperatorTurnSetup(input: {
     automationSwitchOn("botPauseOnStaffReplyEnabled")
       .then((on) => on && staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now))
       .catch(() => false)]);
+  // Рубильник отказа вне Душанбе (28.11.2026): сбой чтения — ВЫКЛ, то есть решение владельца 19.11 (не отказываем).
+  const outOfAreaRefusal = await automationSwitchOn("botOutOfAreaRefusalEnabled").catch(() => false);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
   const staffThread = await staffWroteEver(input.conversationId);
   const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
@@ -147,6 +149,7 @@ export async function loadOperatorTurnSetup(input: {
     officePhone: PUBLIC_AGENCY_CONTACT.phone,
     sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent,
     outOfArea: false,
+    ...(outOfAreaRefusal ? { outOfAreaRefusal: true } : {}),
     afterLeadReplies: input.config.repliesAfterLead !== false,
     staffActive,
     recentTurn: Number.isFinite(previousAt) && now.getTime() - previousAt >= 0 && now.getTime() - previousAt <= OPERATOR_BURST_MS,

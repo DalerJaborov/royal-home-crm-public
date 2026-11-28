@@ -464,9 +464,21 @@ function codeQuestionSignal(own: string, folded: string): boolean {
 }
 const QUESTION_WORD = new RegExp(`${BW}(?:как|какой|какая|какие|где|когда|почему|зачем|сколько|чи|чихел${TAIL}|кадом|кай|чаро|кучо)${EW}`, "u");
 
+/**
+ * СТИКЕР — РЕАКЦИЯ, А НЕ ТЕКСТ И НЕ ФОТО (28.11.2026, жалоба директора: лайк 👍 в Messenger после отказа получил «акс ва
+ * видеоро агент худаш мегирад»). Стикер (лайк Messenger, стикер WhatsApp) не скачивается, в ход он приходит служебной пометкой
+ * «[вложение: sticker]» (routes/webhooks.ts). Её буквы — не слова клиента: без этой поправки пометка считалась текстом.
+ */
+const STICKER_MARK = /\[вложение:\s*sticker\]/giu;
+export function operatorStickerOnly(text: string): { sticker: boolean; rest: string } {
+  const sticker = new RegExp(STICKER_MARK.source, "iu").test(text);
+  return { sticker, rest: sticker ? text.replace(STICKER_MARK, " ").replace(/\s+/gu, " ").trim() : text };
+}
+
 /** Общая часть понимания — только код: номер, вложения, вежливость, кнопка рекламы, язык, запреты владельца. */
 function codeFacts(input: OperatorTurnInput) {
-  const own = operatorClientWords(input.current);
+  const sticker = operatorStickerOnly(operatorClientWords(input.current));
+  const own = sticker.rest;
   const folded = foldCustomerText(own);
   const phone = extractVolunteeredPhone(own);
   const letters = letterCount(own);
@@ -496,7 +508,8 @@ function codeFacts(input: OperatorTurnInput) {
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
     // Реакция: есть эмодзи, нет букв, цифр и вложений (прод 23.11.2026: «😍» на ролик принят за вложение). «+», «?», «...» без
     // эмодзи — не реакция: у них прежний путь (слепое ревью: «+» на просьбу номера иначе пропадал без сигнала).
-    reaction: letters === 0 && !phone && !/\d/u.test(own) && EMOJI.test(own) && attachments.voice === "none" &&
+    // Стикер без слов (лайк Messenger, стикер WhatsApp) — та же реакция (28.11.2026).
+    reaction: letters === 0 && !phone && !/\d/u.test(own) && (EMOJI.test(own) || sticker.sticker) && attachments.voice === "none" &&
       !attachments.media && !attachments.ownPost && !attachments.foreignPost,
     // «+», «👍», «👌» одни: знак согласия (decide.ts берёт его как «да» только сразу после предложения звонка или просьбы номера).
     agreeSign: letters === 0 && AGREE_SIGN.test(own),
@@ -881,8 +894,9 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
  */
 export async function understandTurn(input: OperatorTurnInput, state: OperatorState, ctx: OperatorContext,
   model: LeadOnlyIntentModel = operatorUnderstandModel, timeoutMs = LEAD_ONLY_INTENT_TIMEOUT_MS): Promise<Understanding> {
-  const own = operatorClientWords(input.current);
-  // Номер, эмодзи, вложение без слов, готовая кнопка рекламы: спрашивать модель не о чем.
+  // Пометка стикера — не слова клиента (28.11.2026): стикер с подписью идёт в модель одной подписью.
+  const own = operatorStickerOnly(operatorClientWords(input.current)).rest;
+  // Номер, эмодзи, стикер, вложение без слов, готовая кнопка рекламы: спрашивать модель не о чем.
   if (letterCount(own) < 2 || isAdTemplateOpener(own)) return understandFallback(input, state, ctx);
   // Кнопка рекламы — не слова клиента (SPEC, строка 12): в контекст модели её не даём, иначе её «вопрос» прилипает к
   // следующему сообщению («Покупаем» → «это точно скажет агент», разбор суток 23.11.2026, C8).

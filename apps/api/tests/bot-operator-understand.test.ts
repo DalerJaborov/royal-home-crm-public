@@ -202,7 +202,7 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const first = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: c, now, model });
     // Владелец 22.11.2026: голая роль — сначала вопрос по сути, без заявки и без срока звонка.
-    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
+    expect(first.text).toBe("Поможем с продажей, комиссия агентства 2%. Напишите, что продаёте и в каком районе, всё расскажем.");
     expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "role_details_seller"]);
     expect(first.facts).toMatchObject({ percent: 2 });
     expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
