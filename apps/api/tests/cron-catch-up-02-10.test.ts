@@ -78,4 +78,44 @@ describe("догон пропущенных суточных тиков посл
     expect(ran).not.toContain(name);
     expect(calls).toHaveLength(0);
   });
+
+  /**
+   * Журнал 28.11.2026: ночной обход рынка (до 3 ч) рвёт выкат; тик, помеченный повторяемым,
+   * запускается заново, остальные оборванные — по-прежнему нет.
+   */
+  it("оборванный рестартом повторяемый тик (без успеха и ошибки) запускается заново, обычный — нет", async () => {
+    const resumable = `test-catchup-resume-${runId}`;
+    const plain = `test-catchup-noresume-${runId}`;
+    const callsA: number[] = [];
+    const callsB: number[] = [];
+    tasks.push(scheduleTracked(resumable, "30 2 * * *", () => void callsA.push(1), { timezone: "Asia/Dushanbe" }, undefined, { rerunIfInterrupted: true, timeoutMs: 3.5 * 60 * MINUTE }));
+    tasks.push(scheduleTracked(plain, "30 2 * * *", () => void callsB.push(1), { timezone: "Asia/Dushanbe" }));
+    // «Сейчас» — 05:00 Душанбе, тик стартовал в 02:30 в процессе, которого уже нет (тест-процесс старше «сейчас»).
+    const started = new Date(Date.now() - 2 * 60 * MINUTE);
+    for (const n of [resumable, plain]) {
+      await prisma.cronHeartbeat.create({ data: { name: n, expr: "30 2 * * *", lastRunAt: started, lastOkAt: new Date(started.getTime() - 24 * 60 * MINUTE) } });
+    }
+    // Процесс «стартовал» после запуска тика: now берём в будущее на минуту — processStartedAt уже позади started? Нет:
+    // processStartedAt — момент загрузки модуля (сейчас), started — два часа назад, значит тик начат ДО старта процесса.
+    const ran = await catchUpMissedTicks(new Date());
+    expect(ran).toContain(resumable);
+    expect(ran).not.toContain(plain);
+    expect(callsA).toHaveLength(1);
+    expect(callsB).toHaveLength(0);
+  });
+
+  it("повторяемый тик с записанной ошибкой или слишком давний — не запускается", async () => {
+    const withError = `test-catchup-resume-err-${runId}`;
+    const stale = `test-catchup-resume-old-${runId}`;
+    const calls: number[] = [];
+    for (const n of [withError, stale]) {
+      tasks.push(scheduleTracked(n, "30 2 * * *", () => void calls.push(1), { timezone: "Asia/Dushanbe" }, undefined, { rerunIfInterrupted: true, timeoutMs: 3.5 * 60 * MINUTE }));
+    }
+    await prisma.cronHeartbeat.create({ data: { name: withError, expr: "30 2 * * *", lastRunAt: new Date(Date.now() - 60 * MINUTE), lastError: "упал сам" } });
+    await prisma.cronHeartbeat.create({ data: { name: stale, expr: "30 2 * * *", lastRunAt: new Date(Date.now() - 6 * 60 * MINUTE) } });
+    const ran = await catchUpMissedTicks(new Date());
+    expect(ran).not.toContain(withError);
+    expect(ran).not.toContain(stale);
+    expect(calls).toHaveLength(0);
+  });
 });

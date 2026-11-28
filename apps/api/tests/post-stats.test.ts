@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
-import { summarizePostStats, dushanbeHour, resetPostStatsCache, type PostStatsPost } from "../src/lib/postStats.js";
+import { summarizePostStats, dushanbeHour, resetPostStatsCache, isPostGoneError, type PostStatsPost } from "../src/lib/postStats.js";
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
@@ -29,6 +29,18 @@ function makePost(overrides: Partial<PostStatsPost>): PostStatsPost {
     ...overrides,
   };
 }
+
+describe("isPostGoneError — пост удалён на площадке (журнал 28.11.2026)", () => {
+  it("узнаёт «Object with ID … does not exist» у Facebook и Instagram", () => {
+    expect(isPostGoneError("Unsupported get request. Object with ID '1895833021780548' does not exist, cannot be loaded due to missing permissions, or does not support this operation.")).toBe(true);
+    expect(isPostGoneError("Unsupported get request. Object with ID '18171474130483653' does not exist")).toBe(true);
+  });
+  it("настоящие сбои не прячет", () => {
+    expect(isPostGoneError("Error validating access token: Session has expired")).toBe(false);
+    expect(isPostGoneError("The operation was aborted due to timeout")).toBe(false);
+    expect(isPostGoneError(null)).toBe(false);
+  });
+});
 
 describe("dushanbeHour — чистая функция", () => {
   it("час Душанбе = час UTC + 5 по модулю 24", () => {

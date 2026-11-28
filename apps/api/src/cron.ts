@@ -1874,7 +1874,8 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" },
     undefined,
     // Тот же предел, что у недельного: MAX_RUNTIME_MS (3 ч) + запас на последнюю страницу.
-    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000 }
+    // Обход идемпотентен (upsert, замок): оборванный выкатом, он запускается заново после старта worker.
+    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000, rerunIfInterrupted: true }
   );
 
   /**

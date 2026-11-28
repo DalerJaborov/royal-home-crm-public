@@ -2220,7 +2220,9 @@ async function finishReceivingVideo(
   const check = await checkEditedClip(destPath, propertyId, property.shortId, { allowSilent: mixPlan.mode === "CRM_MIX" });
   if (!check.ok) {
     await fs.promises.unlink(destPath).catch(() => {});
-    void logSystemError("video-handoff", `Объект №${property.shortId}: ролик от монтажёра отклонён — ${check.error}`);
+    // Не тот файл (исходник, ролик другого объекта) — ошибка выбора, а не системы: монтажёр
+    // получает текст отказа сразу, директору в журнал это не нужно (28.11.2026).
+    if (!check.userMistake) void logSystemError("video-handoff", `Объект №${property.shortId}: ролик от монтажёра отклонён — ${check.error}`);
     return { ok: false, error: check.error };
   }
 
@@ -2597,7 +2599,7 @@ async function checkEditedClip(
   shortId: number,
   /** Ролик без голоса (11.11.2026): звук даст озвучка CRM, дорожки может не быть. */
   opts: { allowSilent?: boolean } = {}
-): Promise<{ ok: true; media: MediaInfo | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; media: MediaInfo | null } | { ok: false; error: string; userMistake?: true }> {
   const media = await probeMediaInfo(destPath);
   if (!media) {
     void logSystemError("video-handoff", `Объект №${shortId}: проверить ролик не удалось — принят без проверки (ffprobe недоступен либо файл не распознан)`);
@@ -2645,6 +2647,7 @@ async function checkEditedClip(
             source.propertyId === propertyId
               ? `Это исходник объекта (${source.filename}), а не смонтированный ролик.`
               : `Это исходник ДРУГОГО объекта — №${source.property.shortId} (${source.filename}), а не смонтированный ролик для №${shortId}. Файл не принят.`,
+          userMistake: true,
         };
       }
     }
@@ -2660,6 +2663,7 @@ async function checkEditedClip(
     return {
       ok: false,
       error: `Этот же ролик уже сдан по объекту №${twin.shortId} — у двух квартир один ролик быть не может. Пришлите ролик именно для №${shortId}.`,
+      userMistake: true,
     };
   }
 

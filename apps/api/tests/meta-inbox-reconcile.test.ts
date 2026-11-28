@@ -30,7 +30,7 @@ vi.mock("../src/lib/recipients.js", async (importOriginal) => {
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret } = await import("../src/crypto.js");
-const { incomingFromGraph, runMetaInboxReconcile, withoutToken, automatedTexts, knownMessageIds, GRACE_MS } = await import("../src/lib/metaInboxReconcile.js");
+const { incomingFromGraph, runMetaInboxReconcile, withoutToken, automatedTexts, knownMessageIds, GRACE_MS, resetReconcileTimeoutStreakForTests } = await import("../src/lib/metaInboxReconcile.js");
 const { customerPropertyEventKey, customerPropertyScopeKey } = await import("../src/lib/customerPropertyScope.js");
 
 /**
@@ -171,6 +171,29 @@ describe("runMetaInboxReconcile", () => {
     }, { timeout: 5000, interval: 100 });
     expect(line.message).toContain("Arvan estate");
     expect(line.message).not.toContain("page-token-test");
+  });
+
+  it("журнал 28.11.2026: таймаут сверки — в журнал только с третьего прохода подряд, успешный проход обнуляет серию", async () => {
+    resetReconcileTimeoutStreakForTests();
+    await prisma.errorLog.deleteMany({ where: { dedupKey: `meta-inbox-reconcile-page-failed:${pageId}` } });
+    const timeoutImpl = async (url: string) => {
+      if (url.includes(encodeURIComponent(pageId))) throw new Error("The operation was aborted due to timeout");
+      return { json: async () => ({ data: [] }) };
+    };
+    const okImpl = async () => ({ json: async () => ({ data: [] }) });
+    const logged = () => prisma.errorLog.count({ where: { dedupKey: `meta-inbox-reconcile-page-failed:${pageId}` } });
+    await runMetaInboxReconcile(now, timeoutImpl, STARTED_LONG_AGO);
+    await runMetaInboxReconcile(now, timeoutImpl, STARTED_LONG_AGO);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await logged()).toBe(0);
+    await runMetaInboxReconcile(now, okImpl, STARTED_LONG_AGO); // серия сброшена
+    await runMetaInboxReconcile(now, timeoutImpl, STARTED_LONG_AGO);
+    await runMetaInboxReconcile(now, timeoutImpl, STARTED_LONG_AGO);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await logged()).toBe(0);
+    await runMetaInboxReconcile(now, timeoutImpl, STARTED_LONG_AGO); // третий подряд
+    await vi.waitFor(async () => { if ((await logged()) < 1) throw new Error("ещё нет"); }, { timeout: 5000, interval: 100 });
+    expect(await logged()).toBe(1);
   });
 
   it("192-3: сотрудник уже ответил в Business Suite — «ответьте вручную» не шлём", async () => {

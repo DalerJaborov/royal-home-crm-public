@@ -1,5 +1,6 @@
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
+import { logTelephonyFailure } from "./stationTimeoutLog.js";
 import { describeError } from "../describeError.js";
 import { reactivateClientFromLost } from "../clientLifecycle.js";
 import { returningAgentStillAvailable } from "../returningClientRouting.js";
@@ -1055,12 +1056,9 @@ export async function releaseChannelToOperator(channelName: string, reason: stri
     );
     if (result.ok) return;
     if (/no such channel|channel not found/i.test(result.error ?? "")) return;
-    void logSystemError(
-      "telephony",
-      `Станция не приняла вердикт «звонок не наш» (канал ${channelName}): ${result.error}`
-    );
+    void logTelephonyFailure(`Станция не приняла вердикт «звонок не наш» (канал ${channelName}): ${result.error}`);
   } catch (err) {
-    void logSystemError("telephony", `Вердикт «звонок не наш» не доехал до станции: ${describeError(err)}`);
+    void logTelephonyFailure(`Вердикт «звонок не наш» не доехал до станции: ${describeError(err)}`);
   }
 }
 
@@ -1176,8 +1174,8 @@ async function setKnownClientVerdict(channelName: string): Promise<void> {
       { timeoutMs: ROUTE_AMI_TIMEOUT_MS }
     );
     if (result.ok || /no such channel|channel not found/i.test(result.error ?? "")) return;
-    void logSystemError("telephony", `Станция не приняла вердикт «свой клиент» (канал ${channelName}): ${result.error}`);
+    void logTelephonyFailure(`Станция не приняла вердикт «свой клиент» (канал ${channelName}): ${result.error}`);
   } catch (err) {
-    void logSystemError("telephony", `Вердикт «свой клиент» не доехал до станции: ${describeError(err)}`);
+    void logTelephonyFailure(`Вердикт «свой клиент» не доехал до станции: ${describeError(err)}`);
   }
 }

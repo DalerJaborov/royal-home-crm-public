@@ -2,6 +2,7 @@ import { FOREIGN_PHONE_CALL_ERROR, isForeignPhone } from "@royal-home/shared";
 import { decryptSecretSafe } from "../../crypto.js";
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
+import { logTelephonyFailure } from "./stationTimeoutLog.js";
 
 /**
  * Этап 4 (телефония) — первый слой: подключение к Asterisk REST Interface (ARI).
@@ -46,7 +47,7 @@ const CALL_TIMEOUT_MS = 5000;
  * лежащей станции — текст стабилен (без channelId/bridgeId в начале сообщения).
  */
 function logAriFailure(message: string): void {
-  void logSystemError("telephony", `АТС (ARI): ${message}`);
+  void logTelephonyFailure(`АТС (ARI): ${message}`);
 }
 
 export interface AriCredentials {

@@ -1,3 +1,4 @@
+import { UPLOAD_ERROR_SPECS } from "@royal-home/shared";
 import { api } from "./api";
 import { useAuthStore } from "../store/auth";
 import { formatUploadIssueMessage, type UploadIssueInfo } from "./uploadFormat";
@@ -77,6 +78,24 @@ function report(message: string, stack?: string) {
  * отчёта директора.
  */
 export function reportUploadIssue(info: UploadIssueInfo): void {
+  /**
+   * «Файл уже собирается — подождите» (409 ASSEMBLING) на промежуточной попытке — это
+   * НОРМА, а не поломка (журнал 28.11.2026: iPhone, 130 МБ, части 33/33, попытка 2/10).
+   * Первый ответ «собрать» у тяжёлого ролика обрывается по времени (статус 0), сервер
+   * продолжает сборку, повтор честно получает «уже собирается» и ждёт. Писать это в
+   * журнал — значит будить директора ожидаемым ходом событий. Окончательный отказ
+   * («final») по-прежнему пишется всегда.
+   */
+  if (info.final !== true && info.error === UPLOAD_ERROR_SPECS.ASSEMBLING.message) return;
+  /**
+   * ОСОЗНАННЫЙ ОТКАЗ СЕРВЕРА ПО СУТИ ФАЙЛА — не поломка (журнал 28.11.2026, объект №236:
+   * «Это исходник объекта (121382.mp4), а не смонтированный ролик», 409). Сотрудник
+   * выбрал не тот файл; сервер сказал это словами, и сотрудник видит текст на экране.
+   * 409/422 с человеческим текстом, которого нет среди технических кодов загрузки
+   * (UPLOAD_ERROR_SPECS), в журнал для директора не пишем.
+   */
+  if ((info.status === 409 || info.status === 422) && info.error
+    && !Object.values(UPLOAD_ERROR_SPECS).some((spec) => spec.message === info.error)) return;
   void send(formatUploadIssueMessage(withUploadEnv(info)), undefined, { final: info.final === true, upload: true });
 }
 

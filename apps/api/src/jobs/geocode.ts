@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { logSystemError } from "../lib/systemError.js";
+import { sendPushToAgents } from "../push.js";
 import { districtByPoint } from "../lib/propertyDistrict.js";
 import { autoLinkPropertyById } from "../lib/constructionRegistry/autoLinkOnSave.js";
 import { buildPropertyTitle } from "@royal-home/shared";
@@ -52,6 +53,9 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
         geocodedAt: true,
         districtId: true,
         shortId: true,
+        assignedAgentId: true,
+        intakeAgentId: true,
+        createdById: true,
         title: true,
         type: true,
         rooms: true,
@@ -72,11 +76,26 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
     // журнал — единственное место, где это видно. Запись одна на задание:
     // сюда попадаем только по успешному ответу провайдера, повтор не идёт.
     if (!result) {
-      await logSystemError(
-        "geocode",
-        `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в Nominatim — ` +
-          `точку на карте нужно поставить руками (адрес: ${address.slice(0, 120)})`
-      );
+      // КЛАСС «ЗАДАЧА АГЕНТУ, А НЕ ПОЛОМКА» (журнал 28.11.2026, объект №236: адрес «Район Рудакӣ, городок Сомониён»).
+      // Поставить точку на карте может только тот, кто знает объект, — ему и идёт задача пушем со ссылкой на карточку.
+      // Директору в журнал строка попадает, только если отвечающего агента нет (некому сказать).
+      const owner = property.assignedAgentId ?? property.intakeAgentId ?? property.createdById;
+      const told = owner
+        ? await sendPushToAgents([owner], {
+            kind: "task",
+            title: `Объект №${property.shortId}: поставьте точку на карте`,
+            body: `Адрес «${address.slice(0, 80)}» не нашёлся в справочнике. Откройте карточку и отметьте место на карте вручную.`,
+            url: `/properties/${property.shortId}`,
+            tag: `geocode-not-found-${payload.propertyId}`,
+          }).then((n) => n > 0, () => false)
+        : false;
+      if (!told) {
+        await logSystemError(
+          "geocode",
+          `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в Nominatim — ` +
+            `точку на карте нужно поставить руками (адрес: ${address.slice(0, 120)})`
+        );
+      }
       // Точки нет — прежняя AUTO-связь с реестром (по старому адресу) снимается той же дверью (ревью 25.11.2026).
       await autoLinkPropertyById(payload.propertyId);
       return;
