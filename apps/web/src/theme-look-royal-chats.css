@@ -18,7 +18,7 @@
 
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] {
   --ry-chat-list-w: 340px;
-  --ry-chat-h: max(480px, calc(var(--clean-viewport-height, 100dvh) - 200px - var(--clean-notice-space, 0px)));
+  --ry-chat-h: max(480px, calc(var(--clean-viewport-height, 100dvh) - 200px - var(--clean-notice-space, 0px) - env(safe-area-inset-top, 0px)));
   color: var(--rh-ui-text);
 }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] > .scr { display: grid; gap: 16px; min-width: 0; }
