@@ -119,3 +119,12 @@ describe("«Уведомления»: ряд действий не шире те
     expect(body).toMatch(/max-width:\s*100%/);
   });
 });
+
+describe("«Команда»: раскрытый блок достижений без лишних полей на телефоне", () => {
+  it("карточка не складывает поле с полем строки раскрытия, заголовок и подпись досок друг под другом", () => {
+    const css = read("theme-look-royal-team.css");
+    expect(blockOf(css, "details.clean-team-recognition { padding: 0; }")).toBeDefined();
+    expect(css).toMatch(/clean-team-recognition \.sec-h \{ flex-wrap: wrap/);
+    expect(css).toMatch(/\.sec-h > \.note \{ flex: 1 1 100%/);
+  });
+});
