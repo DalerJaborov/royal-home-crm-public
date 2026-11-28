@@ -111,3 +111,11 @@ describe("шапка при сворачивании не двигает стр�
     expect(blockOf(read("theme-2026-clean-mobile-shell.css"), "[data-mobile-ux] .app-main-col {\n  overflow-anchor")).toMatch(/overflow-anchor:\s*none/);
   });
 });
+
+describe("«Уведомления»: ряд действий не шире телефона (фиксированное меню было на y=1051)", () => {
+  it("`.pg-h > .acts` экрана администрирования переносится", () => {
+    const body = blockOf(read("theme-look-royal-admin.css"), ".ry-admin[data-ry-section=\"admin\"] .pg-h > .acts");
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+    expect(body).toMatch(/max-width:\s*100%/);
+  });
+});
