@@ -10,6 +10,8 @@ vi.mock("../../../hooks/useSettings", () => ({
   useUpdateSettings: () => ({ mutateAsync: vi.fn(), isPending: state.pending, isError: true, error: new Error("Курс отклонён сервером") }),
   useRefreshExchangeRate: () => ({ mutateAsync: vi.fn() }),
 }));
+// Панель состояния курса (страж, 28.11.2026) тянет свои запросы — здесь проверяется только форма курса.
+vi.mock("../ExchangeRateWatchPanel", () => ({ ExchangeRateWatchPanel: () => null }));
 vi.mock("../../../hooks/useServerSyncedForm", () => ({ useServerSyncedFields: (server: typeof state.server) => { state.server = server; } }));
 
 it("rejects zero with the native numeric constraint", () => {

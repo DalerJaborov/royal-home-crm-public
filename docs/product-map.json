@@ -1432,6 +1432,14 @@
       "usedBy": 1
     },
     {
+      "mount": "/api/v1/exchange-rate",
+      "router": "exchangeRateRouter",
+      "file": "apps/api/src/routes/exchangeRate.ts",
+      "endpoints": 6,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/integrations",
       "router": "integrationsRouter",
       "file": "apps/api/src/routes/integrations.ts",
@@ -1811,6 +1819,11 @@
       "id": "exchange-rate",
       "expr": "0 1 * * *",
       "label": "Обновляет курс доллара к сомони с alif.tj"
+    },
+    {
+      "id": "exchange-rate-watch",
+      "expr": "40 7,10,13,16,19 * * *",
+      "label": null
     },
     {
       "id": "expired-property-drafts-cleanup",

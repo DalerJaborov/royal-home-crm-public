@@ -12,9 +12,9 @@
 |---|---|
 | Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 32 |
-| Модулей сервера | 87 |
-| Адресов сервера всего | 790 |
-| Задач по расписанию | 143 |
+| Модулей сервера | 88 |
+| Адресов сервера всего | 796 |
+| Задач по расписанию | 144 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -214,6 +214,7 @@
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |
 | `/api/v1/cleanup` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/dataCleanup.ts` |
+| `/api/v1/exchange-rate` | **без подписи** | 6 | да (1 мест) | `apps/api/src/routes/exchangeRate.ts` |
 | `/api/v1/integrations` | Состояние внешних подключений | 1 | да (1 мест) | `apps/api/src/routes/integrations.ts` |
 | `/api/v1/stuck-work` | Экран «Что не доехало»: работа, которую система не довела до конца | 2 | да (2 мест) | `apps/api/src/routes/stuckWork.ts` |
 | `/api/v1/backups` | Отчёты о резервных копиях | 2 | нет | `apps/api/src/routes/backups.ts` |
@@ -284,6 +285,7 @@
 | `duplicate-fuzzy-scan` | `0 8 * * *` | Ежедневный поиск дублей по похожему имени и номеру |
 | `duplicates-weekly-digest` | `20 9 * * 1` | Напоминание руководителю о вероятных дубликатах клиентов |
 | `exchange-rate` | `0 1 * * *` | Обновляет курс доллара к сомони с alif.tj |
+| `exchange-rate-watch` | `40 7,10,13,16,19 * * *` | **без подписи** |
 | `expired-property-drafts-cleanup` | `*/15 * * * *` | Удаляет просроченные черновики новых объектов |
 | `finance-pdf-monthly` | `10 9 1-3 * *` | **без подписи** |
 | `free-narration-purge` | `*/30 * * * *` | **без подписи** |
@@ -434,6 +436,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-group-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `bot-silence-watch`, `channel-volume-watch`, `client-notes-plain-sweep`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-media-settle`, `customer-outbox-jobs`, `customer-turn-catch-up`, `customer-unrecorded-summary`, `daily-stories`, `data-cleanup`, `disk-cleanup`, `finance-pdf-monthly`, `free-narration-purge`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `missed-call-task-whatsapp-close`, `narration-auto-flow`, `narration-preview-due`, `narration-version-delivery`, `outgoing-media-jobs`, `outgoing-media-photo-jobs`, `outgoing-media-sweep`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `showing-questions`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `somon-owner-leads-silence`, `staff-notice-cleanup`, `staff-social-post-sweep`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `transfer-request-tick`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-calling-health`, `whatsapp-webhook-watch`
-- Модулей сервера: `/api/v1/showing-questions`, `/api/v1/property-offers`, `/api/v1/construction-registry`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/cleanup`, `/api/v1/attachments/s`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
+- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-group-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `bot-silence-watch`, `channel-volume-watch`, `client-notes-plain-sweep`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-media-settle`, `customer-outbox-jobs`, `customer-turn-catch-up`, `customer-unrecorded-summary`, `daily-stories`, `data-cleanup`, `disk-cleanup`, `exchange-rate-watch`, `finance-pdf-monthly`, `free-narration-purge`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `missed-call-task-whatsapp-close`, `narration-auto-flow`, `narration-preview-due`, `narration-version-delivery`, `outgoing-media-jobs`, `outgoing-media-photo-jobs`, `outgoing-media-sweep`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `showing-questions`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `somon-owner-leads-silence`, `staff-notice-cleanup`, `staff-social-post-sweep`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `transfer-request-tick`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-calling-health`, `whatsapp-webhook-watch`
+- Модулей сервера: `/api/v1/showing-questions`, `/api/v1/property-offers`, `/api/v1/construction-registry`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/cleanup`, `/api/v1/exchange-rate`, `/api/v1/attachments/s`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

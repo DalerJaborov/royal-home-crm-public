@@ -9,7 +9,7 @@ const agentIds: string[] = [], tokens: Record<string,string> = {};
 const clientId = randomUUID(), ordinary = randomUUID(), secret = randomUUID();
 const jobIds = Array.from({length:4},()=>randomUUID());
 beforeAll(async () => {
-  for (const [key, role, revoked] of [["agent", "AGENT", []], ["admin", "ADMIN", []], ["revoked", "ADMIN", ["clients.securityReview"]]] as const) {
+  for (const [key, role, revoked] of [["agent", "ADMIN", ["clients.securityReview"]], ["admin", "ADMIN", []], ["revoked", "ADMIN", ["clients.securityReview"]]] as const) {
     const id=randomUUID(); agentIds.push(id);
     await prisma.agent.create({data:{id,fullName:`Synthetic queue ${key}`,phone:`queue-${id}`,passwordHash:"unused",role,permissions:{granted:["auditLog.view","clients.securityReview"],revoked:[...revoked]}}});
     tokens[key]=signAccessToken({sub:id,role});
