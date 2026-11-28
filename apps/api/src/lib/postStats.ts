@@ -360,7 +360,7 @@ async function fetchFacebookAvgWatch(videoId: string, token: string): Promise<nu
 
 /** Graph API: «Object with ID … does not exist» — пост/медиа удалены на площадке. */
 export function isPostGoneError(error: string | null | undefined): boolean {
-  return /Object with ID '?\d+'? does not exist/i.test(String(error ?? ""));
+  return /Object with ID '?[\d_]+'? does not exist/i.test(String(error ?? ""));
 }
 
 /** Собрать площадку из списка попыток: не подключена — сразу неудача без сети;

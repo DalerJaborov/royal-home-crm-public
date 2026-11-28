@@ -455,12 +455,24 @@ const CATCH_UP_WINDOW_MS = 3 * HOUR;
  *
  * Возвращает имена запущенных тиков.
  */
+/** Последний плановый срок тика не позже `now` (для суточных и редких тиков хватает шага назад на двое суток). */
+function lastScheduledSlot(meta: TickMeta, now: Date): Date {
+  let slot = nextCronRun(meta.expr, new Date(now.getTime() - 2 * DAY), meta.timezone);
+  for (let i = 0; i < 400; i++) {
+    const next = nextCronRun(meta.expr, slot, meta.timezone);
+    if (next.getTime() > now.getTime()) break;
+    slot = next;
+  }
+  return slot;
+}
+
 export async function catchUpMissedTicks(now: Date = new Date()): Promise<string[]> {
   const daily = [...registry].filter(([name, meta]) => meta.intervalMs >= DAY && runners.has(name));
   if (daily.length === 0) return [];
   const rows = await prisma.cronHeartbeat.findMany({ where: { name: { in: daily.map(([name]) => name) } } });
   const byName = new Map(rows.map((r) => [r.name, r]));
   const missed: string[] = [];
+  const rerun: string[] = [];
   for (const [name, meta] of daily) {
     const row = byName.get(name);
     const lastSeen = Math.max(row?.lastRunAt?.getTime() ?? 0, row?.lastSkippedAt?.getTime() ?? 0);
@@ -474,9 +486,11 @@ export async function catchUpMissedTicks(now: Date = new Date()): Promise<string
       startedAt < processStartedAt.getTime() &&
       startedAt > (row?.lastOkAt?.getTime() ?? 0) &&
       !row?.lastError &&
-      now.getTime() - startedAt <= Math.max(CATCH_UP_WINDOW_MS, tickTimeoutMs(meta));
+      // Предел повтора считается от ПЛАНОВОГО срока, а не от lastRunAt (его обновляет каждый повтор): иначе при выкатах
+      // каждые 1–2 ч обход длиной 3 ч начинался бы заново весь день (ревью 28.11.2026).
+      now.getTime() - lastScheduledSlot(meta, now).getTime() <= Math.max(CATCH_UP_WINDOW_MS, tickTimeoutMs(meta));
     if (interruptedByRestart) {
-      missed.push(name);
+      rerun.push(name);
       continue;
     }
     const due = nextCronRun(meta.expr, new Date(lastSeen), meta.timezone).getTime();
@@ -487,7 +501,12 @@ export async function catchUpMissedTicks(now: Date = new Date()): Promise<string
     console.warn(`[cron] ${name}: запуск по расписанию пропущен рестартом — догоняем`);
     await runners.get(name)!();
   }
-  return missed;
+  // Оборванные длинные тики — в отрыве: многочасовой обход не должен задерживать остальные догоняемые тики.
+  for (const name of rerun) {
+    console.warn(`[cron] ${name}: тик оборван рестартом — запускаем заново`);
+    void runners.get(name)!();
+  }
+  return [...missed, ...rerun];
 }
 
 /** Молчание дольше двух интервалов (плюс люфт на занятый event loop) — тревога. */

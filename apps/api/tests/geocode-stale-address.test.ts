@@ -177,6 +177,21 @@ describe("Задание геокодера читает адрес из баз�
     await prisma.notification.deleteMany({ where: { tag: `geocode-not-found-${property.id}` } });
   });
 
+  it("адрес не нашёлся, ответственный уволен — строка в журнале директору, а не запись в пустоту", async () => {
+    const property = await makeProperty({ address: `Ненаходимая-уволенный ${runId}, 11` });
+    const fired = await prisma.agent.create({ data: { fullName: "Уволенный адреса", phone: `+992957${String(Date.now()).slice(-6)}`, role: "AGENT", passwordHash: "x", isActive: false } });
+    try {
+      await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: fired.id, createdById: fired.id, assignedAgentId: null } });
+      nominatimAnswer = [];
+      await geocodeJob.run({ propertyId: property.id });
+      expect(await prisma.errorLog.count({ where: { source: "geocode", message: { contains: `№${property.shortId} не найден` } } })).toBe(1);
+      await prisma.errorLog.deleteMany({ where: { source: "geocode", message: { contains: `№${property.shortId} не найден` } } });
+    } finally {
+      await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: null, createdById: null } });
+      await prisma.agent.delete({ where: { id: fired.id } }).catch(() => {});
+    }
+  });
+
   it("адрес не нашёлся, ответственного агента нет — одна запись в журнале (некому сказать)", async () => {
     const property = await makeProperty({ address: `Ненаходимая-без-агента ${runId}, 10` });
     await prisma.property.update({ where: { id: property.id }, data: { intakeAgentId: null, createdById: null, assignedAgentId: null } });

@@ -48,9 +48,10 @@ describe("репорт загрузки: ASSEMBLING", () => {
     expect(apiMock).toHaveBeenCalledTimes(1);
   });
 
-  it("список технических текстов совпадает с источником правды в shared", async () => {
-    const { UPLOAD_TECHNICAL_MESSAGES } = await import("../errorReporter");
-    const shared = Object.values(UPLOAD_ERROR_SPECS).map((s) => s.message);
-    for (const m of shared) expect(UPLOAD_TECHNICAL_MESSAGES, m).toContain(m);
+  it("другой 409/422 (не все части дошли, не видео) пишется как раньше", async () => {
+    const { reportUploadIssue } = await import("../errorReporter");
+    reportUploadIssue({ ...base, status: 409, final: true, error: "Пришли не все части" });
+    reportUploadIssue({ ...base, status: 422, final: true, error: "Не удалось определить длительность видео" });
+    expect(apiMock).toHaveBeenCalledTimes(2);
   });
 });

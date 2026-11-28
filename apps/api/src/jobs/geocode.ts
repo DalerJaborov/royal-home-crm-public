@@ -79,7 +79,12 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
       // КЛАСС «ЗАДАЧА АГЕНТУ, А НЕ ПОЛОМКА» (журнал 28.11.2026, объект №236: адрес «Район Рудакӣ, городок Сомониён»).
       // Поставить точку на карте может только тот, кто знает объект, — ему и идёт задача пушем со ссылкой на карточку.
       // Директору в журнал строка попадает, только если отвечающего агента нет (некому сказать).
-      const owner = property.assignedAgentId ?? property.intakeAgentId ?? property.createdById;
+      // Первый АКТИВНЫЙ из ответственных: уволенному запись в ленте ничего не даст (пуш ему не уходит).
+      const candidates = [property.assignedAgentId, property.intakeAgentId, property.createdById].filter((id): id is string => !!id);
+      const active = candidates.length
+        ? new Set((await prisma.agent.findMany({ where: { id: { in: candidates }, isActive: true }, select: { id: true } })).map((a) => a.id))
+        : new Set<string>();
+      const owner = candidates.find((id) => active.has(id)) ?? null;
       // Запись в ленте уведомлений (колокольчик) ставится всегда, пуш на устройство зависит от подписки и тихих часов —
       // поэтому «сказали» значит «нашёлся адресат и вызов не упал», а не «пуш дошёл до телефона».
       const told = owner
