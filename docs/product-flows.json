@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 794,
-  "forks": 4408,
+  "forks": 4407,
   "mounts": 88,
   "cron": 150,
   "jobs": 37,
@@ -76685,39 +76685,11 @@
            "a": [],
            "c": [
             {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "const oldMontajer = await prisma.agent.findFirst({ where: { id: previousMontajerAgentId, isActive: true }, se…",
-               "a": [
-                "читает в базе: agent"
-               ],
-               "c": []
-              },
-              {
-               "k": "if",
-               "t": "oldMontajer?.telegramChatId",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "await sendToMontajer(oldMontajer.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, { co…",
-                 "a": [
-                  "зовёт sendToMontajer()"
-                 ],
-                 "c": []
-                }
-               ]
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
+             "k": "do",
+             "t": "await tellPreviousMontajerHandedOver(previousMontajerAgentId, holder.shortId);",
+             "a": [
+              "зовёт tellPreviousMontajerHandedOver()"
+             ],
              "c": []
             }
            ]

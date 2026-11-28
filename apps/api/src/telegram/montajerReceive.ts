@@ -48,6 +48,7 @@ import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import { currentMontajerTexts } from "../lib/montajerTexts.js";
 import { formatDurationShort } from "../lib/rawVideoFacts.js";
 import { dushanbeDateTimeString } from "../lib/dushanbeTime.js";
 import {
@@ -164,7 +165,13 @@ function montajerAlbumEntry(groupId: string): MontajerAlbumEntry | undefined {
   return entry;
 }
 
-async function askWhichObject(input: MontajerVideoInput, candidates: number[], text: string, withNeither: boolean): Promise<void> {
+async function askWhichObject(
+  input: MontajerVideoInput,
+  candidates: number[],
+  text: string,
+  withNeither: boolean,
+  labels: { button: (n: number) => string; neither?: string } = { button: (n) => `Это №${n}` }
+): Promise<void> {
   const payload: ReceiveQuestionPayload = {
     updateId: input.updateId,
     fileId: input.fileId,
@@ -179,8 +186,9 @@ async function askWhichObject(input: MontajerVideoInput, candidates: number[], t
     expiresAt: new Date(Date.now() + MONTAJER_RECEIVE_QUESTION_TTL_MS),
   };
   await prisma.telegramDialogState.upsert({ where: { chatId: input.chatId }, create: { chatId: input.chatId, ...data }, update: data });
-  const buttons: TelegramInlineButton[][] = candidates.map((n) => [{ text: `Это №${n}`, callback_data: `mj:rcv:${input.updateId}:${n}` }]);
-  if (withNeither) buttons.push([{ text: "Ни то, ни другое", callback_data: `mj:rcv:${input.updateId}:0` }]);
+  // Коды кнопок mj:rcv:* не меняются; подписи — lib/montajerTexts.ts (короткий вид: «№235 в работе», «Другой»).
+  const buttons: TelegramInlineButton[][] = candidates.map((n) => [{ text: labels.button(n), callback_data: `mj:rcv:${input.updateId}:${n}` }]);
+  if (withNeither) buttons.push([{ text: labels.neither ?? "Ни то, ни другое", callback_data: `mj:rcv:${input.updateId}:0` }]);
   await sendToMontajer(input.chatId, text, { copy: true, replyMarkup: buttons }).catch((err) =>
     logSystemError("video-handoff", `Вопрос монтажёру «чей ролик» не отправился: ${describeError(err)}`)
   );
@@ -200,7 +208,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
   if (!settings?.videoHandoffEnabled) {
     await sendToMontajer(
       chatId,
-      "Передача роликов через бота сейчас выключена в Настройках CRM — файл не принят. Загрузите готовый ролик через карточку объекта в CRM или спросите администратора.",
+      (await currentMontajerTexts()).reply("handoffDisabled"),
       { copy: false }
     ).catch(() => {});
     return;
@@ -216,7 +224,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
         entry.notified = true;
         await sendToMontajer(
           chatId,
-          `Из альбома взят только первый файл (${entry.firstFilename}). Нужен другой — пришлите его отдельным сообщением.`,
+          (await currentMontajerTexts()).reply("albumFirstOnly", { filename: entry.firstFilename }),
           { copy: false }
         ).catch(() => {});
         void logSystemError(
@@ -264,13 +272,8 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
     const skipped = await montajerSkippedAwaitingFinal(holder?.id);
     if (skipped.length > 0) {
       const candidates = [...(holder ? [holder.shortId] : []), ...skipped.map((s) => s.shortId)];
-      const inWork = holder ? `Сейчас у вас в работе №${holder.shortId}. ` : "";
-      await askWhichObject(
-        input,
-        candidates,
-        `Чей это ролик? В имени файла нет номера объекта. ${inWork}Недавно вы пропускали ${skipped.map((s) => `№${s.shortId}`).join(", ")}. Нажмите номер объекта.`,
-        true
-      );
+      const question = (await currentMontajerTexts()).whoseClip({ holder: holder?.shortId ?? null, skipped: skipped.map((s) => s.shortId) });
+      await askWhichObject(input, candidates, question.text, true, { button: question.buttonLabel, neither: question.neitherLabel });
       return;
     }
   }
@@ -308,14 +311,14 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       if ((target.publishedChannels ?? []).length > 0) {
         await sendToMontajer(
           chatId,
-          `Объект №${declared} уже опубликован — сама Meta не даёт заменить видео у вышедшего поста. Если файл реально не тот, позовите администратора.${inWork}`,
+          (await currentMontajerTexts()).reply("publishedNamed", { shortId: declared, inWork }),
           { copy: false }
         ).catch(() => {});
         return;
       }
       const reopenedAt = await reopenForResend(target.id, { besideHolder: !!property });
       if (!reopenedAt) {
-        await sendToMontajer(chatId, `Не получилось открыть объект №${declared} для замены ролика — попробуйте ещё раз.${inWork}`, {
+        await sendToMontajer(chatId, (await currentMontajerTexts()).reply("reopenFailed", { shortId: declared, inWork }), {
           copy: false,
         }).catch(() => {});
         return;
@@ -330,12 +333,14 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       // Номер есть, но этот объект ролика от вас не ждёт — на чужой объект
       // файл не кладём ни в каком случае. Держатель есть и номер набран не
       // кнопкой — предлагаем кнопку «Это всё-таки №<держатель>» (ошибка в имени).
-      const what = target ? `Объект №${declared} сейчас не ждёт от вас ролик.` : `Объекта №${declared} в CRM нет.`;
-      const text = `${what}${inWork} Файл не принят. Если это ролик для объекта в работе — пришлите его с номером этого объекта в имени файла или в подписи.`;
+      const texts = await currentMontajerTexts();
+      const holderNow = property?.shortId ?? null;
       if (holder && forcedShortId === undefined) {
-        await askWhichObject(input, [holder.shortId], `${text}\nИли нажмите кнопку, если это всё-таки ролик для №${holder.shortId}.`, false);
+        const refusal = texts.notWaiting({ declared, exists: !!target, holder: holderNow ?? holder.shortId, withButton: true });
+        await askWhichObject(input, [holder.shortId], refusal.text, false, { button: refusal.buttonLabel });
       } else {
-        await sendToMontajer(chatId, text, { copy: false }).catch(() => {});
+        const refusal = texts.notWaiting({ declared, exists: !!target, holder: holderNow, withButton: false });
+        await sendToMontajer(chatId, refusal.text, { copy: false }).catch(() => {});
       }
       void logSystemError(
         "video-handoff",
@@ -353,7 +358,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
     if (resend?.alreadyPublished) {
       await sendToMontajer(
         chatId,
-        "Этот объект уже опубликован — сама Meta не даёт заменить видео у вышедшего поста. Если файл реально не тот, позовите администратора, автоматически это не починить.",
+        (await currentMontajerTexts()).reply("published"),
         { copy: false }
       ).catch(() => {});
       return;
@@ -383,7 +388,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
     // Пересылка уже переоткрыла объект — без отката он вечно «на монтаже».
     if (reopenedForResend) await undoReopenForResend(property.id, reopenedForResend);
     if (openedSkipped) await undoOpenSkippedForMontajerFinal(property.id, openedSkipped);
-    await sendToMontajer(chatId, "Не получилось скачать файл — попробуйте ещё раз или загрузите через CRM-панель объекта.", {
+    await sendToMontajer(chatId, (await currentMontajerTexts()).reply("downloadFailed"), {
       copy: false,
     }).catch(() => {});
     return;
@@ -403,7 +408,7 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
     if (openedSkipped) await undoOpenSkippedForMontajerFinal(property.id, openedSkipped);
       await sendToMontajer(
         chatId,
-        "Не получилось сохранить файл на сервере — попробуйте ещё раз или загрузите через CRM-панель объекта.",
+        (await currentMontajerTexts()).reply("saveFailed"),
         { copy: false }
       ).catch(() => {});
       return;
@@ -458,7 +463,7 @@ async function telegramFileToTemp(fileId: string): Promise<string | null> {
 async function handleVoicelessCopy(input: MontajerVideoInput, target: VoicelessTarget): Promise<boolean> {
   const tmpPath = await telegramFileToTemp(input.fileId);
   if (!tmpPath) {
-    await sendToMontajer(input.chatId, "Не получилось скачать файл без голоса — пришлите его ещё раз.", { copy: false }).catch(() => {});
+    await sendToMontajer(input.chatId, (await currentMontajerTexts()).reply("voicelessDownloadFailed"), { copy: false }).catch(() => {});
     return true;
   }
   try {
@@ -478,13 +483,13 @@ async function handleVoicelessCopy(input: MontajerVideoInput, target: VoicelessT
     }
     await forgetVoicelessQuestion(input.chatId);
     const text = stored.ok
-      ? `Ролик №${stored.shortId} без голоса сохранён. Поменяется цена — CRM сама заменит голос, музыку не тронет. Спасибо!`
+      ? (await currentMontajerTexts()).reply("voicelessSaved", { shortId: stored.shortId })
       : `Объект №${target.shortId}: ${stored.error}`;
     await sendToMontajer(input.chatId, text, { copy: true, propertyShortId: target.shortId }).catch(() => {});
     return true;
   } catch (err) {
     void logSystemError("video-handoff", `Объект №${target.shortId}: ролик без голоса не сохранён: ${describeError(err)}`);
-    await sendToMontajer(input.chatId, "Не получилось сохранить ролик без голоса — попробуйте ещё раз.", { copy: false }).catch(() => {});
+    await sendToMontajer(input.chatId, (await currentMontajerTexts()).reply("voicelessSaveFailed"), { copy: false }).catch(() => {});
     return true;
   } finally {
     await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
@@ -504,7 +509,7 @@ async function handleVoicelessChoice(chatId: string, agentId: string, kind: "v" 
   const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
   const payload = row?.kind === VOICELESS_CHOICE_KIND ? (row.payload as unknown as VoicelessChoicePayload) : null;
   if (!row || !payload || row.agentId !== agentId || row.expiresAt <= new Date() || payload.input.updateId !== updateId) {
-    await sendToMontajer(chatId, "Этот вопрос уже устарел — пришлите файл ещё раз.", { copy: false }).catch(() => {});
+    await sendToMontajer(chatId, (await currentMontajerTexts()).reply("questionStale"), { copy: false }).catch(() => {});
     return;
   }
   await prisma.telegramDialogState.deleteMany({ where: { chatId, kind: VOICELESS_CHOICE_KIND } });
@@ -534,7 +539,7 @@ export async function handleVoicelessCopyCallback(chatId: string, agentId: strin
     return;
   }
   await rememberVoicelessQuestion(chatId, agentId, p.id, shortId);
-  await sendToMontajer(chatId, `Жду ролик №${shortId} без голоса: пришлите его файлом в течение часа.`, { copy: false }).catch(() => {});
+  await sendToMontajer(chatId, (await currentMontajerTexts()).reply("voicelessWaiting", { shortId }), { copy: false }).catch(() => {});
 }
 
 /**
@@ -550,7 +555,7 @@ export async function handleMontajerReceiveCallback(chatId: string, agentId: str
   const updateId = match ? Number(match[1]) : NaN;
   const chosen = match ? Number(match[2]) : NaN;
   if (!match || !fresh || payload!.updateId !== updateId || (chosen !== 0 && !payload!.candidates.includes(chosen))) {
-    await sendToMontajer(chatId, "Этот вопрос уже устарел — пришлите файл ещё раз, с номером объекта в имени.", {
+    await sendToMontajer(chatId, (await currentMontajerTexts()).reply("questionStaleWithNumber"), {
       copy: false,
     }).catch(() => {});
     return;

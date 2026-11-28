@@ -6796,6 +6796,12 @@ model Settings {
   /// нет, нажатие отвечает «выключено руководителем». Паузу и «Отложить»
   /// руководства монтажёр не обходит в любом положении. lib/montajerQueueControl.ts.
   montajerQueueControlEnabled       Boolean   @default(true)
+  /// КОРОТКИЕ СООБЩЕНИЯ МОНТАЖЁРУ (28.11.2026, владелец: упростить автосообщения
+  /// монтажёру в Telegram). true — тексты из lib/montajerTexts.ts::SHORT_MONTAJER_TEXTS:
+  /// факты только под первым файлом, один короткий итог, «Объект №N», голос
+  /// объявляется один раз; false — прежние тексты (LEGACY_MONTAJER_TEXTS).
+  /// Структуру передачи (файлы, очередь, квитанции, кнопки mj:*) не меняет.
+  montajerShortMessages             Boolean   @default(true)
   /// Канал для кросспоста (Bot API уже подключён для личных сообщений —
   /// apps/api/src/telegram/api.ts; здесь просто chat_id канала, где бот админ).
   telegramChannelId                 String?

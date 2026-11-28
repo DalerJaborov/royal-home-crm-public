@@ -93,17 +93,22 @@ function sendsFor(p: Seeded, chat = MONTAJER_CHAT) {
   const docs = tg.sendDocumentFile.mock.calls.map((c, i) => ({ c, order: tg.sendDocumentFile.mock.invocationCallOrder[i]! })).filter(({ c }) => c[0] === chat);
   const byId = tg.sendDocument.mock.calls.map((c, i) => ({ c, order: tg.sendDocument.mock.invocationCallOrder[i]! })).filter(({ c }) => c[0] === chat);
   const head = `Объект №${p.shortId} ·`;
-  const video = [...docs.filter(({ c }) => String(c[3] ?? "").startsWith(head)), ...byId.filter(({ c }) => String(c[2] ?? "").startsWith(head))].map((x) => x.order);
+  const video = [...docs.filter(({ c }) => String(c[3] ?? "").startsWith(head) && !String(c[3]).startsWith(`${head} 🎙`)), ...byId.filter(({ c }) => String(c[2] ?? "").startsWith(head) && !String(c[2]).startsWith(`${head} 🎙`))].map((x) => x.order);
   const voice = docs.filter(({ c }) => String(c[2]) === `property-${p.shortId}-voice-v1.mp3`).map((x) => x.order);
   const control = [...tg.sendMessage.mock.calls.map((c, i) => ({ c, order: tg.sendMessage.mock.invocationCallOrder[i]! })),
     ...tg.sendMessageWithButtons.mock.calls.map((c, i) => ({ c, order: tg.sendMessageWithButtons.mock.invocationCallOrder[i]! }))]
-    .filter(({ c }) => c[0] === chat && String(c[1]).startsWith("Отправлено") && String(c[1]).includes(`№${p.shortId}`)).map((x) => x.order);
+    .filter(({ c }) => c[0] === chat && isControlText(String(c[1]), p)).map((x) => x.order);
   return { video: video.sort((a, b) => a - b), voice: voice.sort((a, b) => a - b), control: control.sort((a, b) => a - b) };
+}
+/** Итог «отправлено N из N» объекта: прежний вид «Отправлено…», короткий (28.11.2026) «Объект №N: K видео отправлено.» / «дошло k из K». */
+function isControlText(text: string, p: Seeded): boolean {
+  if (text.startsWith("Отправлено")) return text.includes(`№${p.shortId}`);
+  return text.startsWith(`Объект №${p.shortId}: `) && /видео отправлено|дошло \d+ из \d+/.test(text);
 }
 /** Тексты итогового «отправлено N из N» объекта. */
 function controlTexts(p: Seeded, chat = MONTAJER_CHAT): string[] {
   return [...tg.sendMessage.mock.calls, ...tg.sendMessageWithButtons.mock.calls]
-    .filter((c) => c[0] === chat && String(c[1]).startsWith("Отправлено") && String(c[1]).includes(`№${p.shortId}`)).map((c) => String(c[1]));
+    .filter((c) => c[0] === chat && isControlText(String(c[1]), p)).map((c) => String(c[1]));
 }
 const deliveries = (p: Seeded) => prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "asc" } });
 
@@ -164,7 +169,7 @@ describe("одобрено до выдачи видео", () => {
     expect(s.control).toHaveLength(1);
     // «следующим сообщением» — правда: mp3 идёт сразу за итогом, в котором это сказано.
     expect(s.voice[0]!).toBeGreaterThan(s.control[0]!);
-    expect(controlTexts(p).at(-1)).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
+    expect(controlTexts(p).at(-1)).toBe(`Объект №${p.shortId}: 1 видео отправлено. Голос придёт следом.`);
     expect((await deliveries(p)).filter((d) => d.status === "SENT")).toHaveLength(1);
   });
 
@@ -298,27 +303,45 @@ describe("голос ушёл раньше видео (как №211)", () => {
 });
 
 describe("строка монтажёру", () => {
-  it("одобрена и уйдёт сейчас — «сразу после файлов»; готовится — «как будет готова»; выключена отправка — без обещания «сразу»", async () => {
+  // Короткий вид (28.11.2026): голос, который уйдёт следом, объявляет итог («Голос придёт следом.»), в задании строки нет.
+  it("одобрена и уйдёт сейчас — в задании строки нет (скажет итог); готовится — «готовится»; выключена отправка — «позже»", async () => {
     const p = await seedProperty("строка");
     const v = await approvedVoice(p);
-    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
+    expect(await vh.buildMontajerMessageText(p.id, null)).not.toContain("🎙");
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "PREVIEW");
-    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка придёт сюда, как будет готова, — вклейте её сами.");
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Голос придёт отдельным файлом позже, вклейте его сами.");
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
     await prisma.propertyNarrationVersion.update({ where: { id: v.id }, data: { status: "DRAFT", approvedAt: null, approveAsId: approverId } });
-    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.");
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Голос готовится и придёт отдельным файлом, вклейте его сами.");
+  });
+
+  it("прежний вид (рубильник коротких ВЫКЛ): «сразу после файлов», «как будет готова», итог «следующим сообщением»", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: false } });
+    try {
+      const p = await seedProperty("строка прежняя");
+      await approvedVoice(p);
+      expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
+      await vh.queueVideoHandoff(p.id);
+      await vh.settleBackgroundHandoffDispatches();
+      expect(controlTexts(p).at(-1)).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
+      vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "PREVIEW");
+      expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка придёт сюда, как будет готова, — вклейте её сами.");
+    } finally {
+      vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+    }
   });
 
   it("цену поменяли после одобрения: ни «сразу», ни «следующим»; файлы ушли, mp3 нет, тревоги в журнале нет", async () => {
     const p = await seedProperty("цена сменилась");
     await approvedVoice(p);
     await prisma.property.update({ where: { id: p.id }, data: { areaSqm: 99 } }); // факты озвучки разошлись
-    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Озвучка придёт сюда, как будет готова");
+    expect(await vh.buildMontajerMessageText(p.id, null)).toContain("🎙 Голос придёт отдельным файлом позже");
     await vh.queueVideoHandoff(p.id);
     await vh.settleBackgroundHandoffDispatches();
     expect(sendsFor(p).video).toHaveLength(1);
     expect(sendsFor(p).voice).toHaveLength(0);
-    expect(controlTexts(p).at(-1)).not.toContain("Озвучка");
+    expect(controlTexts(p).join("\n")).not.toMatch(/Озвучка|Голос/);
     // Журнал пишется «в отрыве» (logSystemError) — ждём, пока запись осядет, и только тогда считаем.
     expect(await waitForSettled(() => prisma.errorLog.count({ where: { dedupKey: { startsWith: `narration-delivery-refused:${p.id}:` } } }))).toBe(0);
   });
@@ -330,7 +353,7 @@ describe("строка монтажёру", () => {
     expect(await vh.buildMontajerMessageText(p.id, null)).not.toContain("сразу после файлов");
     await vh.queueVideoHandoff(p.id);
     await vh.settleBackgroundHandoffDispatches();
-    expect(controlTexts(p).at(-1)).not.toContain("Озвучка");
+    expect(controlTexts(p).join("\n")).not.toMatch(/Озвучка|Голос/);
     expect(sendsFor(p).voice).toHaveLength(0);
   });
 });
@@ -346,7 +369,7 @@ describe("лимит Telegram", () => {
       await approvedVoice(p);
       await vh.queueVideoHandoff(p.id);
       await vh.settleBackgroundHandoffDispatches();
-      const control = at.find((x) => x.what.startsWith("Отправлено"));
+      const control = at.find((x) => x.what.includes("видео отправлено"));
       const voice = at.find((x) => x.what.endsWith(".mp3"));
       expect(control && voice).toBeTruthy();
       expect(voice!.t - control!.t).toBeGreaterThanOrEqual(280);

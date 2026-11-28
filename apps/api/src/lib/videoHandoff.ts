@@ -61,7 +61,7 @@ import { videoHandoffDir } from "../upload.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { describeRawVideo } from "./rawVideoFacts.js";
-import { sendDocumentFile, sendDocument, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
+import { sendDocumentFile, sendDocument, sendMessage, sendMessageWithButtons, TELEGRAM_BOT_SEND_LIMIT_BYTES, type TelegramInlineButton } from "../telegram/api.js";
 import { probeMediaInfo, type MediaInfo } from "./ffmpeg.js";
 import { crmPublicBase } from "./crmPublicUrl.js";
 import { signVideoDownloadToken } from "../auth/jwt.js";
@@ -88,7 +88,8 @@ import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
-import { narrationLineForMontajer, narrationNextMessageLine } from "./narrationMontajerNote.js";
+import { narrationNextMessageLine, narrationNoteForMontajer, voicelessCopyHint } from "./narrationMontajerNote.js";
+import { currentMontajerTexts, LEGACY_MONTAJER_TEXTS, type MontajerTexts } from "./montajerTexts.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 
@@ -141,12 +142,8 @@ export function montajerFileName(shortId: number, index: number, total: number, 
  * пролистав на соседний файл, монтажёр видит номер раньше фактов.
  */
 export function montajerFileCaptionHead(shortId: number, index: number, total: number, rawFacts?: string | null): string {
-  return `Объект №${shortId} · файл ${index + 1} из ${total}${rawFacts ? ` · ${rawFacts}` : ""}`;
-}
-
-/** «из 1 файла», «из 15 файлов», «из 21 файла» — родительный после «из». */
-function filesAfterIz(count: number): string {
-  return count % 10 === 1 && count % 100 !== 11 ? "файла" : "файлов";
+  // Прежний вид шапки; короткий (28.11.2026) — lib/montajerTexts.ts::SHORT_MONTAJER_TEXTS.fileCaptionHead.
+  return LEGACY_MONTAJER_TEXTS.fileCaptionHead(shortId, index, total, { rawFacts: rawFacts ?? "", sizeBytes: 0 });
 }
 
 /**
@@ -154,10 +151,14 @@ function filesAfterIz(count: number): string {
  * «один»). Монтажёр сверяет число со своими файлами, а не верит на слово, что
  * «всё ушло»; недошедшее сторож досылает сам — так и сказано.
  */
-export function montajerDeliveryControlText(shortId: number, deliveredCount: number, total: number): string {
-  return deliveredCount >= total
-    ? `Отправлено ${total} из ${total} ${filesAfterIz(total)} объекта №${shortId}.`
-    : `Объект №${shortId}: дошло ${deliveredCount} из ${total} ${filesAfterIz(total)}, остальное дошлю автоматически.`;
+export function montajerDeliveryControlText(
+  shortId: number,
+  deliveredCount: number,
+  total: number,
+  texts: MontajerTexts = LEGACY_MONTAJER_TEXTS,
+  voiceNext: string | null = null
+): string {
+  return texts.deliveryControl(shortId, deliveredCount, total, voiceNext);
 }
 
 export async function propertyFactsForMontajer(propertyId: string): Promise<string> {
@@ -253,11 +254,11 @@ function parseFactLines(factsText: string): Map<string, string> {
  * сравнивать не с чем (первая передача этого объекта вообще) — пустую заглушку
  * не печатаем, просто не показываем блок.
  */
-function cardFactsDiff(oldFactsText: string | null, newFactsText: string): string[] | null {
+function cardFactsDiff(oldFactsText: string | null, newFactsText: string): { label: string; was?: string; becomes?: string }[] | null {
   if (!oldFactsText) return null;
   const oldMap = parseFactLines(oldFactsText);
   const newMap = parseFactLines(newFactsText);
-  const changes: string[] = [];
+  const changes: { label: string; was?: string; becomes?: string }[] = [];
   for (const label of new Set([...oldMap.keys(), ...newMap.keys()])) {
     const oldVal = oldMap.get(label);
     const newVal = newMap.get(label);
@@ -265,9 +266,8 @@ function cardFactsDiff(oldFactsText: string | null, newFactsText: string): strin
     // Цены в задании монтажёру больше нет (25.11.2026), а в сохранённых фактах прошлой передачи она ещё есть:
     // без этого первый перемонтаж после выката писал бы «Цена: было …, теперь не указано».
     if (label === "Цена") continue;
-    if (oldVal === undefined) changes.push(`${label}: добавилось — ${newVal}`);
-    else if (newVal === undefined) changes.push(`${label}: было «${oldVal}», теперь не указано`);
-    else changes.push(`${label}: «${oldVal}» → «${newVal}»`);
+    // Слова строки — lib/montajerTexts.ts (прежний вид «Этаж: «3» → «4»», короткий «Этаж: было 3, стало 4»).
+    changes.push({ label, ...(oldVal !== undefined ? { was: oldVal } : {}), ...(newVal !== undefined ? { becomes: newVal } : {}) });
   }
   return changes;
 }
@@ -293,52 +293,52 @@ function cardFactsDiff(oldFactsText: string | null, newFactsText: string): strin
  */
 export async function buildMontajerMessageText(
   propertyId: string,
-  remake?: RemakeMessageContext | null
+  remake?: RemakeMessageContext | null,
+  texts?: MontajerTexts
 ): Promise<string> {
-  const [facts, property, silentVideos, narrationLine] = await Promise.all([
+  const [facts, property, videos, narration, t] = await Promise.all([
     propertyFactsForMontajer(propertyId),
     prisma.property.findUnique({
       where: { id: propertyId },
       select: { shortId: true, videoHandoffLastFactsText: true },
     }),
     prisma.propertyVideo.findMany({
-      where: { propertyId, hasAudio: false },
-      select: { filename: true },
-      orderBy: { uploadedAt: "asc" },
+      where: { propertyId },
+      select: { filename: true, hasAudio: true },
+      orderBy: SOURCE_VIDEO_ORDER,
     }),
-    // Что делать с голосом (12.11.2026): одна строка из lib/narrationMontajerNote.ts.
-    narrationLineForMontajer(propertyId).catch(() => null),
+    // Что делать с голосом (12.11.2026): состояние из lib/narrationMontajerNote.ts, слова из lib/montajerTexts.ts.
+    narrationNoteForMontajer(propertyId).catch(() => null),
+    texts ? Promise.resolve(texts) : currentMontajerTexts(),
   ]);
   if (!facts) return "";
 
   /// БЕЗ ЗВУКА — отдельной строкой в конец (23.09.2026, задание C, объект №127):
   /// звук отсутствовал уже при загрузке агентом, и это не увидел никто до
   /// самого монтажа. Одна строка на все беззвучные исходники сразу.
-  const silentNote = silentVideos.length
-    ? `⚠ Без звука: ${silentVideos.map((v) => v.filename).join(", ")} — звук/музыку наложите при монтаже`
-    : null;
+  const silent = videos.flatMap((v, i) => (v.hasAudio === false ? [{ filename: v.filename, position: i + 1 }] : []));
+  const common = { facts, narration, silent, total: videos.length, voiceHint: voicelessCopyHint() };
 
   if (!remake) {
-    const queueLine = await queueStatusLine(propertyId);
-    return `${facts}${queueLine}${narrationLine ? `\n\n${narrationLine}` : ""}${silentNote ? `\n\n${silentNote}` : ""}`;
+    // «Дальше в очереди» — только в прежнем виде: в коротком это видно по кнопке «🗂 Очередь» (владелец 28.11.2026).
+    const queueLine = t.short ? "" : await queueStatusLine(propertyId);
+    return t.handoffBody({ ...common, queueLine });
   }
 
-  const lines = [
-    `🔁 ПЕРЕМОНТАЖ, объект №${property?.shortId ?? "?"}`,
-    `Причина: ${VIDEO_REMAKE_REASON_LABELS[remake.reason]}`,
-  ];
-  if (remake.comment) lines.push(remake.comment);
-  if (remake.reason === "WRONG_CAPTION" || remake.reason === "CARD_DATA_CHANGED") {
-    const diff = cardFactsDiff(property?.videoHandoffLastFactsText ?? null, facts);
-    if (diff && diff.length > 0) {
-      lines.push("", "Что изменилось в карточке:", ...diff.map((d) => `• ${d}`));
-    }
-  }
+  const diff =
+    remake.reason === "WRONG_CAPTION" || remake.reason === "CARD_DATA_CHANGED"
+      ? cardFactsDiff(property?.videoHandoffLastFactsText ?? null, facts)
+      : null;
   // Что делать с голосом (12.11.2026): «без озвучки», вклеить mp3 (сдаётся один готовый файл, 19.11.2026) или голос кладёт CRM.
-  if (narrationLine) lines.push("", narrationLine);
-  lines.push("", facts);
-  if (silentNote) lines.push("", silentNote);
-  return lines.join("\n");
+  return t.remakeBody({
+    ...common,
+    queueLine: "",
+    shortId: property?.shortId ?? "?",
+    reasonLabel: VIDEO_REMAKE_REASON_LABELS[remake.reason],
+    voiceChanges: remake.reason === "NARRATION_CHANGED",
+    comment: remake.comment ?? null,
+    diff,
+  });
 }
 
 /** "HANDOFF" — первая передача на монтаж, "REMAKE" — перемонтаж с причиной,
@@ -828,20 +828,22 @@ export function rawVideoDownloadLink(propertyId: string, videoId: string): strin
  * дошедший до наблюдателя, но не до монтажёра, оставался бы без ссылки).
  */
 export async function sendGiveUpFallbackLinks(propertyId: string, shortId: number, montajerAgentId: string): Promise<void> {
-  const [montajer, videos] = await Promise.all([
+  const [montajer, videos, allIds, texts] = await Promise.all([
     prisma.agent.findFirst({ where: { id: montajerAgentId, isActive: true }, select: { telegramChatId: true } }),
     prisma.propertyVideo.findMany({
       where: { propertyId, ...notYetWithMontajerWhere(montajerAgentId) },
       orderBy: SOURCE_VIDEO_ORDER,
       select: { id: true, filename: true },
     }),
+    // Место файла в наборе («видео 2 из 3») — тот же порядок, что у выдачи и имён файлов монтажёру.
+    prisma.propertyVideo.findMany({ where: { propertyId }, orderBy: SOURCE_VIDEO_ORDER, select: { id: true } }),
+    currentMontajerTexts(),
   ]);
   if (!montajer?.telegramChatId || videos.length === 0) return;
   for (const video of videos) {
     const link = rawVideoDownloadLink(propertyId, video.id);
-    const text = link
-      ? `Объект №${shortId}: ролик «${video.filename}» так и не дошёл файлом после всех попыток. Ссылка на скачивание: ${link}`
-      : `Объект №${shortId}: ролик «${video.filename}» так и не дошёл файлом после всех попыток, а ссылка недоступна (не настроен публичный адрес CRM) — заберите через карточку объекта в CRM.`;
+    const position = allIds.findIndex((v) => v.id === video.id) + 1;
+    const text = texts.giveUpLink(shortId, { filename: video.filename, position: position || 1, total: allIds.length || 1 }, link);
     try {
       await sendToMontajer(montajer.telegramChatId, text, { copy: true, propertyShortId: shortId });
     } catch (err) {
@@ -1051,9 +1053,11 @@ export interface MontajerDelivery {
   readonly videos: readonly SourceVideo[];
   /** Первое сообщение (подпись к первому файлу): факты + очередь, либо перемонтаж. */
   readonly headText: string;
-  /** Факты карточки — подпись ко всем остальным файлам. */
+  /** Факты карточки (propertyFactsForMontajer); в прежнем виде — подпись ко всем остальным файлам. */
   readonly factsText: string;
   readonly remake: RemakeMessageContext | null;
+  /** Слова этой посылки (рубильник montajerShortMessages читается один раз: подписи одного набора не разъедутся). */
+  readonly texts: MontajerTexts;
 }
 
 export async function buildMontajerDelivery(propertyId: string): Promise<MontajerDelivery | null> {
@@ -1072,9 +1076,10 @@ export async function buildMontajerDelivery(propertyId: string): Promise<Montaje
     : null;
   // ОДНА функция для реальной сборки и для превью (buildMontajerMessageText) —
   // см. её docstring. headText — то, что реально идёт первым сообщением.
+  const texts = await currentMontajerTexts();
   const [factsText, headText] = await Promise.all([
     propertyFactsForMontajer(propertyId),
-    buildMontajerMessageText(propertyId, remake),
+    buildMontajerMessageText(propertyId, remake, texts),
   ]);
   return Object.freeze({
     [MONTAJER_DELIVERY_BRAND]: true as const,
@@ -1083,13 +1088,19 @@ export async function buildMontajerDelivery(propertyId: string): Promise<Montaje
     headText,
     factsText,
     remake,
+    texts,
   });
 }
 
 /** Подпись и имя файла i — из ОДНОЙ посылки, в одном месте. */
 function montajerFileCaption(delivery: MontajerDelivery, index: number, note: string | null): string {
   const video = delivery.videos[index]!;
-  const head = montajerFileCaptionHead(delivery.property.shortId, index, delivery.videos.length, describeRawVideo(video));
+  const head = delivery.texts.fileCaptionHead(delivery.property.shortId, index, delivery.videos.length, {
+    rawFacts: describeRawVideo(video),
+    sizeBytes: video.sizeBytes,
+    durationSec: video.durationSec,
+    hasAudio: video.hasAudio,
+  });
   /**
    * ФАКТЫ КАРТОЧКИ — К КАЖДОМУ ФАЙЛУ, а не только к первому (19.09.2026).
    * Было: второй и третий ролик уходили строкой «Ролик 2 из 3. Объект №109»,
@@ -1098,8 +1109,12 @@ function montajerFileCaption(delivery: MontajerDelivery, index: number, note: st
    * достаточно пролистнуть на один файл назад, чтобы читать факты ЧУЖОЙ
    * квартиры, и именно так 19.09 описания двух квартир одного продавца
    * перемешались. Повторение семи строк дешевле перепутанного ролика.
+   *
+   * КОРОТКИЙ ВИД (28.11.2026, владелец): факты только под первым файлом. Путаницу 19.09 теперь закрывают
+   * номер объекта в начале каждой подписи (с 25.09) и в имени каждого файла (с 21.09), а «📋 Данные объекта»
+   * в боте повторит факты в любой момент. Прежний вид (рубильник ВЫКЛ) — факты под каждым файлом.
    */
-  const body = index === 0 ? delivery.headText : delivery.factsText;
+  const body = index === 0 ? delivery.headText : delivery.texts.restFileBody(delivery.factsText);
   const caption = body ? `${head}\n\n${body}` : head;
   return note ? `${note}\n\n${caption}` : caption;
 }
@@ -1276,7 +1291,7 @@ async function dispatchToEditorAfterClaim(
   montajer: { id: string; telegramChatId: string | null; fullName: string } | null,
   resend: "missing" | "all"
 ): Promise<boolean> {
-  const { property, remake, headText } = delivery;
+  const { property, remake, headText, texts } = delivery;
   const journalKind = remake ? "REMAKE" : "HANDOFF";
   if (!montajer?.telegramChatId) {
     // Монтажёр ещё не привязал Telegram (или назначен, но не прошёл /start) —
@@ -1301,9 +1316,23 @@ async function dispatchToEditorAfterClaim(
     return false;
   }
 
+  // Кнопки «🗂 Очередь» и «⏭ Пропустить» под заданием (19.11.2026) — только
+  // при включённом рубильнике; наблюдателям копия уходит без кнопок.
+  const controls = await prisma.settings
+    .findUnique({ where: { id: "singleton" }, select: { montajerQueueControlEnabled: true } })
+    .then((s) => s?.montajerQueueControlEnabled !== false)
+    .catch(() => false);
+  // ОДИН ФАЙЛ И БЕЗ ГОЛОСА — БЕЗ ИТОГА (короткий вид, владелец 28.11.2026): «Отправлено 1 из 1» под единственным
+  // файлом — шум, кнопки переезжают в подпись этого файла. Голос следом — итог остаётся (в нём «Голос придёт следом»).
+  const quietSingle =
+    texts.short &&
+    delivery.videos.length === 1 &&
+    !(videoIssuedToMontajerHook && (await narrationNextMessageLine(property.id, texts).catch(() => null)));
+
   const result = await deliverSourceVideos(montajer.telegramChatId, "монтажёру", delivery, {
     note: null,
     montajer: { agentId: montajerAgentId, skipAlreadyDelivered: resend === "missing" },
+    ...(quietSingle && controls ? { buttonsOnLast: holderTaskButtons(property.shortId) } : {}),
   });
 
   if (result.aborted) {
@@ -1350,20 +1379,15 @@ async function dispatchToEditorAfterClaim(
   // «озвучка — следующим сообщением») и после обычной паузы чата. Повтор той же выдачи файлов не шлёт (отметки),
   // значит, и голоса второй раз не даёт; ключ передачи — момент выдачи.
   const voiceFollows = result.delivered && result.sentVideoIds.size > 0 && !!videoIssuedToMontajerHook;
-  const voiceNext = voiceFollows ? await narrationNextMessageLine(property.id).catch(() => null) : null;
+  const voiceNext = voiceFollows ? await narrationNextMessageLine(property.id, texts).catch(() => null) : null;
 
-  // Контрольное «отправлено N из N» — только если в этот раз что-то реально ушло.
-  if (result.sentVideoIds.size > 0) {
-    // Кнопки «🗂 Очередь» и «⏭ Пропустить» под заданием (19.11.2026) — только
-    // при включённом рубильнике; наблюдателям копия уходит без кнопок.
-    const controls = await prisma.settings
-      .findUnique({ where: { id: "singleton" }, select: { montajerQueueControlEnabled: true } })
-      .then((s) => s?.montajerQueueControlEnabled !== false)
-      .catch(() => false);
+  // Контрольное «отправлено N из N» — только если в этот раз что-то реально ушло. Короткий вид: единственный
+  // файл без голоса дошёл — итога нет, его кнопки уже под файлом (голос всё-таки появился — итог шлём).
+  if (result.sentVideoIds.size > 0 && !(quietSingle && result.delivered && !voiceNext)) {
     await sendToMontajer(
       montajer.telegramChatId,
       // Голос уйдёт следом — так и сказано под итогом (ревью 21.11: «следующим» должно быть правдой при любом N).
-      [montajerDeliveryControlText(property.shortId, result.withMontajerCount, delivery.videos.length), voiceNext].filter(Boolean).join("\n\n"),
+      montajerDeliveryControlText(property.shortId, result.withMontajerCount, delivery.videos.length, texts, voiceNext),
       { copy: true, propertyShortId: property.shortId, ...(controls ? { replyMarkup: holderTaskButtons(property.shortId) } : {}) }
     ).catch((err) =>
       logSystemError("video-handoff", `Объект №${property.shortId}: контрольное сообщение монтажёру не ушло: ${describeError(err)}`)
@@ -1493,6 +1517,8 @@ interface DeliverSourceVideosOptions {
   montajer?: { agentId: string; skipAlreadyDelivered: boolean };
   /** Наблюдателю — только эти файлы (то, что только что ушло монтажёру). */
   onlyVideoIds?: ReadonlySet<string>;
+  /** Кнопки под последним файлом набора — только монтажёру, когда итога не будет (короткий вид, 28.11.2026). */
+  buttonsOnLast?: TelegramInlineButton[][];
 }
 
 /** Отметка «этот файл у монтажёра» — в памяти посылки (копиям наблюдателей и
@@ -1588,6 +1614,7 @@ async function deliverSourceVideos(
     if (sentThisRound > 0) await sleep(telegramSendPauseMs);
     sentThisRound++;
     const head = montajerFileCaption(delivery, index, opts.note);
+    const buttons = index === total - 1 ? opts.buttonsOnLast : undefined;
     const link = rawVideoDownloadLink(property.id, video.id);
     const push = (outcome: "file" | "link" | "failed") =>
       perFile.push({ index, videoId: video.id, filename: video.filename, sizeBytes: video.sizeBytes, outcome });
@@ -1610,12 +1637,9 @@ async function deliverSourceVideos(
         // Отказ этого сообщения — тоже потеря ролика молча, та же логика, что и
         // в catch ниже: явная строка в журнал, а не проглоченная ошибка.
         try {
-          await sendMessage(
-            chatId,
-            link
-              ? `${head}\n\nФайл ${megabytes(stat.size)} МБ — тяжелее, чем принимает Telegram. Скачать: ${link}`
-              : `${head}\n\nФайл ${megabytes(stat.size)} МБ — тяжелее, чем принимает Telegram. Заберите через карточку объекта в CRM.`
-          );
+          const heavyText = delivery.texts.heavyFile(head, megabytes(stat.size), link);
+          if (buttons) await sendMessageWithButtons(chatId, heavyText, buttons);
+          else await sendMessage(chatId, heavyText);
           await delivered("link");
         } catch (msgErr) {
           void logSystemError(
@@ -1637,7 +1661,7 @@ async function deliverSourceVideos(
       // копии наблюдателю сразу вслед за настоящей отправкой.
       if (video.telegramFileId) {
         try {
-          await sendDocument(chatId, video.telegramFileId, head);
+          await sendDocument(chatId, video.telegramFileId, head, buttons);
           void prisma.propertyVideo
             .update({ where: { id: video.id }, data: { telegramDeliveredAt: new Date() } })
             .catch(() => {});
@@ -1654,13 +1678,8 @@ async function deliverSourceVideos(
       }
       // Передаём путь: локальный Bot API загрузит файл сам, без multipart в CRM.
       try {
-        const sent = await sendDocumentFile(
-          chatId,
-          { path: filePath },
-          montajerFileName(property.shortId, index, total, video.filename),
-          head,
-          sendTimeoutForBytes(stat.size)
-        );
+        const fileName = montajerFileName(property.shortId, index, total, video.filename);
+        const sent = await sendDocumentFile(chatId, { path: filePath }, fileName, head, sendTimeoutForBytes(stat.size), false, buttons);
         // file_id — на будущее: следующая копия (наблюдателю), следующий круг
         // (сторож досылки, ручное «файлы») пойдут этой строкой, а не заново
         // потоком с диска. Мутация того же элемента посылки — копия наблюдателю
@@ -3755,7 +3774,7 @@ export type CloseVideoHandoffOutcome = "closed" | "not-found" | "not-in-queue" |
 
 export interface CloseVideoHandoffOpts {
   holdQueue: boolean;
-  /** Причина в тексте монтажёру: «Объект №N <reason> — доделывать не нужно…».
+  /** Причина в тексте монтажёру (lib/montajerTexts.ts::handoffCancelled): «Объект №N <reason>. Монтировать не нужно…».
    *  По умолчанию «сняли с монтажа» (ручное снятие из конвейера). */
   reason?: string;
   /** Вид записи в MontajerMessage — по умолчанию CANCELLED (ручное снятие/смена
@@ -3942,7 +3961,7 @@ async function notifyMontajerHandoffCancelled(
   const montajer = settings?.videoMontajerAgentId
     ? await prisma.agent.findFirst({ where: { id: settings.videoMontajerAgentId, isActive: true }, select: { telegramChatId: true } })
     : null;
-  const text = `Объект №${shortId} ${reason} — доделывать не нужно, ролик можно не присылать.`;
+  const text = (await currentMontajerTexts()).handoffCancelled(shortId, reason);
   if (!montajer?.telegramChatId) {
     void recordMontajerMessage(propertyId, kind, text);
     return;

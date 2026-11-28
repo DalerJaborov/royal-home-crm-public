@@ -230,14 +230,15 @@ describe("монтажёру — один готовый файл и текст 
     const { p, version } = await propertyWithApprovedVoice({ withFile: true });
     // Задание монтажёру с исходниками.
     const task = await buildMontajerMessageText(p.id, null);
-    expect(task).toContain("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
+    // Короткий вид (28.11.2026): про голос, который уйдёт следом, говорит итог, а не подпись задания.
+    expect(task).not.toContain("🎙");
     // Голос: одно mp3, подпись с текстом.
     expect(await afterNarrationApproved(p.id, version.id)).toBe("QUEUED");
     const delivery = await prisma.propertyNarrationDelivery.findFirstOrThrow({ where: { propertyId: p.id } });
     expect(await executeNarrationDelivery(delivery.id)).toEqual({ status: "SENT" });
     expect(net.document).toHaveBeenCalledOnce();
     expect(net.document.mock.calls[0][2]).toMatch(/\.mp3$/);
-    expect(net.document.mock.calls[0][3]).toBe(`Озвучка к ролику №${p.shortId}, версия 1, одобрена. Вклейте этот голос сами: музыка, громкость и монтаж ваши.\n\nТекст:\nСинтетический текст озвучки.`);
+    expect(net.document.mock.calls[0][3]).toBe(`Объект №${p.shortId} · 🎙 голос, версия 1. Вклейте его сами, музыка и громкость на вас.\n\nТекст:\nСинтетический текст озвучки.`);
     // Сдача: просьбы вдогонку о ролике без голоса нет.
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/none.mp4" } });
     expect(await voicelessCopyAsk(p.id)).toBeNull();
@@ -270,8 +271,8 @@ describe("подпись к mp3 при возврате ролика", () => {
   it("возврат «вклейте голос» (голоса монтажёру ещё не уходило) — обычная строка «Вклейте этот голос сами»", async () => {
     const { p, version } = await propertyWithApprovedVoice({ remakeReason: "NARRATION_CHANGED" });
     const { plan } = await prepareNarrationDeliveryPlan(p.id, version.id, "AUDIO_ONLY");
-    expect(plan.files[0].caption).toContain("Вклейте этот голос сами");
-    expect(plan.files[0].caption).not.toContain("замените в ролике только голос");
+    expect(plan.files[0].caption).toContain("Вклейте его сами");
+    expect(plan.files[0].caption).not.toContain("только голос");
     expect(plan.files[0].caption).toContain("\n\nТекст:\nСинтетический текст озвучки.");
     expect(plan.files[0].caption).not.toContain("без голоса");
     expect(plan.files).toHaveLength(1);
@@ -282,6 +283,17 @@ describe("подпись к mp3 при возврате ролика", () => {
     await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: version.id, editorId: fx.montajerId, mode: "AUDIO_ONLY", requestKey: randomUUID(),
       createdById: fx.approverId, status: "SENT", executionMode: "LIVE" } });
     const { plan } = await prepareNarrationDeliveryPlan(p.id, version.id, "AUDIO_ONLY");
-    expect(plan.files[0].caption).toContain("замените в ролике только голос");
+    expect(plan.files[0].caption).toBe(`Объект №${p.shortId} · 🎙 новый голос, версия 1. Замените в ролике только голос, остальное не трогайте.\n\nТекст:\nСинтетический текст озвучки.`);
+  });
+
+  it("прежний вид (рубильник коротких ВЫКЛ): подпись mp3 слово в слово как до 28.11.2026", async () => {
+    const { p, version } = await propertyWithApprovedVoice({});
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: false } });
+    try {
+      const { plan } = await prepareNarrationDeliveryPlan(p.id, version.id, "AUDIO_ONLY");
+      expect(plan.files[0].caption).toBe(`Озвучка к ролику №${p.shortId}, версия 1, одобрена. Вклейте этот голос сами: музыка, громкость и монтаж ваши.\n\nТекст:\nСинтетический текст озвучки.`);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+    }
   });
 });

@@ -390,6 +390,8 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   staffClipIntakeEnabled?: boolean;
   /** Монтажёр управляет очередью из своего бота (19.11.2026): по умолчанию включено. */
   montajerQueueControlEnabled?: boolean;
+  /** Короткие сообщения монтажёру в Telegram (28.11.2026): по умолчанию включено. */
+  montajerShortMessages?: boolean;
   /** Проверять фото и видео агента перед монтажом (25.09.2026). false — CRM одобряет сама. */
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */

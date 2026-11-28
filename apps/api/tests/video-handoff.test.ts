@@ -952,40 +952,52 @@ describe("Очередь — числом роликов, с верным скл
     await prisma.propertyVideo.deleteMany({ where: { propertyId: property.id } });
   });
 
-  it("подпись к ролику: несколько роликов в очереди — единое число с правильным склонением, без номеров объектов", async () => {
+  // «Дальше в очереди» в подписи — только прежний вид (рубильник коротких ВЫКЛ): в коротком это видно по «🗂 Очередь» (28.11.2026).
+  it("подпись к ролику (прежний вид): несколько роликов в очереди — единое число с правильным склонением, без номеров объектов", async () => {
     await prisma.agent.update({ where: { id: montajerId }, data: { telegramChatId: `chat-${runId}` } });
     await setHandoffSettings(true, montajerId);
-    const current = await seedProperty();
-    await addRawVideoFile(current.id, "raw-current.mp4", 1024);
-    await queueVideoHandoff(current.id);
-    sendDocumentFile.mockClear();
-    sendDocument.mockClear();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: false } });
+    try {
+      const current = await seedProperty();
+      await addRawVideoFile(current.id, "raw-current.mp4", 1024);
+      await queueVideoHandoff(current.id);
+      sendDocumentFile.mockClear();
+      sendDocument.mockClear();
 
-    // Второй объект в очереди приносит с собой ДВА сырых ролика — так что
-    // "объектов в очереди" (1) и "роликов в очереди" (2) — разные числа, и
-    // именно роликов ждёт увидеть владелец.
-    const queued = await seedProperty();
-    await queueVideoHandoff(queued.id);
-    await addRawVideoFile(queued.id, "raw-1.mp4", 1024);
-    await addRawVideoFile(queued.id, "raw-2.mp4", 1024);
+      // Второй объект в очереди приносит с собой ДВА сырых ролика — так что
+      // "объектов в очереди" (1) и "роликов в очереди" (2) — разные числа, и
+      // именно роликов ждёт увидеть владелец.
+      const queued = await seedProperty();
+      await queueVideoHandoff(queued.id);
+      await addRawVideoFile(queued.id, "raw-1.mp4", 1024);
+      await addRawVideoFile(queued.id, "raw-2.mp4", 1024);
 
-    // Пересылка исходников текущего объекта пересобирает подпись (buildMontajerMessageText)
-    // и покажет актуальный статус очереди — ровно то же, что видит монтажёр при обычной передаче.
-    // Ролик уже уходил файлом при queueVideoHandoff выше и получил telegramFileId —
-    // повтор (задание B, 24.09.2026) идёт по file_id (sendDocument), не заново
-    // потоком с диска (sendDocumentFile).
-    // Все файлы уже у монтажёра — «файлы» без force ничего не шлёт (25.09.2026),
-    // поэтому пересылаем всё явно, как кнопка «📥 Прислать файлами».
-    await resendSourceVideos({ force: true });
+      // Пересылка исходников текущего объекта пересобирает подпись (buildMontajerMessageText)
+      // и покажет актуальный статус очереди — ровно то же, что видит монтажёр при обычной передаче.
+      // Ролик уже уходил файлом при queueVideoHandoff выше и получил telegramFileId —
+      // повтор (задание B, 24.09.2026) идёт по file_id (sendDocument), не заново
+      // потоком с диска (sendDocumentFile).
+      // Все файлы уже у монтажёра — «файлы» без force ничего не шлёт (25.09.2026),
+      // поэтому пересылаем всё явно, как кнопка «📥 Прислать файлами».
+      await resendSourceVideos({ force: true });
 
-    expect(sendDocumentFile).not.toHaveBeenCalled();
-    const caption = String(sendDocument.mock.calls[0]?.[2] ?? "");
-    expect(caption).toContain("Дальше в очереди: 2 ролика.");
-    // Ни один номер объекта из очереди не должен утекать в текст.
-    expect(caption).not.toContain(`№${queued.shortId}`);
+      expect(sendDocumentFile).not.toHaveBeenCalled();
+      const caption = String(sendDocument.mock.calls[0]?.[2] ?? "");
+      expect(caption).toContain("Дальше в очереди: 2 ролика.");
+      // Ни один номер объекта из очереди не должен утекать в текст.
+      expect(caption).not.toContain(`№${queued.shortId}`);
 
-    await prisma.propertyVideo.deleteMany({ where: { propertyId: current.id } });
-    await prisma.propertyVideo.deleteMany({ where: { propertyId: queued.id } });
+      // Короткий вид: строки очереди в подписи нет.
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+      sendDocument.mockClear();
+      await resendSourceVideos({ force: true });
+      expect(String(sendDocument.mock.calls[0]?.[2] ?? "")).not.toContain("Дальше в очереди");
+
+      await prisma.propertyVideo.deleteMany({ where: { propertyId: current.id } });
+      await prisma.propertyVideo.deleteMany({ where: { propertyId: queued.id } });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+    }
   });
 
   it("queueStatusForMontajer отвечает числом с верным склонением и гаснет, когда очередь пуста", async () => {
@@ -1028,7 +1040,12 @@ describe("Очередь — числом роликов, с верным скл
  * Обе проверки ниже без починки красные.
  */
 describe("Данные объекта монтажёру — всегда доступны, а не один раз", () => {
-  it("у объекта два ролика: факты карточки уходят с КАЖДЫМ файлом, а не только с первым", async () => {
+  /**
+   * С 28.11.2026 (владелец, короткие сообщения монтажёру) факты — только под ПЕРВЫМ файлом, у остальных
+   * номер объекта в начале подписи и в имени файла (путаницу 19.09 закрывают они и «📋 Данные объекта»).
+   * Факты под каждым файлом остались прежним видом (рубильник montajerShortMessages ВЫКЛ).
+   */
+  it("у объекта два ролика: короткий вид — факты под первым, второй с номером объекта одной строкой", async () => {
     const property = await seedProperty();
     await addRawVideoFile(property.id, "IMG_0001.mov", 1024);
     await addRawVideoFile(property.id, "IMG_0002.mov", 2048);
@@ -1036,6 +1053,31 @@ describe("Данные объекта монтажёру — всегда дос
     await setHandoffSettings(true, montajerId);
 
     await queueVideoHandoff(property.id);
+
+    const [first, second] = sendDocumentFile.mock.calls.map((c) => String(c[3] ?? ""));
+    expect(first).toContain(`Объект №${property.shortId}`);
+    expect(first).toContain("Площадь: 48");
+    expect(first).toContain("Тестовая, 11");
+    expect(first).toContain("Агент: Монтажёр теста");
+    expect(second).toMatch(new RegExp(`^Объект №${property.shortId} · 🎬 видео 2 из 2[^
+]*$`));
+
+    await prisma.propertyVideo.deleteMany({ where: { propertyId: property.id } });
+  });
+
+  it("у объекта два ролика (прежний вид): факты карточки уходят с КАЖДЫМ файлом, а не только с первым", async () => {
+    const property = await seedProperty();
+    await addRawVideoFile(property.id, "IMG_0001.mov", 1024);
+    await addRawVideoFile(property.id, "IMG_0002.mov", 2048);
+    await prisma.agent.update({ where: { id: montajerId }, data: { telegramChatId: `chat-${runId}` } });
+    await setHandoffSettings(true, montajerId);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: false } });
+
+    try {
+      await queueVideoHandoff(property.id);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { montajerShortMessages: true } });
+    }
 
     const captions = sendDocumentFile.mock.calls.map((c) => String(c[3] ?? ""));
     expect(captions).toHaveLength(2);
@@ -1670,9 +1712,9 @@ describe("HTTP: POST /:id/video-handoff/upload (diskStorage)", () => {
     const captions = sendDocumentFile.mock.calls.map((c) => String(c[3] ?? ""));
     // С 25.09.2026 номер объекта и место файла — ПЕРВОЙ строкой каждой подписи
     // («чтобы вообще никогда ни описания, ни ролики не путались»).
-    expect(captions[0].startsWith(`Объект №${property.shortId} · файл 1 из 3`)).toBe(true);
-    expect(captions[1].startsWith(`Объект №${property.shortId} · файл 2 из 3`)).toBe(true);
-    expect(captions[2].startsWith(`Объект №${property.shortId} · файл 3 из 3`)).toBe(true);
+    expect(captions[0].startsWith(`Объект №${property.shortId} · 🎬 видео 1 из 3`)).toBe(true);
+    expect(captions[1].startsWith(`Объект №${property.shortId} · 🎬 видео 2 из 3`)).toBe(true);
+    expect(captions[2].startsWith(`Объект №${property.shortId} · 🎬 видео 3 из 3`)).toBe(true);
     // Подпись объекта — только у первого: три простыни одинакового текста подряд
     // читать невозможно. Строка правил передачи убрана из карточки целиком
     // (владелец 21.09.2026) — проверяем, что её нет ни в одной подписи.
@@ -1687,7 +1729,7 @@ describe("HTTP: POST /:id/video-handoff/upload (diskStorage)", () => {
     ]);
   });
 
-  it("один ролик — подпись всё равно начинается с номера объекта «файл 1 из 1» (25.09.2026)", async () => {
+  it("один ролик — подпись всё равно начинается с номера объекта (25.09.2026; короткий вид — «🎬 видео»)", async () => {
     await prisma.agent.update({ where: { id: montajerId }, data: { telegramChatId: `chat-${runId}` } });
     const property = await seedProperty();
     await addRawVideoFile(property.id, "raw.mp4", 1024);
@@ -1697,7 +1739,7 @@ describe("HTTP: POST /:id/video-handoff/upload (diskStorage)", () => {
     expect(sendDocumentFile).toHaveBeenCalledTimes(1);
     // До 25.09.2026 у одиночного файла номера в подписи не было; теперь номер
     // объекта обязателен в каждой подписи, при любом числе файлов.
-    expect(String(sendDocumentFile.mock.calls[0][3] ?? "").startsWith(`Объект №${property.shortId} · файл 1 из 1`)).toBe(true);
+    expect(String(sendDocumentFile.mock.calls[0][3] ?? "").startsWith(`Объект №${property.shortId} · 🎬 видео ·`)).toBe(true);
     expect(String(sendDocumentFile.mock.calls[0][2])).toBe(`${property.shortId}.mp4`);
   });
 
@@ -1711,11 +1753,10 @@ describe("HTTP: POST /:id/video-handoff/upload (diskStorage)", () => {
     await queueVideoHandoff(property.id);
 
     expect(sendDocumentFile).not.toHaveBeenCalled();
-    // Ссылка и контрольное «отправлено 1 из 1» (25.09.2026) — два сообщения.
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    // Короткий вид (28.11.2026): единственный файл без голоса — итога «отправлено 1 из 1» нет, одно сообщение-ссылка.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
     const text = String(sendMessage.mock.calls[0][1] ?? "");
-    expect(text).toContain("60 МБ");
-    expect(String(sendMessage.mock.calls[1][1] ?? "")).toContain(`Отправлено 1 из 1 файла объекта №${property.shortId}`);
+    expect(text).toContain("60 МБ, Telegram такой не принимает. Скачайте по ссылке:");
     // Ссылка ведёт на маршрут скачивания (Content-Disposition: attachment), а не
     // на голый /uploads/video/... — иначе Safari на iPhone откроет файл плеером.
     expect(text).toContain("/download-file?token=");

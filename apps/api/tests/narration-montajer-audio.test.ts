@@ -42,6 +42,7 @@ const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarra
 const { startNarrationForNewProperty, requestAutoNarration, approveNarrationVersion, backfillMontageQueue } = await import("../src/lib/narrationAutoFlow.js");
 const { setPropertyNarrationOff, retireNarrationsOfClosedProperties } = await import("../src/lib/narrationOptOut.js");
 const { narrationLineForMontajer } = await import("../src/lib/narrationMontajerNote.js");
+const { LEGACY_MONTAJER_TEXTS } = await import("../src/lib/montajerTexts.js");
 const { voicelessCopyAsk, storeVoicelessCopy, voicelessCopyTarget, isVoicelessCopyLabel } = await import("../src/lib/narrationVoicelessCopy.js");
 const { rememberNarrationChoice, narrationLastChoiceFor } = await import("../src/lib/narrationLastChoice.js");
 const { syncPronunciationDictionary } = await import("../src/lib/narrationPronunciation.js");
@@ -126,7 +127,8 @@ describe("B: «Без озвучки»", () => {
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).narrationOff).toBe(true);
     expect(await prisma.propertyNarrationVersion.count({ where: { propertyId: p.id } })).toBe(0);
     expect(await requestAutoNarration({ propertyId: p.id, actorId: agentId, source: "AUTO", debounceMs: 0 })).toEqual({ status: "DISABLED" });
-    expect(await narrationLineForMontajer(p.id)).toContain("Без озвучки");
+    expect(await narrationLineForMontajer(p.id)).toContain("Голос в ролик не нужен");
+    expect(await narrationLineForMontajer(p.id, LEGACY_MONTAJER_TEXTS)).toContain("Без озвучки");
   });
   it("выключили позже: ждущая генерация и неотправленная передача гаснут, включили — снова можно", async () => {
     const p = await seedProperty();
@@ -148,10 +150,15 @@ describe("A: монтажёр вклеивает голос сам", () => {
     // Голос уходит следом за видео этой же выдачи (21.11.2026) — когда отправка включена; выключена — «как будет готова».
     const live = process.env.CRM_NARRATION_EXECUTION_MODE;
     process.env.CRM_NARRATION_EXECUTION_MODE = "LIVE";
-    try { expect(await narrationLineForMontajer(p.id)).toBe("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами."); }
+    // Короткий вид: про голос, что уйдёт следом, говорит итог, строки в задании нет; прежний вид (рубильник ВЫКЛ) — как раньше.
+    try {
+      expect(await narrationLineForMontajer(p.id)).toBeNull();
+      expect(await narrationLineForMontajer(p.id, LEGACY_MONTAJER_TEXTS)).toBe("🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.");
+    }
     finally { process.env.CRM_NARRATION_EXECUTION_MODE = live; }
     await setConfig({ mixByCrm: true });
-    expect(await narrationLineForMontajer(p.id)).toContain("БЕЗ голоса");
+    expect(await narrationLineForMontajer(p.id)).toContain("без голоса");
+    expect(await narrationLineForMontajer(p.id, LEGACY_MONTAJER_TEXTS)).toContain("БЕЗ голоса");
     await setConfig();
   });
   it("просьбы о ролике без голоса после сдачи нет вовсе (19.11.2026), даже когда голос вклеивал монтажёр", async () => {

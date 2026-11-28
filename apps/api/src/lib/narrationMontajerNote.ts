@@ -5,6 +5,7 @@ import { crmWillPrepareFirstNarration } from "./narrationPlan.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
 import { narrationCurrencyError } from "@royal-home/shared";
 import { narrationFactsCurrent } from "./propertyNarration.js";
+import { currentMontajerTexts, type MontajerNarrationNote, type MontajerTexts } from "./montajerTexts.js";
 
 /**
  * ОДНА СТРОКА ОБ ОЗВУЧКЕ В ЗАДАНИИ МОНТАЖЁРУ (12.11.2026). Задание на монтаж и перемонтаж
@@ -20,7 +21,9 @@ import { narrationFactsCurrent } from "./propertyNarration.js";
  */
 /** Прежняя просьба о втором файле. Сейчас не отправляется (askMontajerForVoicelessCopy); текст нужен, чтобы
  *  вырезать его из подписи передач, поставленных до 19.11.2026 (lib/narrationDelivery.ts). */
-export const VOICELESS_COPY_HINT = "При сдаче пришлите два файла: готовый ролик и тот же ролик без голоса (музыка и звуки остаются) — тогда смену цены CRM сделает сама.";
+export const VOICELESS_COPY_HINT = "При сдаче пришлите два файла: готовый ролик и тот же ролик без голоса (музыка и звуки остаются), тогда смену цены CRM сделает сама.";
+/** Тот же текст с длинным тире (до 28.11.2026): в подписях передач, поставленных раньше, он лежит именно так. */
+export const VOICELESS_COPY_HINT_BEFORE_28_11 = "При сдаче пришлите два файла: готовый ролик и тот же ролик без голоса (музыка и звуки остаются) — тогда смену цены CRM сделает сама.";
 
 /**
  * ПРОСИМ ЛИ МОНТАЖЁРА О ВТОРОМ ФАЙЛЕ «БЕЗ ГОЛОСА» — ОДНО РЕШЕНИЕ. Нет: монтажёр сдаёт ОДИН готовый файл
@@ -57,47 +60,47 @@ export async function narrationFollowsVideoNow(propertyId: string): Promise<bool
   return narrationFactsCurrent(latest, p) && !narrationCurrencyError(latest.script);
 }
 
-/** Хвост итогового «отправлено N из N»: голос — следующим сообщением (оно и правда следующее), или null. */
-export async function narrationNextMessageLine(propertyId: string): Promise<string | null> {
+/** Хвост итогового «отправлено N из N»: голос — следующим сообщением (оно и правда следующее), или null.
+ *  Слова — lib/montajerTexts.ts (короткий режим: «Голос придёт следом.»). */
+export async function narrationNextMessageLine(propertyId: string, texts?: MontajerTexts): Promise<string | null> {
   if (!(await narrationFollowsVideoNow(propertyId))) return null;
-  const { config } = await loadNarrationConfiguration();
-  return narrationMixByCrm(config) ? "🎙 Озвучка — следующим сообщением: под неё длина и темп." : `🎙 Озвучка — следующим сообщением, вклейте её сами.${voicelessCopyHint()}`;
+  const [{ config }, t] = await Promise.all([loadNarrationConfiguration(), texts ? Promise.resolve(texts) : currentMontajerTexts()]);
+  return t.voiceNextLine(narrationMixByCrm(config), voicelessCopyHint());
 }
 
-export async function narrationLineForMontajer(propertyId: string): Promise<string | null> {
+/** Строка про голос в задании словами текущего режима (lib/montajerTexts.ts); null — строка не нужна. */
+export async function narrationLineForMontajer(propertyId: string, texts?: MontajerTexts): Promise<string | null> {
+  const [note, t] = await Promise.all([narrationNoteForMontajer(propertyId), texts ? Promise.resolve(texts) : currentMontajerTexts()]);
+  return note ? t.narrationLine(note, voicelessCopyHint()) : null;
+}
+
+/** Состояние голоса объекта для строки задания (слова — lib/montajerTexts.ts). null — озвучки нет и не будет. */
+export async function narrationNoteForMontajer(propertyId: string): Promise<MontajerNarrationNote | null> {
   const [p, latest, { config, key }] = await Promise.all([
     prisma.property.findUnique({ where: { id: propertyId }, select: { narrationOff: true, videoMasterStorageKey: true } }),
-    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true, approveAsId: true } }),
+    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true, approveAsId: true, editorDelayNotifiedAt: true } }),
     loadNarrationConfiguration(),
   ]);
   if (!p) return null;
-  if (p.narrationOff) return "🔇 Без озвучки: голос в ролик не нужен.";
-  if (narrationMixByCrm(config)) {
-    return latest || p.videoMasterStorageKey ? "🎙 Озвучку накладывает CRM: пришлите ролик БЕЗ голоса (музыка и звуки можно)." : null;
-  }
-  if (!latest) return await crmWillPrepareFirstNarration(propertyId, config, key) ? `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}` : null;
+  if (p.narrationOff) return "off";
+  if (narrationMixByCrm(config)) return latest || p.videoMasterStorageKey ? "mix" : null;
+  if (!latest) return (await crmWillPrepareFirstNarration(propertyId, config, key)) ? "preparing" : null;
   // Старая ручная озвучка маркетинга (до автоозвучки): сама она монтажёру не уходит — mp3 не обещаем
   // (ревью 12.11.2026). Если маркетинг передаст её кнопкой, она придёт отдельным сообщением.
-  if ((latest.source ?? "MANUAL") === "MANUAL") return "🎙 Озвучку этого объекта ведёт маркетинг вручную: сама она сюда не придёт. Нужна — спросите маркетинг.";
+  if ((latest.source ?? "MANUAL") === "MANUAL") return "manual";
   // Одобренный голос уходит СЛЕДОМ за файлами этой же выдачи (21.11.2026, объект №211: голос раньше видео терялся) —
   // при каждой выдаче заново, старый файл искать не нужно (videoHandoff.ts → narrationAutoFlow.ts::narrationAfterVideoIssued).
-  // Строка стоит в подписи ПЕРВОГО файла, поэтому здесь «сразу после файлов»; «следующим сообщением» — под итоговым
-  // «отправлено N из N» (narrationNextMessageLine). Уйдёт не сейчас (отправка выключена, цену поменяли — будет новая
+  // «follows» — уйдёт сразу после файлов; уйдёт не сейчас (отправка выключена, цену поменяли — будет новая
   // версия, в тексте доллары) — обещаем только «как будет готова» (ревью 21.11).
   if (latest.status === "READY" && latest.approvedAt) {
-    return await narrationFollowsVideoNow(propertyId)
-      ? `🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.${voicelessCopyHint()}`
-      : `🎙 Озвучка придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
+    return (await narrationFollowsVideoNow(propertyId)) ? "follows" : "later";
   }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
-    return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда, как будет готова.";
+    // Монтажёр уже получил «голос задерживается» отдельным сообщением (narrationAutoFlow.ts::notifyEditorNarrationDelayed).
+    return latest.editorDelayNotifiedAt ? "delayedNotified" : "delayed";
   }
   // Одобрена уже при сохранении (21.11.2026, approveAsId): ждать некого, только пока готовится звук.
-  if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && latest.approveAsId) {
-    return `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
-  }
-  if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) {
-    return `🎙 Озвучка ждёт одобрения и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
-  }
+  if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && latest.approveAsId) return "preparing";
+  if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) return "awaitingApproval";
   return null;
 }

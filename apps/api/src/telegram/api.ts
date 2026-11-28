@@ -703,7 +703,8 @@ async function sendLocalDocument(
   filename: string,
   caption: string | undefined,
   timeoutMs: number,
-  singleAttempt: boolean
+  singleAttempt: boolean,
+  buttons?: TelegramInlineButton[][]
 ): Promise<TelegramSentDocument> {
   const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
   if (!root || !path.isAbsolute(root)) throw new Error("Не настроен общий том Telegram Bot API");
@@ -725,6 +726,7 @@ async function sendLocalDocument(
       chat_id: chatId,
       document: pathToFileURL(staged).href,
       ...(caption ? { caption } : {}),
+      ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
     }, timeoutMs, undefined, undefined, singleAttempt);
     keepForTelegram = false;
     return sent;
@@ -749,12 +751,14 @@ export async function sendDocumentFile(
   caption?: string,
   timeoutMs = 60_000,
   singleAttempt = false,
+  /** Кнопки под документом (28.11.2026: «Очередь» и «Пропустить» под единственным файлом задания монтажёру). */
+  buttons?: TelegramInlineButton[][],
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   void sendChatAction(chatId, undefined, "upload_document");
   const text = caption && (caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption);
   if ("path" in file && IS_LOCAL_BOT_API) {
-    return sendLocalDocument(chatId, file.path, filename, text, timeoutMs, singleAttempt);
+    return sendLocalDocument(chatId, file.path, filename, text, timeoutMs, singleAttempt, buttons);
   }
   const upload = "path" in file ? await openAsBlob(file.path) : file;
   const result = await postMultipartWithRetry(
@@ -763,6 +767,7 @@ export async function sendDocumentFile(
       const form = new FormData();
       form.append("chat_id", chatId);
       if (text) form.append("caption", text);
+      if (buttons?.length) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
       form.append("document", upload instanceof Blob ? upload : new Blob([upload]), filename);
       return form;
     },
@@ -1121,9 +1126,14 @@ export function sendVideo(chatId: string, videoUrl: string, caption?: string, ti
   );
 }
 
-export function sendDocument(chatId: string, fileUrl: string, caption?: string): Promise<unknown> {
+export function sendDocument(chatId: string, fileUrl: string, caption?: string, buttons?: TelegramInlineButton[][]): Promise<unknown> {
   void sendChatAction(chatId, undefined, "upload_document");
-  return call("sendDocument", { chat_id: chatId, document: fileUrl, ...fitCaption(caption) });
+  return call("sendDocument", {
+    chat_id: chatId,
+    document: fileUrl,
+    ...fitCaption(caption),
+    ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
+  });
 }
 
 /** Голосовое — строго audio/ogg с кодеком Opus, как и у WhatsApp: тот же файл,

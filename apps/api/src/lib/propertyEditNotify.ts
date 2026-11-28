@@ -10,6 +10,7 @@ import { logSystemError } from "./systemError.js";
 import { propertyFactsForMontajer, recordMontajerMessage } from "./videoHandoff.js";
 import { clipHasPriceInFrame, priceLineInFrame } from "./clipPriceInFrame.js";
 import { sendToMontajer } from "./montageObservers.js";
+import { currentMontajerTexts, type MontajerTexts } from "./montajerTexts.js";
 
 /**
  * ПРАВКА ОБЪЕКТА ДО ПУБЛИКАЦИИ — КОМУ СООБЩИТЬ (владелец 07.10.2026).
@@ -86,8 +87,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export function visibleChangeLines(
   changes: PropertyFieldChange[],
   currencies: { before: string; after: string },
-  options: { withPrice?: boolean; priceInFrame?: boolean } = {}
+  options: { withPrice?: boolean; priceInFrame?: boolean; format?: (label: string, was: string, becomes: string) => string } = {}
 ): { lines: string[]; frameChanged: boolean } {
+  // Вид строки: по умолчанию «Этаж: 3 → 4»; монтажёру в коротком виде — lib/montajerTexts.ts::changeLine.
+  const format = options.format ?? ((label: string, was: string, becomes: string) => `${label}: ${was} → ${becomes}`);
   const priceInFrame = options.priceInFrame ?? false;
   // Цена в кадре старого ролика — её правка видна и монтажёру, и за готовым роликом.
   const withPrice = (options.withPrice ?? true) || priceInFrame;
@@ -96,12 +99,12 @@ export function visibleChangeLines(
   const lines: string[] = [];
   for (const c of visible) {
     if (c.field === "price") {
-      lines.push(`${c.label}: ${c.was} ${currencies.before} → ${c.becomes} ${currencies.after}`);
+      lines.push(format(c.label, `${c.was} ${currencies.before}`, `${c.becomes} ${currencies.after}`));
     } else if (c.field === "currency" && priceChanged) {
       // Валюта уже показана рядом с суммой — отдельной строкой не дублируем.
       continue;
     } else {
-      lines.push(`${c.label}: ${c.was} → ${c.becomes}`);
+      lines.push(format(c.label, String(c.was), String(c.becomes)));
     }
   }
   return { lines, frameChanged: visible.some((c) => FRAME_FIELDS.has(c.field) || (priceInFrame && PRICE_FIELDS.has(c.field))) };
@@ -120,8 +123,9 @@ async function notifyModerators(
   await sendPushToAgents(moderators, { kind: "task", title, body, url: `/properties/${shortId}`, tag: `${tag}-${propertyId}` });
 }
 
-/** Монтажёру в Telegram: «⚠️ В карточке ОБ-… изменилось: …». Нет адресата — не молчим. */
-async function notifyMontajerFactsChanged(input: PropertyEditNotifyInput, summary: string): Promise<void> {
+/** Монтажёру в Telegram: «⚠️ Объект №N: в карточке изменилось. …» (прежний вид «⚠️ В карточке ОБ-… изменилось: …»,
+ *  слова — lib/montajerTexts.ts). `changes` — строки для короткого вида. Нет адресата — не молчим. */
+async function notifyMontajerFactsChanged(input: PropertyEditNotifyInput, summary: string, changes: string[], texts?: MontajerTexts): Promise<void> {
   const { before } = input;
   const code = formatShortCode("ОБ", before.shortId);
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
@@ -131,7 +135,7 @@ async function notifyMontajerFactsChanged(input: PropertyEditNotifyInput, summar
         select: { telegramChatId: true },
       })
     : null;
-  const text = `⚠️ В карточке ${code} изменилось: ${summary}. Учтите в монтаже.`;
+  const text = (texts ?? (await currentMontajerTexts())).factsChanged(before.shortId, summary, changes);
 
   if (!montajer?.telegramChatId) {
     // Монтажёр держит объект, а написать ему нельзя — это должен узнать человек.
@@ -201,7 +205,12 @@ export async function notifyPropertyEditedBeforePublish(input: PropertyEditNotif
 
     // EDITING
     if (before.videoHandoffStatus === "SENT_TO_EDITOR") {
-      await notifyMontajerFactsChanged(input, summary);
+      const texts = await currentMontajerTexts();
+      const montajerLines = texts.short
+        ? visibleChangeLines(input.changes, { before: before.currency, after: after.currency },
+          { withPrice: false, priceInFrame, format: texts.changeLine }).lines
+        : lines;
+      await notifyMontajerFactsChanged(input, summary, montajerLines, texts);
       return;
     }
     if (before.videoHandoffStatus === "QUEUED") return; // текст соберётся свежим при отправке
@@ -285,7 +294,8 @@ export async function notifySourceFilesChanged(
           changes: [],
           actorId,
         },
-        `исходные файлы — ${summary}`
+        `исходные файлы — ${summary}`,
+        [`Исходные файлы: ${summary}`]
       );
     }
   } catch (err) {

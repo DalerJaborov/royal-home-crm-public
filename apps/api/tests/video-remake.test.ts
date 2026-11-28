@@ -256,7 +256,7 @@ describe("Успешный возврат: заявка, счётчик, хро�
     const remakeRequest = await prisma.videoRemakeRequest.findFirst({ where: { propertyId: property.id } });
     expect(remakeRequest?.reason).toBe("NO_MUSIC");
     expect(remakeRequest?.requestedById).toBe(marketingId);
-    expect(remakeRequest?.messageText).toContain("ПЕРЕМОНТАЖ");
+    expect(remakeRequest?.messageText).toContain(`🔁 Объект №${property.shortId} на переделку`);
 
     const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
     expect(after.videoRemakeCount).toBe(1);
@@ -306,8 +306,8 @@ describe("Текст монтажёру: причина словами, мини
     expect(sendDocumentFile).toHaveBeenCalledTimes(1);
     const caption = String(sendDocumentFile.mock.calls[0]?.[3] ?? "");
 
-    expect(caption).toContain("🔁 ПЕРЕМОНТАЖ");
-    expect(caption).toContain(`объект №${property.shortId}`);
+    expect(caption).toContain(`🔁 Объект №${property.shortId} на переделку`);
+    expect(caption).toContain("Что исправить: Надпись на видео неверная.");
     expect(caption).toContain("Надпись на видео неверная");
     expect(caption).toContain("Написано «3 комнаты», а на самом деле 2");
     expect(caption).toContain("Площадь: 50");
@@ -330,6 +330,7 @@ describe("Текст монтажёру: причина словами, мини
 
     const caption = String(sendDocumentFile.mock.calls[0]?.[3] ?? "");
     expect(caption).not.toContain("🔁 ПЕРЕМОНТАЖ");
+    expect(caption).not.toContain("на переделку");
     expect(caption).not.toContain("Своя обложка");
     expect(caption).toContain(`Объект №${property.shortId}`);
   });
@@ -638,8 +639,8 @@ describe("Журнал сообщений монтажёру", () => {
     // за которой идёт ровно то сообщение, что лежит в начале записи журнала.
     const sentMessage = entry.text.split("\n\nФайлов: ")[0];
     expect(entry.text).toContain("Файлов: ");
-    expect(sentMessage).toContain("ПЕРЕМОНТАЖ");
-    expect(caption.startsWith(`Объект №${property.shortId} · файл 1 из 1`)).toBe(true);
+    expect(sentMessage).toContain("на переделку");
+    expect(caption.startsWith(`Объект №${property.shortId} · 🎬 видео`)).toBe(true);
     expect(caption.endsWith(`\n\n${sentMessage}`)).toBe(true);
   });
 });

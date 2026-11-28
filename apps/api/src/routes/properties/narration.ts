@@ -21,6 +21,7 @@ import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
 import { pronunciationDictionaryStale, syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
 import { sendToMontajer } from "../../lib/montageObservers.js";
+import { currentMontajerTexts } from "../../lib/montajerTexts.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
 import { usableMontajerWhere } from "../../lib/montajerHandover.js";
@@ -417,7 +418,8 @@ async function tellMontajerNarrationOff(shortId: number): Promise<void> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
   const editor = settings?.videoMontajerAgentId ? await prisma.agent.findUnique({ where: { id: settings.videoMontajerAgentId }, select: { telegramChatId: true, isActive: true } }) : null;
   if (!editor?.isActive || !editor.telegramChatId) return;
-  await sendToMontajer(editor.telegramChatId, `Объект №${shortId}: агент выбрал «Без озвучки» — голос в ролик не нужен.`, { copy: true, propertyShortId: shortId }).catch(() => {});
+  const text = (await currentMontajerTexts()).narrationOff(shortId);
+  await sendToMontajer(editor.telegramChatId, text, { copy: true, propertyShortId: shortId }).catch(() => {});
 }
 
 narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {

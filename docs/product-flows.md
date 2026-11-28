@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **794**. Развилок в самих путях: **2532**; вместе с задачами по расписанию и фоновыми заданиями — **4408**. Модулей: **88**.
+Путей: **794**. Развилок в самих путях: **2531**; вместе с задачами по расписанию и фоновыми заданиями — **4407**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16278,13 +16278,8 @@
   - если holder
     - если newMontajerId
       - если previousMontajerAgentId
-        - пробует
-          - const oldMontajer = await prisma.agent.findFirst({ where: { id: previousMontajerAgentId, isActive: true }, se…
-            · читает в базе: agent
-          - если oldMontajer?.telegramChatId
-            - await sendToMontajer(oldMontajer.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, { co…
-              · зовёт sendToMontajer()
-        - если сорвалось
+        - await tellPreviousMontajerHandedOver(previousMontajerAgentId, holder.shortId);
+          · зовёт tellPreviousMontajerHandedOver()
       - dispatchInBackground(holder.id, newMontajerId);
         · зовёт dispatchInBackground()
     - иначе
