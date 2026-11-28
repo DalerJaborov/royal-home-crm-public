@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { canViewInvestigations, resolvePermissions, type PermissionId } from "@royal-home/shared";
+import { canViewInvestigations, canViewTechnical, TECHNICAL_ROLE_ONLY_PERMISSIONS, resolvePermissions, type PermissionId } from "@royal-home/shared";
 import { useAuthStore } from "../store/auth";
 import { useMyProfile } from "../hooks/useMe";
 
@@ -23,6 +23,7 @@ export function usePermissions(): Set<PermissionId> {
     if (granted) {
       const effective = new Set(granted);
       if (!canViewInvestigations(data?.role ?? role)) effective.delete("clients.securityReview");
+      if (!canViewTechnical(data?.role ?? role)) for (const id of TECHNICAL_ROLE_ONLY_PERMISSIONS) effective.delete(id);
       return effective;
     }
     return role ? resolvePermissions(role, null) : new Set<PermissionId>();

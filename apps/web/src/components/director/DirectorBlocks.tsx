@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { pluralizeRu, type DirectorAgentRow, type DirectorDashboardResponse, type DirectorDrillKey, type DirectorKpi } from "@royal-home/shared";
+import { groupSourceRows, pluralizeRu, type DirectorAgentRow, type SourceGroupRow, type DirectorDashboardResponse, type DirectorDrillKey, type DirectorKpi } from "@royal-home/shared";
 import { RhButton, RhGroup, RhRow, RhSection } from "../look/ui";
 import { RoyalIcon } from "../look/RoyalIcon";
 import type { RoyalIconName } from "../look/royalIconData";
@@ -183,17 +183,27 @@ export function SpeedBlock({ data, onDrill, canDrill = () => true }: { data: Dir
   );
 }
 
+/** Подстрока группы: заявки, сделки (только если они есть) и каналы внутри группы. */
+function sourceGroupSub(r: SourceGroupRow): string {
+  const head = [`${nums(r.leads)} ${pluralizeRu(r.leads, ["заявка", "заявки", "заявок"])}`];
+  if (r.deals > 0) head.push(`${nums(r.deals)} ${pluralizeRu(r.deals, ["сделка", "сделки", "сделок"])}`, percentLabel(sharePct(r.deals, r.leads)));
+  const channels = r.parts.length > 1 ? r.parts.map((p) => `${p.label} ${nums(p.leads)}`).join(", ") : "";
+  return channels ? `${head.join(" · ")} — ${channels}` : head.join(" · ");
+}
+
 /** Источники: заявки, сделки и (при праве на деньги) комиссия. */
 export function SourcesBlock({ data }: { data: DirectorDashboardResponse }) {
-  const rows = data.sources.filter((r) => r.leads > 0 || r.deals > 0).sort((a, b) => b.leads - a.leads);
+  // Группы из общего реестра (shared/clientSourceGroups): «Переписки» вместо четырёх строк
+  // WhatsApp/Instagram/Facebook/Telegram; каналы внутри группы — в подстроке.
+  const rows = groupSourceRows(data.sources);
   return (
     <RhSection title="Откуда приходят" id="dd-sources">
       {rows.length === 0 ? <div className="dd-card"><p className="dd-quiet">Заявок за этот период нет.</p></div> : (
         <RhGroup label="Источники заявок">
           {rows.map((r) => (
-            <RhRow key={r.source} title={r.label}
-              sub={`${nums(r.leads)} ${r.leads === 1 ? "заявка" : "заявок"} · ${nums(r.deals)} ${r.deals === 1 ? "сделка" : "сделок"}${sharePct(r.deals, r.leads) !== null ? ` · ${percentLabel(sharePct(r.deals, r.leads))}` : ""}`}
-              right={data.seesMoney && r.commission !== null ? <b className="ry-num"><RoyalAmount text={moneyTjs(r.commission)} /></b> : <b className="ry-num">{nums(r.leads)}</b>} />
+            <RhRow key={r.key} title={r.label}
+              sub={sourceGroupSub(r)}
+              right={data.seesMoney && r.commission !== null && r.commission > 0 ? <b className="ry-num"><RoyalAmount text={moneyTjs(r.commission)} /></b> : <b className="ry-num">{nums(r.leads)}</b>} />
           ))}
         </RhGroup>
       )}
