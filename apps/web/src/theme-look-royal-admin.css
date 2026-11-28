@@ -761,3 +761,12 @@
 @media (max-width: 389.98px) {
   :root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .ry-ntf-acts { padding-left: 0; }
 }
+
+/* Ряд действий в шапке экрана «Администрирование» (Уведомления: «Прочитать всё»,
+   «Скрыть прочитанное», «Очистить») не переносился и был шире телефона: лист рос до
+   526 px, браузер уменьшал страницу, а нижнее меню (fixed) вставало на y=1051 при окне
+   844 (кадр 28.11.2026). Тот же механизм у любого `.pg-h > .acts` в этой оболочке. */
+:root[data-ui-look="royal"] .ry-admin[data-ry-section="admin"] .pg-h > .acts,
+:root[data-ui-look="royal"] .ry-ntf-page .pg-h > .acts {
+  display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; max-width: 100%;
+}
