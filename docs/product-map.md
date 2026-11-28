@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 32 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 794 |
+| Адресов сервера всего | 796 |
 | Задач по расписанию | 144 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -155,7 +155,7 @@
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 4 | да (9 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
-| `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
+| `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 10 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 142 | да (37 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/construction-registry` | **без подписи** | 10 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
