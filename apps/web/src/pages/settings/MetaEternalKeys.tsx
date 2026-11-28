@@ -352,7 +352,7 @@ function CompanyPageRow({
 }) {
   const label = page.connected
     ? page.subscribed === false
-      ? "Подключена, сообщения не приходят"
+      ? "Подключена, подписка неполная"
       : "Messenger подключён"
     : page.canMessage
       ? "Не подключена"

@@ -893,6 +893,17 @@ const CHANNEL_BY_OBJECT: Record<string, MetaChannel> = {
 };
 
 /**
+ * ЛАЙК 👍 И СТИКЕРЫ MESSENGER — НЕ ФОТО (28.11.2026, живой случай: клиент нажал «лайк» после отказа,
+ * оператор принял его за картинку и ответил «акс ва видеоро агент худаш мегирад»). Facebook присылает
+ * и кнопку-лайк, и любой стикер вложением `type: "image"`, но с `payload.sticker_id`. Признак один: у
+ * настоящего фото такого поля нет. Такое вложение — стикер: не скачивается, не считается «фото клиента».
+ */
+export function isMessengerStickerAttachment(a: { type?: string; payload?: Record<string, unknown> } | undefined): boolean {
+  const id = a?.payload?.sticker_id;
+  return a?.type === "image" && id !== undefined && id !== null && String(id).length > 0;
+}
+
+/**
  * НАША ЛИ ЭТО КАРТОЧКА С КНОПКОЙ (25.09.2026).
  *
  * Карточку `sendButtonCard` (ниже) CRM шлёт только воронкой лид-магнита
@@ -1387,7 +1398,9 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
       // «Сообщение недоступно» (02.10.2026, переписки Dan с рекламы): вложения нет,
       // есть только флаг. Раньше такое событие выбрасывалось как пустое — вместе с
       // меткой рекламы, и следующее сообщение человека приходило «ниоткуда».
-      const attachmentType = attachment?.type ?? (event.message.is_unsupported ? "unsupported" : undefined);
+      const attachmentType = isMessengerStickerAttachment(attachment)
+        ? "sticker"
+        : attachment?.type ?? (event.message.is_unsupported ? "unsupported" : undefined);
       /**
        * КАРТОЧКА ОТ КЛИЕНТА (25.09.2026, см. templateAttachmentText): её слова и
        * номер — в текст хода. Нашу же карточку, пришедшую без флага эха, не
@@ -1410,6 +1423,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
       // Пачка фото одним сообщением: хвост (со второго) едет отдельным полем.
       const extraAttachments = (event.message.attachments ?? [])
         .slice(1)
+        .filter((a) => !isMessengerStickerAttachment(a))
         .map((a) => ({ type: a?.type, url: a?.payload?.url,
           ...(captureReferences ? sharedPostFields(a?.payload) : {}) }))
         .filter((a) => a.url || ("attachmentMediaId" in a && a.attachmentMediaId));
@@ -1432,7 +1446,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
         senderId,
         text,
         attachmentType,
-        attachmentUrl: attachment?.payload?.url,
+        attachmentUrl: attachmentType === "sticker" ? undefined : attachment?.payload?.url,
         ...sharedPostFields(attachment?.payload),
         ...(extraAttachments.length > 0 ? { extraAttachments } : {}),
         fromAd: Boolean(referral?.ad_id || referral?.source === "ADS"),

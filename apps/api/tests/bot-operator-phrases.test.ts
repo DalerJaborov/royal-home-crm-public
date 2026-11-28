@@ -38,7 +38,9 @@ const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 const QUESTION_KEYS: ReadonlySet<PhraseKey> = new Set(["ask_role", "ask_role_brand"]);
 const MAX_LENGTH = 160;
 /** Ключи, где два одинаковых варианта — решение ведущего (19.11: «Здравствуйте!» оба раза), а не забытая правка. */
-const SAME_VARIANTS_OK: ReadonlySet<string> = new Set(["greet/ru"]);
+const SAME_VARIANTS_OK: ReadonlySet<string> = new Set(["greet/ru",
+  // Текст продавцу дословно от коллег (владелец 28.11.2026): другой вариант был бы уже не тем текстом.
+  "seller_intro/ru", "seller_intro/tg", "role_details_seller/ru", "role_details_seller/tg"]);
 /** Слова, запрещённые владельцем в таджикских текстах (tajik-phrasebook: do-not-say.md, SKILL.md). */
 const TG_BANNED = /(?:^|[^\p{L}])(?:лутфан|безахмат|мутахассис\p{L}*|муфассал\p{L}*|кулай\p{L}*|хохиш\s+мекунем|ту)(?![\p{L}])/u;
 const RU_BANNED = /(?:^|[^\p{L}])(?:ты|тебе|тебя|уникальн\p{L}*|успейте|лучшие\s+условия|вернусь|через\s+\d+\s+минут\p{L}*|удобно\?)(?![\p{L}])/iu;

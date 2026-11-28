@@ -113,7 +113,7 @@ describe("2. без «одним сообщением» и без допроса
   it("Messenger, продавец (скриншот владельца): условия и один вопрос по делу, без списка из шести пунктов и без номера первым ответом", () => {
     const t = run(FB(), [ru({ role: "seller", question: "fee" })])[0]!;
     // 21.11.2026 (решение к SPEC п. 8): номер — не первым ответом; продавцу — что продаёт и где.
-    expect(t.text).toBe("Комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
+    expect(t.text).toBe("Комиссия агентства 2%. Напишите, что продаёте и в каком районе, всё расскажем.");
     expect(t.text).not.toMatch(/одним сообщением|площадь|этаж|ремонт/u);
   });
   it("номер пришёл — заявка в этот же ход и один мягкий вопрос о недостающем; ответ на него — заметка", () => {
@@ -147,7 +147,7 @@ describe("3. своими словами: модель пишет, код про
     const turn = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: ctx(), model: async () => null,
       ownWords: { enabled: false, model } });
     expect(model).not.toHaveBeenCalled();
-    expect(turn.text).toContain("Поможем продать");
+    expect(turn.text).toContain("Поможем с продажей");
     const silent = await composeOperatorReply({ steps: [{ key: "note_added", vars: {}, variant: 0 }], template: "Передал агенту.", language: "ru",
       current: "5 этаж", model: async () => null });
     expect(silent).toMatchObject({ text: "Передал агенту.", source: "template", rejected: "no_answer" });

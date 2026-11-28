@@ -71,6 +71,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "shareholderReportsEnabled",
   "telegramStaffOnlyEnabled",
   "botPauseOnStaffReplyEnabled",
+  "botOutOfAreaRefusalEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -107,6 +108,9 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "clientCardRobotRowsEnabled",
   // Владелец 28.11.2026: автоочистка удаляет безвозвратно, включает он сам. Колонка `DEFAULT false`.
   "autoCleanupEnabled",
+  // 28.11.2026: отказ «работаем по Душанбе» — за рубильником; умолчание — решение владельца 19.11 «вне Душанбе клиенту не
+  // отказываем» (заявка с пометкой, решает директор). Колонка `DEFAULT false`.
+  "botOutOfAreaRefusalEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -387,6 +391,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Когда сотрудник отвечает клиенту из CRM, бот замолкает в этой переписке: на срок из запроса, а без него на умолчание сервера (своему агенту надолго, остальным на 10 минут); в WhatsApp, Instagram и Facebook бот молчит ещё и пока сотрудник писал недавно. Первое сообщение клиенту в WhatsApp из карточки тоже ставит паузу.",
     off: "Ответ сотрудника бота не останавливает, выбора срока в чате нет. Остановить бота можно кнопкой паузы в переписке. Сообщения сотрудника бот видит в истории и не повторяет их.",
   },
+  // 28.11.2026 (жалоба директора, Messenger: «у нас дом в Худжанде»): вежливый отказ вне Душанбе — выбор руководства.
+  botOutOfAreaRefusalEnabled: {
+    title: "Бот отказывает, если объект не в Душанбе",
+    on: "Клиенту, который пишет об объекте в другом городе, бот один раз отвечает «Работаем по Душанбе» и номер не просит. Если клиент сам написал номер, заявка всё равно заводится с пометкой «не в Душанбе».",
+    off: "Бот не отказывает: заявка заводится с пометкой «не в Душанбе», решает директор.",
+  },
   // Владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам… можно своими словами отвечать».
   showingAgreementAskEnabled: {
     title: "Шабнам переспрашивает о показе",
@@ -433,7 +443,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled", "autoCleanupEnabled", "usdRateAlertsEnabled", "usdRateSiteResyncEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled", "botOutOfAreaRefusalEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
