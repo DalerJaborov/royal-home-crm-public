@@ -34,13 +34,13 @@ describe("экран без шапки оболочки не заходит по
 
   it("после скрытой шапки `.app-main-col` возвращает вырез в верхнее поле", () => {
     const body = blockOf(shell, '.clean-header-own ~ .app-main-col');
-    expect(body).toMatch(/padding-top:\s*calc\(\s*10px\s*\+\s*env\(safe-area-inset-top/);
+    expect(body).toMatch(/padding-top:\s*calc\(\s*10px\s*\+\s*var\(--clean-safe-top\)/);
   });
 
   it("под строкой состояния стоит закрашенная полоса: содержимое не проезжает под часами", () => {
     const body = blockOf(shell, ".clean-frame:has(> .clean-header-own)::before");
     expect(body).toMatch(/position:\s*fixed/);
-    expect(body).toMatch(/height:\s*env\(safe-area-inset-top/);
+    expect(body).toMatch(/height:\s*var\(--clean-safe-top\)/);
     expect(body).toMatch(/pointer-events:\s*none/);
     const z = Number(/z-index:\s*(\d+)/.exec(body)?.[1]);
     // Ниже липкой `.top` (z 20) и шторок.
@@ -61,5 +61,70 @@ describe("экран без шапки оболочки не заходит по
   it("высота списка «Чатов» вычитает вырез (иначе страница вырастает на его величину)", () => {
     expect(read("theme-2026-clean.css")).toMatch(/\.clean-messages \.two>section \{[^}]*env\(safe-area-inset-top/);
     expect(read("theme-look-royal-chats.css")).toMatch(/--ry-chat-h:[^;]*env\(safe-area-inset-top/);
+  });
+});
+
+describe("вырез считается одной схемой (одна переменная)", () => {
+  const shell = read("theme-2026-clean-mobile-shell.css");
+
+  it("`--clean-safe-top` определён ровно один раз и равен env(safe-area-inset-top)", () => {
+    const defs: string[] = [];
+    for (const name of fs.readdirSync(SRC).filter((f) => f.endsWith(".css"))) {
+      for (const m of read(name).matchAll(/--clean-safe-top\s*:\s*([^;]+);/g)) defs.push(`${name}: ${m[1].trim()}`);
+    }
+    expect(defs).toEqual(["theme-2026-clean-mobile-shell.css: env(safe-area-inset-top, 0px)"]);
+  });
+
+  it("правила чистой оболочки не читают env(safe-area-inset-top) напрямую", () => {
+    // Одно исключение с запасным значением: `var(--clean-safe-top, env(...))` вне телефонной ветки.
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(SRC).filter((f) => /^theme-2026-clean.*\.css$/.test(f) || f === "theme-look-royal-chats.css")) {
+      const css = read(name).replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const m of css.matchAll(/[^;{}]*env\(safe-area-inset-top[^;{}]*/g)) {
+        const line = m[0];
+        if (/^\s*--clean-safe-top\s*:/.test(line)) continue;
+        if (!/var\(--clean-safe-top\s*,\s*env\(safe-area-inset-top/.test(line)) offenders.push(`${name}: ${line.trim().slice(0, 90)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("`.mh > .top` в чистой оболочке вычитает вырез только после скрытой шапки оболочки", () => {
+    expect(blockOf(shell, ".rh2 .mh > .top {")).toMatch(/margin-top:\s*0/);
+    expect(blockOf(shell, ".clean-header-own ~ .app-main-col .rh2 .mh > .top")).toMatch(/margin-top:\s*calc\(\s*-1\s*\*\s*var\(--clean-safe-top\)/);
+  });
+
+  it("мёртвое правило `.app-shell { padding-top: max(8px, env(...)) }` не вернулось", () => {
+    expect(read("theme-2026-clean.css")).not.toMatch(/\.app-shell\.clean-shell \{[^}]*padding-top:\s*max\(8px/);
+  });
+});
+
+describe("шапка при сворачивании не двигает страницу (рывок «Календаря» 138→111)", () => {
+  it("CleanShell отдаёт убавку высоты шапки полем под ней", () => {
+    const tsx = fs.readFileSync(path.join(SRC, "components/clean/CleanShell.tsx"), "utf8");
+    expect(tsx).toMatch(/\[data-ry-top\]\[data-scrolled\]/);
+    expect(tsx).toMatch(/node\.style\.marginBottom\s*=\s*gap/);
+    expect(tsx).toMatch(/node\.style\.marginBottom\s*=\s*""/); // и снимает при размонтировании
+  });
+
+  it("основная колонка не якорит прокрутку (иначе Chrome съедает убавку и верх «залипает»)", () => {
+    expect(blockOf(read("theme-2026-clean-mobile-shell.css"), "[data-mobile-ux] .app-main-col {\n  overflow-anchor")).toMatch(/overflow-anchor:\s*none/);
+  });
+});
+
+describe("«Уведомления»: ряд действий не шире телефона (фиксированное меню было на y=1051)", () => {
+  it("`.pg-h > .acts` экрана администрирования переносится", () => {
+    const body = blockOf(read("theme-look-royal-admin.css"), ".ry-admin[data-ry-section=\"admin\"] .pg-h > .acts");
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+    expect(body).toMatch(/max-width:\s*100%/);
+  });
+});
+
+describe("«Команда»: раскрытый блок достижений без лишних полей на телефоне", () => {
+  it("карточка не складывает поле с полем строки раскрытия, заголовок и подпись досок друг под другом", () => {
+    const css = read("theme-look-royal-team.css");
+    expect(blockOf(css, "details.clean-team-recognition { padding: 0; }")).toBeDefined();
+    expect(css).toMatch(/clean-team-recognition \.sec-h \{ flex-wrap: wrap/);
+    expect(css).toMatch(/\.sec-h > \.note \{ flex: 1 1 100%/);
   });
 });
