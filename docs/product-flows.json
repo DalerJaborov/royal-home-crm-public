@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 794,
-  "forks": 4407,
-  "mounts": 88,
-  "cron": 150,
+  "endpoints": 800,
+  "forks": 4417,
+  "mounts": 89,
+  "cron": 151,
   "jobs": 37,
   "hidden": 0
  },
@@ -28518,6 +28518,336 @@
        "c": []
       }
      ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/config",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/config",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = configSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой configSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Порог — число от 0,1 до 20 процентов\" });",
+       "a": [
+        "ответ 400 — «Порог — число от 0,1 до 20 процентов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, update: { usdRateAlertPct: parsed.data.alertPct },…",
+     "a": [
+      "создаёт или меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdRateAlertPct: parsed.data.alertPct });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ alertPct: parsed.data.alertPct });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/confirm-pending",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/confirm-pending",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdToTjsRate: true, usdRat…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "s?.usdRatePendingValue == null",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Нового курса на подтверждение нет\" });",
+       "a": [
+        "ответ 409 — «Нового курса на подтверждение нет»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { usdToTjsRate: next, usdToTjsRateUpdatedAt:…",
+     "a": [
+      "меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdToTjsRate: next, source: \"alif-auto\", confirme…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await onUsdRateApplied(previous, next, \"alif-auto\");",
+     "a": [
+      "зовёт onUsdRateApplied()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ rate: next });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/dismiss-pending",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/dismiss-pending",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const cur = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdRatePendingValue: tru…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { usdRateDismissedValue: cur?.usdRatePending…",
+     "a": [
+      "меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdRatePendingDismissed: true });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/refresh-captions",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/refresh-captions",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const summary = await refreshStaleRateCaptions();",
+     "a": [
+      "зовёт refreshStaleRateCaptions()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdCaptionsRefreshed: summary.queued, manual: sum…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(summary);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/resync-site",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/resync-site",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const count = await resyncUsdPropertiesOnSite(\"кнопка «Пересчитать цены на сайте» (курс доллара)\");",
+     "a": [
+      "зовёт resyncUsdPropertiesOnSite()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdSiteResync: count });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/status",
+   "mount": "/api/v1/exchange-rate",
+   "full": "/api/v1/exchange-rate/status",
+   "file": "apps/api/src/routes/exchangeRate.ts",
+   "router": "exchangeRateRouter",
+   "top": "apps/api/src/routes/exchangeRate.ts::exchangeRateRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdToTjsRate: true, usdToT…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [staleCaptions, siteCount] = await Promise.all([findStaleRateCaptions(), usdPropertiesOnSite()]);",
+     "a": [
+      "зовёт findStaleRateCaptions()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ rate, updatedAt: s?.usdToTjsRateUpdatedAt ?? null, source: s?.usdToTjsRateSource ?? null, ageHours…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },
@@ -71714,7 +72044,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const result = await refreshUsdToTjsRateFromAlif();",
+     "t": "const result = await refreshUsdToTjsRateFromAlif({ confirmJump: req.body?.confirmJump === true });",
      "a": [
       "зовёт refreshUsdToTjsRateFromAlif()"
      ],
@@ -71736,8 +72066,23 @@
      ]
     },
     {
+     "k": "if",
+     "t": "result.held",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ rate: result.rate, held: true, pendingRate: result.pendingRate, changePct: result.changePct…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdToTjsRate: result.rate, source: \"alif-auto\" });",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { usdToTjsRate: result.rate, source: \"alif-auto\", c…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -76650,11 +76995,34 @@
     },
     {
      "k": "do",
+     "t": "const previousUsdRate = usdToTjsRate !== undefined ? (await prisma.settings.findUnique({ where: { id: \"single…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? …",
      "a": [
       "создаёт или меняет в базе: settings"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "usdToTjsRate !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void onUsdRateApplied(previousUsdRate ? Number(previousUsdRate) : null, usdToTjsRate, \"manual\");",
+       "a": [
+        "зовёт onUsdRateApplied()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -97642,9 +98010,48 @@
         },
         {
          "k": "do",
+         "t": "const current = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdToTjsRate: true }…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const pct = changePct(previous, rate);",
+         "a": [
+          "зовёт changePct()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "previous != null && pct != null && Math.abs(pct) > JUMP_LIMIT_PCT && !opts.confirmJump",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await holdJumpedRate(previous, rate);",
+           "a": [
+            "зовёт holdJumpedRate()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
          "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, update: { usdToTjsRate: rate, usdToTjsRateUpdatedA…",
          "a": [
           "создаёт или меняет в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await onUsdRateApplied(previous, rate, \"alif-auto\");",
+         "a": [
+          "зовёт onUsdRateApplied()"
          ],
          "c": []
         }
@@ -97653,6 +98060,21 @@
       },
       {
        "k": "if",
+       "t": "result.ok && result.held",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Курс USD→TJS с alif.tj (${result.pendingRate}) отличается больше чем на 5 % от ${result.r…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "elseif",
        "t": "result.ok",
        "a": [],
        "c": [
@@ -98123,6 +98545,169 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "exchange-rate-watch",
+   "when": "40 7,10,13,16,19 * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await checkRateFreshness();",
+       "a": [
+        "зовёт checkRateFreshness()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { usdToTjsRate: true,…",
+           "a": [
+            "читает в базе: settings"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!settings || !settings.usdRateAlertsEnabled",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "settings.usdToTjsRate != null && ageHours <= STALE_HOURS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const hasUsd = (await prisma.property.count({ where: { currency: \"USD\", deletedAt: null } })) > 0;",
+           "a": [
+            "считает в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!hasUsd",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "settings.usdRateStaleAlertedAt && now.getTime() - settings.usdRateStaleAlertedAt.getTime() < STALE_REPEAT_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { usdRateStaleAlertedAt: now } });",
+           "a": [
+            "меняет в базе: settings"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"exchange-rate\", `Сторож курса не отработал: ${err instanceof Error ? err.message : Strin…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "checkRateFreshness() — apps/api/src/lib/exchangeRateWatch.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Сторож курса доллара\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }
